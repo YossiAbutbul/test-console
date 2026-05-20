@@ -87,7 +87,7 @@ export function PowerSweepPage() {
   const statusQ = useQuery({
     queryKey: ['test-status'],
     queryFn: tests.status,
-    refetchInterval: (q) => (q.state.data?.state === 'running' ? 500 : 2000),
+    refetchInterval: (q) => (q.state.data?.state === 'running' ? 500 : false),
   })
 
   const totalSteps =

@@ -18,7 +18,6 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['ble-status'],
     queryFn: ble.status,
-    refetchInterval: 2000,
   })
   const value = useMemo<ConnectionCtx>(
     () => ({ status: data, isLoading, selectedAddr, setSelectedAddr, refetch: () => void refetch() }),
