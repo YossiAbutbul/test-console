@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -9,7 +9,9 @@ from fastapi.staticfiles import StaticFiles
 from .api import ble_router, device_router, test_router
 from .ble import manager as ble_manager
 
-STATIC_DIR = Path(__file__).parent / "static"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
+LEGACY_STATIC_DIR = Path(__file__).parent / "static"
 
 from uvicorn.logging import AccessFormatter, DefaultFormatter
 
@@ -28,11 +30,8 @@ def _install(name: str, formatter: logging.Formatter) -> None:
     lg.setLevel(logging.INFO)
 
 
-# Root logger: colored DefaultFormatter (uses %(levelprefix)s = colored "INFO:")
 _install("", DefaultFormatter(_LOG_FMT, datefmt=_DATEFMT, use_colors=True))
 logging.getLogger().setLevel(logging.INFO)
-
-# Uvicorn loggers — same format, colored
 _install("uvicorn", DefaultFormatter(_LOG_FMT, datefmt=_DATEFMT, use_colors=True))
 _install("uvicorn.error", DefaultFormatter(_LOG_FMT, datefmt=_DATEFMT, use_colors=True))
 _install("uvicorn.access", AccessFormatter(_ACCESS_FMT, datefmt=_DATEFMT, use_colors=True))
@@ -56,12 +55,41 @@ async def health() -> dict:
     return {"ok": True}
 
 
+# Serve the React SPA in production (after `npm run build` in frontend/).
+# Falls back to the legacy single-file console at backend/static/index.html
+# while migration is in progress.
+def _index_path() -> Path:
+    spa_index = FRONTEND_DIST / "index.html"
+    if spa_index.is_file():
+        return spa_index
+    return LEGACY_STATIC_DIR / "index.html"
+
+
 @app.get("/")
 async def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(_index_path())
 
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Static assets — prefer SPA build assets, keep legacy mount for back-compat.
+if FRONTEND_DIST.is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=FRONTEND_DIST / "assets"),
+        name="spa-assets",
+    )
+app.mount("/static", StaticFiles(directory=LEGACY_STATIC_DIR), name="static")
+
+
+_API_PREFIXES = ("/ble", "/device", "/test", "/health", "/assets", "/static", "/docs", "/redoc", "/openapi.json")
+
+
+@app.get("/{full_path:path}")
+async def spa_fallback(full_path: str, request: Request) -> FileResponse:
+    """SPA fallback: any non-API GET returns index.html so the React router can handle it."""
+    p = "/" + full_path
+    if any(p == pref or p.startswith(pref + "/") for pref in _API_PREFIXES):
+        raise HTTPException(status_code=404)
+    return FileResponse(_index_path())
 
 
 @app.on_event("shutdown")

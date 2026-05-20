@@ -1,4 +1,8 @@
-from fastapi import APIRouter, HTTPException
+import asyncio
+import json
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 from ..ble import manager
 from ..ble.models import (
@@ -27,6 +31,42 @@ async def scan_post(req: ScanRequest | None = None) -> list[ScannedDevice]:
         return await manager.scan(duration=duration)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scan/stream")
+async def scan_stream(request: Request, duration: float = 5.0) -> StreamingResponse:
+    """Server-Sent Events stream of devices as they are discovered.
+
+    Events:
+      - `device`  : payload = ScannedDevice JSON
+      - `done`    : payload = {"count": N}
+      - `error`   : payload = {"detail": "..."}
+    """
+
+    async def gen():
+        try:
+            yield f"event: start\ndata: {json.dumps({'duration': duration})}\n\n"
+            count = 0
+            async for dev in manager.scan_stream(duration=duration):
+                if await request.is_disconnected():
+                    break
+                count += 1
+                yield f"event: device\ndata: {dev.model_dump_json()}\n\n"
+            yield f"event: done\ndata: {json.dumps({'count': count})}\n\n"
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @router.post("/connect", response_model=ConnectionStatus)

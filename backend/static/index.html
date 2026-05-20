@@ -68,8 +68,8 @@
   <div class="grid">
     <label>Freq (Hz)</label>      <input id="sFreq" type="number" value="917300000">
     <label>Power values</label>   <input id="sPow"  value="1-22">
-    <label>Duty values</label>    <input id="sDuty" value="0-4">
-    <label>HpMax values</label>   <input id="sHp"   value="0-7">
+    <label>Duty values</label>    <input id="sDuty" value="1-4">
+    <label>HpMax values</label>   <input id="sHp"   value="1-7">
     <label>Settle (ms)</label>    <input id="sSettle" type="number" value="250" min="0" max="10000">
   </div>
   <div class="row" style="margin-top:.5rem;gap:1rem">
@@ -241,7 +241,7 @@ $("btnStop").addEventListener("click", async () => {
 $("btnClear").addEventListener("click", () => { $("log").textContent = ""; });
 
 // ---------- Sweep ----------
-// Accept "0,1,2" or "0-7" or mix "0-3,5,7"
+// Accept "0,1,2" or "1-7" or mix "1-3,5,7"
 function parseList(s) {
   const out = [];
   for (const tok of s.split(",").map(x => x.trim()).filter(Boolean)) {

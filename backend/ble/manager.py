@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
@@ -51,6 +51,43 @@ class BLEManager:
         finally:
             await scanner.stop()
         return list(discovered.values())
+
+    async def scan_stream(self, duration: float = 5.0) -> AsyncIterator[ScannedDevice]:
+        """Yield each discovered/updated device as it is seen, until duration elapses."""
+        queue: asyncio.Queue[ScannedDevice] = asyncio.Queue()
+
+        def cb(device: BLEDevice, adv: AdvertisementData) -> None:
+            queue.put_nowait(
+                ScannedDevice(
+                    address=device.address,
+                    name=adv.local_name or device.name,
+                    rssi=adv.rssi,
+                    metadata={
+                        "manufacturer_data": {
+                            str(k): v.hex() for k, v in adv.manufacturer_data.items()
+                        },
+                        "service_uuids": list(adv.service_uuids or []),
+                        "tx_power": adv.tx_power,
+                    },
+                )
+            )
+
+        scanner = BleakScanner(detection_callback=cb)
+        await scanner.start()
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + duration
+        try:
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    break
+                yield item
+        finally:
+            await scanner.stop()
 
     async def connect(self, address: str, timeout: float = 15.0) -> ConnectionStatus:
         async with self._lock:
