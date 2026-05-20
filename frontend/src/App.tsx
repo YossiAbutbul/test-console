@@ -1,206 +1,146 @@
 import { useState } from 'react'
 import {
-  AppBar, Box, Chip, Divider, Drawer, IconButton, List, ListItemButton,
-  ListItemText, ListSubheader, Paper, Stack, Tab, Tabs, Toolbar, Tooltip, Typography,
+  Box, Drawer, IconButton, Stack, Tooltip, Typography,
 } from '@mui/material'
-import MenuIcon from '@mui/icons-material/Menu'
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ArticleIcon from '@mui/icons-material/Article'
 import CloseIcon from '@mui/icons-material/Close'
+import ScienceIcon from '@mui/icons-material/Science'
 import { ConnectionPanel } from './components/ConnectionPanel'
+import { SearchBar } from './components/SearchBar'
 import { LogPanel } from './components/LogPanel'
 import { useConnection } from './context/ConnectionContext'
+import { useThemeMode } from './context/ThemeModeContext'
+import { getAppPalette } from './theme'
 import { testRegistry } from './tests/registry'
+import { Sidebar, SIDEBAR_W, TOP_BAR_H } from './components/Sidebar'
 
-const SIDEBAR_W = 248
 const LOG_W = 400
 
-interface SidebarProps {
-  open: boolean
-  onClose: () => void
-  active: boolean
-  onSelect: () => void
-}
-
-function Sidebar({ open, onClose, active, onSelect }: SidebarProps) {
+function TestArea({ activeId }: { activeId: string }) {
   const { status } = useConnection()
-  const connected = !!status?.connected
-  return (
-    <Drawer
-      variant="persistent"
-      open={open}
-      sx={{
-        width: open ? SIDEBAR_W : 0,
-        flexShrink: 0,
-        '& .MuiDrawer-paper': {
-          width: SIDEBAR_W,
-          boxSizing: 'border-box',
-          borderRight: 1,
-          borderColor: 'divider',
-          bgcolor: 'background.paper',
-          display: 'flex',
-          flexDirection: 'column',
-        },
-      }}
-    >
-      <Toolbar sx={{ minHeight: 56, px: 2, gap: 1 }}>
-        <Box
-          sx={{
-            width: 28,
-            height: 28,
-            borderRadius: 1,
-            bgcolor: 'primary.main',
-            color: 'primary.contrastText',
-            fontSize: 11,
-            fontWeight: 700,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            letterSpacing: 0.2,
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-          }}
-        >
-          TC
-        </Box>
-        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: 13, lineHeight: 1.1 }}>Test Console</Typography>
-        </Box>
-        <IconButton size="small" onClick={onClose}>
-          <ChevronLeftIcon fontSize="small" />
-        </IconButton>
-      </Toolbar>
-      <Divider />
-
-      <List
-        dense
-        subheader={
-          <ListSubheader disableSticky sx={{ bgcolor: 'transparent', lineHeight: '32px', px: 2.5, mt: 1 }}>
-            <Typography variant="subtitle2">Tests</Typography>
-          </ListSubheader>
-        }
-        sx={{ pt: 0, flexGrow: 1 }}
-      >
-        <ListItemButton selected={active} onClick={onSelect} sx={{ px: 1.5, mx: 1 }}>
-          <ListItemText
-            primary="CW Debug"
-            primaryTypographyProps={{ fontSize: 13, fontWeight: 500 }}
-          />
-        </ListItemButton>
-      </List>
-
-      <Divider />
-      <Box sx={{ px: 2, py: 1.5 }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between">
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            Device
-          </Typography>
-          <Chip
-            size="small"
-            label={connected ? 'online' : 'offline'}
-            color={connected ? 'success' : 'default'}
-            variant={connected ? 'filled' : 'outlined'}
-            sx={{ height: 20, fontSize: 10.5 }}
-          />
-        </Stack>
-        {connected && (
-          <Typography
-            sx={{
-              mt: 0.5,
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-              fontSize: 10.5,
-              color: 'text.secondary',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {status?.name ?? status?.address}
-          </Typography>
-        )}
-      </Box>
-    </Drawer>
-  )
-}
-
-function TestArea({ tab, onTabChange }: { tab: number; onTabChange: (i: number) => void }) {
-  const { status } = useConnection()
-  const mod = testRegistry[tab] ?? testRegistry[0]
+  const mod = testRegistry.find((m) => m.id === activeId) ?? testRegistry[0]
   const gated = mod.requiresConnection && !(status?.connected && status?.transport_ready)
   const { Page } = mod
   return (
-    <Box>
-      <Paper sx={{ mb: 2, px: 1 }}>
-        <Tabs
-          value={tab}
-          onChange={(_, v) => onTabChange(v)}
-          variant="scrollable"
-          scrollButtons="auto"
-        >
-          {testRegistry.map((m) => (
-            <Tab key={m.id} label={m.label} />
-          ))}
-        </Tabs>
-      </Paper>
-
-      <Box
-        component="fieldset"
-        disabled={gated}
-        sx={{
-          border: 0,
-          m: 0,
-          p: 0,
-          minWidth: 0,
-          opacity: gated ? 0.6 : 1,
-          transition: 'opacity 0.15s',
-        }}
-      >
-        <Page />
-      </Box>
+    <Box
+      component="fieldset"
+      disabled={gated}
+      sx={{
+        border: 0,
+        m: 0,
+        p: 0,
+        minWidth: 0,
+        opacity: gated ? 0.6 : 1,
+        transition: 'opacity 0.15s',
+      }}
+    >
+      <Page />
     </Box>
   )
 }
 
 export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [logOpen, setLogOpen] = useState(true)
-  const [tab, setTab] = useState(0)
+  const [activeId, setActiveId] = useState(testRegistry[0]?.id ?? '')
+  const { mode } = useThemeMode()
+  const p = getAppPalette(mode)
+  const s = p.sidebar
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
-      <AppBar
-        position="fixed"
-        elevation={0}
+      {/* Unified top bar across whole window */}
+      <Box
         sx={{
-          zIndex: (t) => t.zIndex.drawer + 1,
-          bgcolor: 'background.paper',
-          color: 'text.primary',
-          borderBottom: 1,
-          borderColor: 'divider',
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: TOP_BAR_H,
+          bgcolor: s.bg,
+          boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+          display: 'flex',
+          zIndex: (t) => t.zIndex.drawer + 2,
         }}
       >
-        <Toolbar sx={{ gap: 1 }}>
-          <IconButton size="small" edge="start" onClick={() => setSidebarOpen((v) => !v)} sx={{ mr: 0.5 }}>
-            <MenuIcon fontSize="small" />
-          </IconButton>
-          <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.25, flexGrow: 1, minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 700, fontSize: 22, letterSpacing: 0.2 }}>
-              Test Console
-            </Typography>
+        <Box
+          sx={{
+            width: SIDEBAR_W,
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.25,
+            pl: 2.2,
+            pr: 1.5,
+          }}
+        >
+          <Box
+            sx={{
+              width: 34, height: 34, borderRadius: 1.25,
+              bgcolor: s.text,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <ScienceIcon sx={{ fontSize: 20, color: s.bg }} />
           </Box>
-          <Tooltip title="Toggle log">
-            <IconButton size="small" onClick={() => setLogOpen((v) => !v)}>
-              <ArticleIcon fontSize="small" />
+          <Typography sx={{ fontWeight: 700, fontSize: 18, color: s.text, lineHeight: 1.15 }}>
+            Test Console
+          </Typography>
+        </Box>
+
+        <Box
+          sx={{
+            flexGrow: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            position: 'relative',
+            px: 2,
+          }}
+        >
+          <SearchBar
+            activeId={activeId}
+            onSelect={(id) => {
+              setActiveId(id)
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
+          />
+          {!logOpen && (
+            <Tooltip title="Open log">
+              <IconButton
+                size="small"
+                onClick={() => setLogOpen(true)}
+                sx={{ position: 'absolute', right: 12 }}
+              >
+                <ArticleIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
+
+        {logOpen && (
+          <Box
+            sx={{
+              width: LOG_W,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              px: 1.5,
+            }}
+          >
+            <Typography sx={{ fontSize: 15, fontWeight: 700, color: s.text }}>Log</Typography>
+            <IconButton size="small" onClick={() => setLogOpen(false)}>
+              <CloseIcon sx={{ fontSize: 16 }} />
             </IconButton>
-          </Tooltip>
-        </Toolbar>
-      </AppBar>
+          </Box>
+        )}
+      </Box>
 
       <Sidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        active
-        onSelect={() => {
-          setTab(0)
+        activeId={activeId}
+        onSelect={(id) => {
+          setActiveId(id)
           window.scrollTo({ top: 0, behavior: 'smooth' })
         }}
       />
@@ -210,28 +150,15 @@ export default function App() {
         sx={{
           flexGrow: 1,
           minWidth: 0,
-          pt: 8,
-          px: 3,
+          px: 4,
+          pt: `${TOP_BAR_H + 24}px`,
           pb: 3,
-          transition: 'margin 0.2s',
         }}
       >
-        <Box
-          sx={{
-            position: 'sticky',
-            top: 64,
-            zIndex: 2,
-            bgcolor: 'background.default',
-            pb: 2,
-            mb: 2,
-            borderBottom: 1,
-            borderColor: 'divider',
-          }}
-        >
+        <Box sx={{ pb: 2, mb: 3, borderBottom: `1px solid ${p.appBarBorder}` }}>
           <ConnectionPanel />
         </Box>
-
-        <TestArea tab={tab} onTabChange={setTab} />
+        <TestArea activeId={activeId} />
       </Box>
 
       <Drawer
@@ -245,16 +172,13 @@ export default function App() {
           '& .MuiDrawer-paper': {
             width: LOG_W,
             boxSizing: 'border-box',
-            borderLeft: 1,
-            borderColor: 'divider',
+            bgcolor: p.logBg,
+            border: 0,
+            top: TOP_BAR_H,
+            height: `calc(100vh - ${TOP_BAR_H}px)`,
           },
         }}
       >
-        <Toolbar sx={{ justifyContent: 'space-between' }}>
-          <Typography variant="subtitle2">Log</Typography>
-          <IconButton size="small" onClick={() => setLogOpen(false)}><CloseIcon fontSize="small" /></IconButton>
-        </Toolbar>
-        <Divider />
         <Stack sx={{ p: 2, height: '100%', overflow: 'hidden' }}>
           <LogPanel embedded />
         </Stack>

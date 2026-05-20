@@ -5,7 +5,8 @@ import { CwDebugPage } from './CwDebugPage'
 
 export const cwDebugModule: TestModule = {
   id: 'cw-debug',
-  label: 'CW Debug',
+  label: 'Debug',
+  group: 'TX',
   icon: createElement(WifiTetheringIcon, { fontSize: 'small' }),
   Page: CwDebugPage,
   requiresConnection: true,

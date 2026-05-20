@@ -1,13 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Autocomplete, Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Stack,
+  Autocomplete, Box, Button, CircularProgress, FormControl, MenuItem, Select, Stack,
   TextField, Typography,
 } from '@mui/material'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ble, scanStream } from '../api/ble'
 import { useConnection } from '../context/ConnectionContext'
 import { useLog } from '../context/LogContext'
+import { useThemeMode } from '../context/ThemeModeContext'
+import { getAppPalette } from '../theme'
 import type { ScannedDevice } from '../types/models'
+
+function actionSx(c: { bg: string; bgHover: string; fg: string }) {
+  return {
+    bgcolor: c.bg,
+    color: c.fg,
+    border: `1px solid ${c.bg}`,
+    '&:hover': { bgcolor: c.bgHover, borderColor: c.bgHover },
+    '&.Mui-disabled': {
+      bgcolor: c.bg,
+      color: c.fg,
+      opacity: 0.5,
+      pointerEvents: 'none',
+      '&:hover': { bgcolor: c.bg, borderColor: c.bg },
+    },
+  } as const
+}
+
 
 const NAME_FILTERS: { value: string; label: string }[] = [
   { value: '', label: 'All' },
@@ -19,6 +38,8 @@ const NAME_FILTERS: { value: string; label: string }[] = [
 export function ConnectionPanel() {
   const { status, selectedAddr, setSelectedAddr } = useConnection()
   const { log } = useLog()
+  const { mode } = useThemeMode()
+  const a = getAppPalette(mode).actions
   const qc = useQueryClient()
   const [duration, setDuration] = useState(5)
   const [nameFilter, setNameFilter] = useState('CATM2')
@@ -95,40 +116,57 @@ export function ConnectionPanel() {
   const canConnect = isKnownDevice && !busy
   const toggle = () => {
     if (isConnected) disconnect.mutate()
-    else if (selectedAddr) connect.mutate(selectedAddr)
+    else if (selectedAddr) {
+      if (scanning) {
+        stopScanRef.current?.()
+        stopScanRef.current = null
+        setScanning(false)
+      }
+      connect.mutate(selectedAddr)
+    }
   }
 
+  const fieldLabel = (text: string) => (
+    <Typography sx={{ fontSize: 13, fontWeight: 500, mb: 0.5 }}>{text}</Typography>
+  )
+
   return (
-    <Paper sx={{ px: 2.5, py: 2 }}>
-      <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Scan &amp; Connect</Typography>
+    <Box sx={{ width: '100%' }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems="flex-end" flexWrap="wrap">
+        <Box sx={{ width: 110 }}>
+          {fieldLabel('Duration (sec)')}
+          <TextField
+            type="number"
+            size="small"
+            value={duration}
+            onChange={(e) => setDuration(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
+            inputProps={{ min: 1, max: 30 }}
+            fullWidth
+            disabled={isConnected || scanning}
+          />
+        </Box>
 
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems="center" flexWrap="wrap">
-        <TextField
-          label="Duration (s)"
-          type="number"
-          size="small"
-          value={duration}
-          onChange={(e) => setDuration(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
-          inputProps={{ min: 1, max: 30 }}
-          sx={{ width: 110 }}
-          disabled={isConnected}
-        />
+        <Box sx={{ minWidth: 170 }}>
+          {fieldLabel('Device type')}
+          <FormControl size="small" fullWidth disabled={isConnected || scanning}>
+            <Select
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+              displayEmpty
+              renderValue={(v) =>
+                NAME_FILTERS.find((o) => o.value === v)?.label ?? 'All'
+              }
+            >
+              {NAME_FILTERS.map((o) => (
+                <MenuItem key={o.value || 'all'} value={o.value}>{o.label}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Box>
 
-        <FormControl size="small" sx={{ minWidth: 170 }} disabled={isConnected}>
-          <InputLabel id="name-filter-lbl">Device type</InputLabel>
-          <Select
-            labelId="name-filter-lbl"
-            label="Device type"
-            value={nameFilter}
-            onChange={(e) => setNameFilter(e.target.value)}
-          >
-            {NAME_FILTERS.map((o) => (
-              <MenuItem key={o.value || 'all'} value={o.value}>{o.label}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        <Autocomplete
+        <Box sx={{ minWidth: 340, flex: 1 }}>
+          {fieldLabel('MAC Address')}
+          <Autocomplete
           size="small"
           freeSolo
           disabled={isConnected}
@@ -175,7 +213,6 @@ export function ConnectionPanel() {
           renderInput={(params) => (
             <TextField
               {...params}
-              label="MAC Address"
               placeholder="Pick from scan or type MAC"
               inputRef={acInputRef}
               InputProps={{
@@ -184,35 +221,29 @@ export function ConnectionPanel() {
               }}
             />
           )}
-          sx={{ minWidth: 340, flex: 1 }}
+          fullWidth
         />
+        </Box>
 
         <Button
-          variant={scanning ? 'contained' : 'outlined'}
-          color={scanning ? 'warning' : 'primary'}
+          variant="contained"
           onClick={startScan}
           disabled={isConnected}
-          sx={{ minWidth: 110 }}
+          sx={{ minWidth: 110, height: 36, ...actionSx(scanning ? a.danger : a.scan) }}
         >
-          {scanning
-            ? `Stop (${filteredDevices.length})`
-            : devices.length
-              ? `Scan (${filteredDevices.length})`
-              : 'Scan'}
+          {scanning ? 'Stop' : 'Scan'}
         </Button>
 
         <Button
           variant="contained"
-          color={isConnected ? 'error' : 'success'}
           disabled={isConnected ? busy : !canConnect}
           onClick={toggle}
-          sx={{ minWidth: 130 }}
+          endIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
+          sx={{ minWidth: 130, height: 36, ...actionSx(isConnected ? a.disconnect : a.connect) }}
         >
-          {busy
-            ? isConnected ? 'Disconnecting…' : 'Connecting…'
-            : isConnected ? 'Disconnect' : 'Connect'}
+          {isConnected ? 'Disconnect' : 'Connect'}
         </Button>
       </Stack>
-    </Paper>
+    </Box>
   )
 }

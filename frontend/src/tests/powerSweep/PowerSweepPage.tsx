@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import {
-  Box, Button, CircularProgress, Paper, Stack, TextField, Typography,
+  Box, Button, CircularProgress, Stack, Typography,
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tests } from '../../api/tests'
 import { useLog } from '../../context/LogContext'
 import { ProgressRow } from '../../components/ProgressRow'
+import { PageHeader } from '../../components/PageHeader'
+import { LabeledField } from '../../components/LabeledField'
 import type { StartRequest } from '../../types/models'
 
 // Backend validation ranges (must match backend/test_runner.py)
@@ -36,35 +38,33 @@ function RangeRow({
 }) {
   const count = Math.max(0, Math.abs(hi - lo) + 1)
   return (
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems="center">
-      <Box sx={{ minWidth: 130 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-          {label}
-        </Typography>
-        <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+    <Box>
+      <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 0.5 }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 500 }}>{label}</Typography>
+        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
           {min}–{max}{unit ? ` ${unit}` : ''} · {count} step{count === 1 ? '' : 's'}
         </Typography>
-      </Box>
-      <TextField
-        label="From"
-        type="number"
-        size="small"
-        value={lo}
-        inputProps={{ min, max }}
-        onChange={(e) => setLo(Math.max(min, Math.min(max, Number(e.target.value) || min)))}
-        sx={{ width: 110 }}
-      />
-      <Box sx={{ color: 'text.disabled', fontSize: 13 }}>→</Box>
-      <TextField
-        label="To"
-        type="number"
-        size="small"
-        value={hi}
-        inputProps={{ min, max }}
-        onChange={(e) => setHi(Math.max(min, Math.min(max, Number(e.target.value) || min)))}
-        sx={{ width: 110 }}
-      />
-    </Stack>
+      </Stack>
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <LabeledField
+          label="From"
+          type="number"
+          value={lo}
+          inputProps={{ min, max }}
+          onChange={(e) => setLo(Math.max(min, Math.min(max, Number(e.target.value) || min)))}
+          width={120}
+        />
+        <Box sx={{ color: 'text.disabled', fontSize: 13, mt: 2 }}>→</Box>
+        <LabeledField
+          label="To"
+          type="number"
+          value={hi}
+          inputProps={{ min, max }}
+          onChange={(e) => setHi(Math.max(min, Math.min(max, Number(e.target.value) || min)))}
+          width={120}
+        />
+      </Stack>
+    </Box>
   )
 }
 
@@ -147,30 +147,58 @@ export function PowerSweepPage() {
   const cancelling = cancel.isPending || (running && cancel.isSuccess)
 
   return (
-    <Paper sx={{ p: 2.5 }}>
-      <Typography variant="subtitle2" sx={{ mb: 2 }}>Sweep Test — PaDutyCycle × HpMax × Power</Typography>
+    <Box>
+      <PageHeader
+        group="TX"
+        label="Mode Sweep"
+        actions={
+          <Stack direction="row" spacing={1}>
+            <Button variant="outlined" onClick={onExport} sx={{ height: 36 }}>
+              Export Excel
+            </Button>
+            <Button
+              variant="outlined"
+              disabled={!running || cancelling}
+              onClick={() => cancel.mutate()}
+              endIcon={cancelling ? <CircularProgress size={14} color="inherit" /> : undefined}
+              sx={{ minWidth: 96, height: 36 }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              disabled={running || run.isPending}
+              onClick={() => run.mutate()}
+              endIcon={run.isPending ? <CircularProgress size={14} color="inherit" /> : undefined}
+              sx={{ minWidth: 110, height: 36 }}
+            >
+              Run sweep
+            </Button>
+          </Stack>
+        }
+      />
 
-      <Stack spacing={2}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
-          <TextField
-            label="Frequency (MHz)"
+      <Stack spacing={3} sx={{ mt: 1 }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-end">
+          <LabeledField
+            label="Frequency"
+            hint="MHz"
             type="number"
-            size="small"
             value={freqMhz}
             onChange={(e) => setFreqMhz(e.target.value)}
             inputProps={{ step: 0.1 }}
-            sx={{ minWidth: 180 }}
+            width={180}
           />
-          <TextField
-            label="Settle (ms)"
+          <LabeledField
+            label="Settle"
+            hint="ms"
             type="number"
-            size="small"
             value={settle}
             onChange={(e) => setSettle(Number(e.target.value))}
-            sx={{ width: 140 }}
+            width={140}
           />
           <Box sx={{ flexGrow: 1 }} />
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          <Typography sx={{ fontSize: 12, color: 'text.secondary', pb: 1 }}>
             Total steps:{' '}
             <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>
               {totalSteps}
@@ -178,46 +206,50 @@ export function PowerSweepPage() {
           </Typography>
         </Stack>
 
-        <Typography variant="subtitle2" sx={{ color: 'text.secondary', mt: 0.5 }}>Sweep ranges</Typography>
+        <Box>
+          <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: 'text.secondary', mb: 1.5 }}>
+            Sweep ranges
+          </Typography>
+          <Stack spacing={2}>
+            <RangeRow label="Power" lo={powerLo} hi={powerHi} setLo={setPowerLo} setHi={setPowerHi}
+              min={RANGES.power.min} max={RANGES.power.max} unit="dBm" />
+            <RangeRow label="PA Duty Cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
+              min={RANGES.duty.min} max={RANGES.duty.max} />
+            <RangeRow label="HP Max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
+              min={RANGES.hp.min} max={RANGES.hp.max} />
+          </Stack>
+        </Box>
 
-        <Stack spacing={1.25}>
-          <RangeRow label="Power (dBm)" lo={powerLo} hi={powerHi} setLo={setPowerLo} setHi={setPowerHi}
-            min={RANGES.power.min} max={RANGES.power.max} unit="dBm" />
-          <RangeRow label="PA Duty Cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
-            min={RANGES.duty.min} max={RANGES.duty.max} />
-          <RangeRow label="HP Max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
-            min={RANGES.hp.min} max={RANGES.hp.max} />
-        </Stack>
-
-        <Typography variant="subtitle2" sx={{ color: 'text.secondary', mt: 0.5 }}>Instruments</Typography>
-
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} flexWrap="wrap">
-          <TextField label="Power sensor serial (optional)" size="small" value={sensorSerial}
-            onChange={(e) => setSensorSerial(e.target.value)} sx={{ minWidth: 220 }} />
-          <TextField label="DC analyzer VISA resource" size="small" value={dcResource}
-            onChange={(e) => setDcResource(e.target.value)} sx={{ minWidth: 320 }} />
-          <TextField label="DC channel" type="number" size="small" value={dcChannel}
-            onChange={(e) => setDcChannel(Number(e.target.value))} sx={{ width: 120 }} />
-        </Stack>
-
-        <Stack direction="row" spacing={2}>
-          <Button variant="contained" disabled={running || run.isPending} onClick={() => run.mutate()}>
-            Run sweep
-          </Button>
-          <Button
-            variant="outlined"
-            color="error"
-            disabled={!running || cancelling}
-            onClick={() => cancel.mutate()}
-            startIcon={cancelling ? <CircularProgress size={14} color="inherit" /> : null}
-          >
-            {cancelling ? 'Cancelling…' : 'Cancel'}
-          </Button>
-          <Button variant="outlined" onClick={onExport}>Export Excel</Button>
-        </Stack>
+        <Box>
+          <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: 'text.secondary', mb: 1.5 }}>
+            Instruments
+          </Typography>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} flexWrap="wrap">
+            <LabeledField
+              label="Power sensor serial"
+              hint="optional"
+              value={sensorSerial}
+              onChange={(e) => setSensorSerial(e.target.value)}
+              width={240}
+            />
+            <LabeledField
+              label="DC analyzer VISA resource"
+              value={dcResource}
+              onChange={(e) => setDcResource(e.target.value)}
+              width={340}
+            />
+            <LabeledField
+              label="DC channel"
+              type="number"
+              value={dcChannel}
+              onChange={(e) => setDcChannel(Number(e.target.value))}
+              width={120}
+            />
+          </Stack>
+        </Box>
 
         <ProgressRow status={statusQ.data} cancelling={cancelling} />
       </Stack>
-    </Paper>
+    </Box>
   )
 }

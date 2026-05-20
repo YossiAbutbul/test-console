@@ -5,7 +5,8 @@ import { PowerSweepPage } from './PowerSweepPage'
 
 export const powerSweepModule: TestModule = {
   id: 'power-sweep',
-  label: 'Power Sweep',
+  label: 'Mode Sweep',
+  group: 'TX',
   icon: createElement(SsidChartIcon, { fontSize: 'small' }),
   Page: PowerSweepPage,
   requiresConnection: true,

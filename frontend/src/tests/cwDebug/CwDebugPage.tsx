@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Box, Button, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, Stack } from '@mui/material'
+import { PageHeader } from '../../components/PageHeader'
+import { LabeledField } from '../../components/LabeledField'
 import { useMutation } from '@tanstack/react-query'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
@@ -42,41 +44,41 @@ export function CwDebugPage() {
   }
 
   return (
-    <Paper sx={{ p: 2.5 }}>
-      <Typography variant="subtitle2" sx={{ mb: 2 }}>LoRa CW Debug</Typography>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} mb={2} flexWrap="wrap">
-        <TextField label="Frequency (MHz)" type="number" size="small" value={freqMhz}
+    <Box>
+      <PageHeader
+        group="TX"
+        label="Debug"
+        actions={
+          <Button
+            variant="contained"
+            disabled={busy}
+            onClick={toggle}
+            sx={{ minWidth: 96, minHeight: 36.5 }}
+          >
+            {busy ? (active ? 'Stopping…' : 'Sending…') : active ? 'Stop test' : 'Send'}
+          </Button>
+        }
+      />
+      <Stack spacing={2.5} mb={4} sx={{ maxWidth: 360, mt: 1 }}>
+        <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
           onChange={(e) => setFreqMhz(Number(e.target.value))}
-          inputProps={{ step: 0.1 }} sx={{ minWidth: 180 }} />
-        <TextField label="Power (dBm)" type="number" size="small" value={power}
-          onChange={(e) => setPower(Number(e.target.value))} sx={{ width: 140 }} />
-        <TextField label="PA Duty Cycle" type="number" size="small" value={duty}
-          onChange={(e) => setDuty(Number(e.target.value))} sx={{ width: 140 }} />
-        <TextField label="HP Max" type="number" size="small" value={hp}
-          onChange={(e) => setHp(Number(e.target.value))} sx={{ width: 120 }} />
-        <TextField label="PA Mode" size="small" value="AUTO (0x02)" disabled sx={{ width: 160 }} />
-      </Stack>
-      <Stack direction="row" spacing={2} mb={2}>
-        <Button
-          variant="contained"
-          color={active ? 'error' : 'success'}
-          disabled={busy}
-          onClick={toggle}
-          sx={{ minWidth: 140 }}
-        >
-          {busy
-            ? active ? 'Stopping…' : 'Sending…'
-            : active ? 'Stop test' : 'Send CW'}
-        </Button>
+          inputProps={{ step: 0.1 }} />
+        <LabeledField label="Power" hint="dBm" type="number" value={power}
+          onChange={(e) => setPower(Number(e.target.value))} />
+        <LabeledField label="PA Duty Cycle" type="number" value={duty}
+          onChange={(e) => setDuty(Number(e.target.value))} />
+        <LabeledField label="HP Max" type="number" value={hp}
+          onChange={(e) => setHp(Number(e.target.value))} />
+        <LabeledField label="PA Mode" value="AUTO (0x02)" disabled />
       </Stack>
       {last && (
-        <Box sx={{ fontFamily: 'monospace', fontSize: 12 }}>
+        <Box sx={{ fontFamily: 'monospace', fontSize: 12, mt: 2, p: 1.5, borderRadius: 1, border: 1, borderColor: 'divider' }}>
           <div>tx: {last.tx_hex}</div>
           <div>rx: {last.rx_hex}</div>
           <div>opcode: {last.reply_opcode_hex} payload: {last.reply_payload_hex}</div>
           <div>ok: {String(last.ok)} status: {last.status}</div>
         </Box>
       )}
-    </Paper>
+    </Box>
   )
 }
