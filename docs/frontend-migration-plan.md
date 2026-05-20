@@ -1,166 +1,127 @@
-# Plan: Migrate PA Modes Test Console to React + Vite
+# Test Console — Project Notes
 
-> Living implementation guide. Keep open while building. Update as steps complete.
+> Living doc. Read this first when starting a new session — it captures the current state and decisions so you don't have to re-discover them.
 
-## Context
+## What this is
 
-Current console lives in [backend/static/index.html](../backend/static/index.html) — single vanilla-JS file (~600 lines) with 4 sections: Scan/Connect, LoRa CW Debug, Sweep Test, Log. Served by FastAPI static mount.
+PA Modes RF Test Console for CATM2-family devices. BLE-connected device runs LoRa CW + parametric sweep tests; bench instruments (Mini-Circuits power meter, Keysight DC power analyzer) measure tx power and current draw. Backend = FastAPI; frontend = React+Vite SPA.
 
-Goals:
-1. Rewrite as React + Vite + TypeScript + MUI app — better UX, componentized, easier to evolve.
-2. Lay out repo root so future test types (unspecified for now — user will define later) can be added as self-contained modules without restructuring.
-3. Keep FastAPI backend untouched; talk to it via existing REST endpoints (`/ble/*`, `/device/*`, `/test/*`).
-
-Outcome: `frontend/` sibling to `backend/`. Dev = Vite on :5173 proxying API to FastAPI on :8000. Production = `npm run build` → FastAPI serves `dist/`.
-
-## Repo Layout After Change
+## Repo layout
 
 ```
 PA Modes - Power and CC/
-├── backend/                          # unchanged
-│   ├── api/ ble/ instruments/ protocol/
-│   ├── main.py                       # add prod-build static mount (see step 6)
-│   └── static/index.html             # DELETE after parity reached
-├── frontend/
-│   ├── package.json
-│   ├── vite.config.ts                # proxy /ble /device /test → :8000
-│   ├── tsconfig.json
-│   ├── index.html
+├── backend/                     # FastAPI app
+│   ├── api/                     # ble.py · device.py · test.py
+│   ├── ble/                     # manager.py (Bleak wrapper) · models.py
+│   ├── instruments/             # base.py · real.py · mock.py
+│   ├── protocol/                # frame.py · transport.py
+│   ├── device.py                # Device commands (lora_cw, stop)
+│   ├── test_runner.py           # async sweep runner
+│   ├── excel.py                 # xlsx export
+│   ├── main.py                  # app entry: routers + SPA mount + SPA fallback
+│   └── static/index.html        # legacy single-file console (still served as fallback)
+├── frontend/                    # React 19 + Vite 7 + TS + MUI v6
 │   └── src/
-│       ├── main.tsx
-│       ├── App.tsx                   # MUI theme, layout shell, tab router
-│       ├── api/
-│       │   ├── client.ts             # fetch wrapper, base URL, error handling
-│       │   ├── ble.ts                # scan/connect/disconnect/status
-│       │   ├── device.ts             # lora-cw/stop
-│       │   └── tests.ts              # run/status/cancel/export (generic)
-│       ├── types/
-│       │   └── models.ts             # TS mirrors of Pydantic models
-│       ├── hooks/
-│       │   ├── useBleStatus.ts       # TanStack Query, polls /ble/status
-│       │   └── useTestRun.ts         # TanStack Query, polls /test/status while running
-│       ├── context/
-│       │   └── ConnectionContext.tsx # selected device, connection state shared across tests
-│       ├── components/               # shared UI
-│       │   ├── ConnectionPanel.tsx   # scan + table + connect — top of every test page
-│       │   ├── LogPanel.tsx          # global rolling log
-│       │   ├── StatusBadge.tsx
-│       │   └── ProgressRow.tsx       # progress bar + last_row display
-│       ├── tests/                    # one folder per test module — extension point
-│       │   ├── registry.ts           # TestModule[] — drives tab nav
-│       │   ├── types.ts              # TestModule interface (see below)
-│       │   ├── cwDebug/
-│       │   │   ├── CwDebugPage.tsx
-│       │   │   ├── module.ts
-│       │   │   └── types.ts
-│       │   └── powerSweep/
-│       │       ├── PowerSweepPage.tsx
-│       │       ├── module.ts
-│       │       └── types.ts
-│       └── theme.ts                  # MUI theme (dark/light)
-├── docs/
-│   └── frontend-migration-plan.md    # this file
-├── package-lock.json
-└── requirements.txt
+│       ├── api/                 # typed fetch wrappers (client/ble/device/tests)
+│       ├── components/          # ConnectionPanel · LogPanel · ProgressRow · StatusBadge
+│       ├── context/             # ConnectionContext · LogContext
+│       ├── tests/               # test modules — extension point
+│       │   ├── registry.ts      # TestModule[] drives Tabs + Sidebar
+│       │   ├── types.ts         # TestModule interface
+│       │   ├── cwDebug/         # CW Debug page
+│       │   └── powerSweep/      # Power Sweep page
+│       ├── theme.ts             # MUI light theme (slate primary, hairline borders)
+│       ├── types/models.ts      # TS mirrors of Pydantic
+│       ├── App.tsx              # shell: AppBar + Sidebar + sticky ConnectionPanel + Tabs + Log drawer
+│       └── main.tsx             # QueryClient + ThemeProvider + Providers
+├── docs/frontend-migration-plan.md   # this file
+├── requirements.txt
+└── .gitignore                   # ignores .claude/, node_modules/, dist/, *.xlsx, etc.
 ```
 
-## TestModule Extension Pattern
+## Running it
 
-`frontend/src/tests/types.ts`:
+Two terminals:
 
-```ts
-export interface TestModule {
-  id: string;                  // route key, e.g. "power-sweep"
-  label: string;               // tab label
-  icon?: React.ReactNode;      // MUI icon
-  Page: React.ComponentType;   // the test UI
-  requiresConnection: boolean; // gates rendering on BLE connected
-}
+```
+# 1) backend — make sure venv has bleak + deps from requirements.txt
+uvicorn backend.main:app --reload --reload-dir backend
+
+# 2) frontend — Vite dev with proxy to :8000
+cd frontend
+npm run dev
 ```
 
-Adding a new test = create `src/tests/<name>/`, export a `TestModule`, import into `registry.ts`. No core changes.
+Open `http://localhost:5173`. Vite proxy (`vite.config.ts`) forwards `^/ble(/|$)`, `^/device(/|$)`, `^/test(/|$)`, `^/health$` → `localhost:8000`. The regex prefixes matter — earlier a plain `/test` proxy collided with the React route `/tests/...`. Don't loosen them.
 
-`App.tsx` reads registry → builds MUI `<Tabs>` + routes via `react-router-dom` (deep-linkable URLs like `/tests/power-sweep`).
+Production: `cd frontend && npm run build` → `frontend/dist/`. FastAPI auto-serves `dist/` when present; SPA fallback returns `index.html` for any non-API GET.
 
-## Step-by-Step Implementation
+## Backend API surface
 
-- [ ] **1. Scaffold Vite app** in `frontend/`:
-  ```
-  npm create vite@latest frontend -- --template react-ts
-  ```
-  Install: `@mui/material @emotion/react @emotion/styled @mui/icons-material @tanstack/react-query react-router-dom`.
+| Method | Path                       | Purpose |
+|--------|----------------------------|---------|
+| GET    | `/ble/scan?duration=N`     | Blocking scan, returns full list |
+| GET    | `/ble/scan/stream?...`     | **SSE** — streams `event: device` per ad, `event: done` at end |
+| POST   | `/ble/connect`             | `{address, timeout}` → ConnectionStatus |
+| POST   | `/ble/disconnect`          | — |
+| GET    | `/ble/status`              | ConnectionStatus |
+| POST   | `/device/lora-cw`          | `{freq_hz, power_dbm, pa_duty_cycle, hp_max}` |
+| POST   | `/device/stop`             | Stop active test |
+| POST   | `/test/run`                | Start parametric sweep |
+| POST   | `/test/cancel`             | Cancel running sweep |
+| GET    | `/test/status`             | RunStatus (state, completed/total, last_row) |
+| GET    | `/test/results`            | All collected rows |
+| GET    | `/test/export`             | xlsx blob |
 
-- [ ] **2. Vite proxy** (`frontend/vite.config.ts`) — proxy `/ble`, `/device`, `/test` → `http://localhost:8000`.
+Validation ranges (`backend/test_runner.py`): HP 0–7, PA duty 0–4, power 1–22 dBm. Frontend UI clamps to 1–7 / 1–4 / 1–22 (deliberate — start from 1).
 
-- [ ] **3. API layer** (`src/api/`) — typed fetch wrappers. Mirror Pydantic models in `src/types/models.ts` (ScannedDevice, ConnectionStatus, LoraCwRequest, StartRequest, SweepConfig, RunStatus, ResultRow, CommandResponse).
+## Frontend architecture decisions
 
-- [ ] **4. TanStack Query providers** in `main.tsx`; `ConnectionContext` in `App.tsx`.
+- **State**: TanStack Query for server state, React Context for connection + log. No Redux/Zustand.
+- **Polling**: removed all background intervals.
+  - `/ble/status`: refetched only on mount + after connect/disconnect mutations.
+  - `/test/status`: 500 ms while `state === 'running'`, otherwise off. Run mutation triggers immediate refetch.
+- **Live scan**: `EventSource` against `/ble/scan/stream` in `api/ble.ts → scanStream()`. ConnectionPanel opens the MAC Address dropdown on Scan click and updates devices live; entries are deduped by address and sorted by RSSI.
+- **TestModule extension**: add new test = create `src/tests/<name>/{Page.tsx, module.ts}`, export a `TestModule`, import into `registry.ts`. Registry drives the in-page `<Tabs>`. Sidebar currently shows a single "CW Debug" entry that scrolls to top (placeholder — extend later if more tests need sidebar nav).
+- **Gating**: when no device connected, test pages still render (visible) but are wrapped in a `<fieldset disabled>` (HTML-native disable of all inputs/buttons) at 0.6 opacity.
 
-- [ ] **5. Port two existing sections as test modules:**
-  - `cwDebug/` ← current "LoRa CW Debug" section → POST `/device/lora-cw`, `/device/stop`.
-  - `powerSweep/` ← current "Sweep Test" → POST `/test/run`, poll `/test/status` every 500 ms via TanStack Query `refetchInterval`, download `/test/export` blob.
-  - Shared: `ConnectionPanel` (scan/connect) mounted in app shell; `LogPanel` collapsible drawer.
+## UI state (current)
 
-- [ ] **6. Production static mount** — in [backend/main.py](../backend/main.py), update static mount to serve `frontend/dist/` when present. SPA fallback: serve `index.html` on unknown GETs that aren't API routes.
+- Light theme, slate primary `#0f172a`, hairline borders, soft popover shadows (Autocomplete/Menu/Popover).
+- Layout: fixed AppBar ("Test Console" 22px) + persistent left Sidebar (brand + device status footer) + main column + persistent right Drawer (Log, default open, newest entries on top).
+- ConnectionPanel: sticky under AppBar, present on every page.
+  - Duration number input, Device-type Select (CAT-M 2 / Sonata 2 IL / Interpreter G2 / All), MAC Address Autocomplete (freeSolo, opens on Scan).
+  - **Connect button enables only when `selectedAddr ∈ devices[]`** — must pick from scan, not free-type.
+  - Single Connect/Disconnect toggle button (green/red).
+  - All inputs disabled while connected.
+- CW Debug: Frequency in **MHz** (converted to Hz on send). Single Send/Stop toggle button (green → red).
+- Power Sweep:
+  - Frequency MHz · Settle ms · live "Total steps" readout.
+  - "Sweep ranges" / "Instruments" plain left-aligned subtitle headers (no `<Divider>` line).
+  - Each sweep param has `From → To` number pair (Power 1–22, Duty 1–4, HP 1–7).
+  - Cancel button shows spinner + "Cancelling…" and progress bar switches to amber indeterminate slide until backend confirms `cancelled`.
+- ProgressRow: always rendered (`—` placeholders when no data). Custom `<Box>` bar (no MUI `LinearProgress` classes) with slate→blue gradient, slate-300 bg. Stat grid: Step / HP·Duty / P set / P meas / Current / Result.
 
-- [ ] **7. Delete [backend/static/index.html](../backend/static/index.html)** after parity verified.
+## Gotchas / things already burned in
 
-- [ ] **8. README / scripts:**
-  - Root `requirements.txt` already exists. Add `frontend/package.json` scripts: `dev`, `build`, `preview`.
-  - Document run: terminal 1 = `uvicorn backend.main:app --reload`, terminal 2 = `cd frontend && npm run dev`.
+- **MUI version**: pinned `@mui/material@^6`. v9 had React 19 typing breakage (Stack/Typography required `component` prop). Don't upgrade without re-verifying.
+- **Vite proxy regex**: must use `^/test(/|$)` not `/test` — otherwise the proxy swallows the SPA route `/tests/<id>` and returns a stale `dist/index.html`, which then 404s on its hashed asset.
+- **Node engine warning**: project tested on Node 23 (Vite officially wants 20.19 / 22.13 / ≥24). Warnings are noisy but non-fatal.
+- **CRLF**: Windows checkout, Git auto-converts on staging. Ignore the `LF will be replaced by CRLF` warnings.
+- **`bleak` import error on uvicorn start** = wrong Python env (likely Anaconda base). Activate the venv with `pip install -r requirements.txt`.
+- **`.claude/`** is gitignored — local Claude settings should not be committed.
 
-## Critical Files
+## Recent commits (most recent first)
 
-- **CREATE**: everything under `frontend/`
-- **MODIFY**: [backend/main.py](../backend/main.py) — static mount → `frontend/dist` with SPA fallback
-- **DELETE** (after parity): [backend/static/index.html](../backend/static/index.html)
-- **DO NOT TOUCH**: `backend/api/*`, `backend/ble/*`, `backend/instruments/*`, `backend/protocol/*`, `backend/test_runner.py`, `backend/device.py`, `backend/excel.py`
+- `5a0e00a` — Stop background polling of BLE/test status
+- `cb854cd` — Add .claude to .gitignore
+- `482b455` — Add React+Vite frontend; add SSE live scan endpoint
+- `da7c85f` — Add backend scaffold: FastAPI app, BLE manager, instruments, protocol
 
-## Reuse / Existing Patterns
+## Open / not yet done
 
-- API endpoints already complete — no backend changes needed for parity. Refs: [api/ble.py](../backend/api/ble.py), [api/device.py](../backend/api/device.py), [api/test.py](../backend/api/test.py).
-- Polling pattern (`/test/status` every 500 ms) — port to TanStack Query `refetchInterval`.
-- Range-syntax parser (`"1-7,9"` → `[1..7,9]`) from current [index.html](../backend/static/index.html) `parseList()` — port verbatim into `src/tests/powerSweep/parseList.ts`.
-
-## API Surface (reference)
-
-### BLE — `/ble`
-| Method | Path | Body | Response |
-|--------|------|------|----------|
-| GET/POST | `/scan?duration=5` | `{duration}` | `ScannedDevice[]` |
-| POST | `/connect` | `{address, timeout}` | `ConnectionStatus` |
-| POST | `/disconnect` | — | `ConnectionStatus` |
-| GET | `/status` | — | `ConnectionStatus` |
-| GET | `/services` | — | `GattService[]` |
-
-### Device — `/device`
-| Method | Path | Body | Response |
-|--------|------|------|----------|
-| POST | `/lora-cw` | `LoraCwRequest` | `CommandResponse` |
-| POST | `/stop` | `StopRequest` | `CommandResponse` |
-
-### Test — `/test`
-| Method | Path | Body | Response |
-|--------|------|------|----------|
-| POST | `/run` | `StartRequest` | `RunStatus` |
-| POST | `/cancel` | — | `RunStatus` |
-| GET | `/status` | — | `RunStatus` |
-| GET | `/results` | — | `ResultRow[]` |
-| GET | `/export` | — | xlsx blob |
-
-## Verification
-
-1. `uvicorn backend.main:app --reload` (:8000), `cd frontend && npm run dev` (:5173).
-2. Open `http://localhost:5173`. Scan BLE → table populates. Connect → status badge green.
-3. CW Debug tab → "Send CW" with default values → `tx_hex` / `rx_hex` shown, `ok=true`.
-4. Power Sweep tab → run small sweep (e.g. power=1, duty=0, hp=0-1) → progress bar advances, `last_row` updates live, state transitions `running → done`.
-5. "Export Excel" → downloads `.xlsx`; open and verify "All" sheet + per-power sheets.
-6. Cancel mid-sweep → state `cancelled`, polling stops.
-7. `cd frontend && npm run build` → `dist/` produced. Restart uvicorn → `http://localhost:8000/` serves built SPA, all flows work.
-8. Add a dummy `TestModule` to `registry.ts` → new tab appears without other code changes (validates extension point).
-
-## Out of Scope
-
-- Real new test types — user will define later.
-- Auth, multi-user, persistence beyond Excel export.
-- Backend refactor.
+- Legacy `backend/static/index.html` still in repo — delete after full parity verified against real hardware.
+- No tests (unit / e2e) yet.
+- Power Sweep `parseList.ts` no longer used (replaced by From/To inputs). Could delete.
+- Sidebar has a single "CW Debug" entry that's basically a placeholder navigation. Re-add multiple sidebar entries if/when more test types arrive.
+- `StatusBadge` component still exists but isn't mounted anywhere — remove or repurpose.
