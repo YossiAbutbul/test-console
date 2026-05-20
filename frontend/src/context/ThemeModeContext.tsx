@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { ThemeProvider } from '@mui/material/styles'
 import CssBaseline from '@mui/material/CssBaseline'
 import { makeTheme, type ThemeMode } from '../theme'
+import { STORAGE_KEYS, usePersistedState } from '../store'
 
 export type ThemePreference = ThemeMode | 'system'
 
@@ -12,7 +13,6 @@ interface Ctx {
 }
 
 const ThemeModeCtx = createContext<Ctx | null>(null)
-const STORAGE_KEY = 'app-theme-pref'
 
 function systemMode(): ThemeMode {
   if (typeof window === 'undefined' || !window.matchMedia) return 'light'
@@ -20,16 +20,8 @@ function systemMode(): ThemeMode {
 }
 
 export function ThemeModeProvider({ children }: { children: ReactNode }) {
-  const [preference, setPreference] = useState<ThemePreference>(() => {
-    const saved = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
-    if (saved === 'light' || saved === 'mid' || saved === 'dark' || saved === 'system') return saved
-    return 'light'
-  })
+  const [preference, setPreference] = usePersistedState<ThemePreference>(STORAGE_KEYS.themePref, 'light')
   const [sysMode, setSysMode] = useState<ThemeMode>(() => systemMode())
-
-  useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, preference) } catch {}
-  }, [preference])
 
   useEffect(() => {
     if (preference !== 'system' || typeof window === 'undefined' || !window.matchMedia) return

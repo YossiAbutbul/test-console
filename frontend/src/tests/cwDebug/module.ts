@@ -6,6 +6,7 @@ import { CwDebugPage } from './CwDebugPage'
 export const cwDebugModule: TestModule = {
   id: 'cw-debug',
   label: 'Debug',
+  protocol: 'LoRa',
   group: 'TX',
   icon: createElement(WifiTetheringIcon, { fontSize: 'small' }),
   Page: CwDebugPage,

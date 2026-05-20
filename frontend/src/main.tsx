@@ -6,6 +6,7 @@ import { ThemeModeProvider } from './context/ThemeModeContext'
 import { ConnectionProvider } from './context/ConnectionContext'
 import { LogProvider } from './context/LogContext'
 import { InstrumentsProvider } from './context/InstrumentsContext'
+import { NicknamesProvider } from './context/NicknamesContext'
 import App from './App'
 import './index.css'
 
@@ -21,7 +22,9 @@ createRoot(document.getElementById('root')!).render(
           <LogProvider>
             <ConnectionProvider>
               <InstrumentsProvider>
-                <App />
+                <NicknamesProvider>
+                  <App />
+                </NicknamesProvider>
               </InstrumentsProvider>
             </ConnectionProvider>
           </LogProvider>

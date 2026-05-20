@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Autocomplete, Box, Button, CircularProgress, FormControl, MenuItem, Select, Stack,
-  TextField, Typography,
+  Autocomplete, Box, Button, CircularProgress, FormControl, IconButton, MenuItem, Select, Stack,
+  TextField, Tooltip, Typography,
 } from '@mui/material'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CheckIcon from '@mui/icons-material/Check'
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
+import { useNicknames } from '../context/NicknamesContext'
+import { NicknameModal } from './NicknameModal'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ble, scanStream } from '../api/ble'
 import { useConnection } from '../context/ConnectionContext'
@@ -40,6 +45,8 @@ export function ConnectionPanel() {
   const { log } = useLog()
   const { mode } = useThemeMode()
   const a = getAppPalette(mode).actions
+  const nicknames = useNicknames()
+  const [editMac, setEditMac] = useState<string | null>(null)
   const qc = useQueryClient()
   const [duration, setDuration] = useState(5)
   const [nameFilter, setNameFilter] = useState('CATM2')
@@ -72,10 +79,9 @@ export function ConnectionPanel() {
           return next
         })
       },
-      onDone: (count) => {
+      onDone: () => {
         setScanning(false)
         stopScanRef.current = null
-        log(`Scan done: ${count} advertisement(s)`)
       },
       onError: (msg) => {
         setScanning(false)
@@ -126,6 +132,18 @@ export function ConnectionPanel() {
     }
   }
 
+  const [copied, setCopied] = useState(false)
+  const onCopyMac = async () => {
+    if (!selectedAddr) return
+    try {
+      await navigator.clipboard.writeText(selectedAddr.replace(/:/g, ''))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
   const fieldLabel = (text: string) => (
     <Typography sx={{ fontSize: 13, fontWeight: 500, mb: 0.5 }}>{text}</Typography>
   )
@@ -164,13 +182,52 @@ export function ConnectionPanel() {
           </FormControl>
         </Box>
 
-        <Box sx={{ minWidth: 340, flex: 1 }}>
-          {fieldLabel('MAC Address')}
+        <Box sx={{ minWidth: 340, flex: 1, position: 'relative' }}>
+          <Stack direction="row" alignItems="center" sx={{ mb: 0.5, gap: 1 }}>
+            <Typography sx={{ fontSize: 13, fontWeight: 500 }}>MAC Address</Typography>
+            {(() => {
+              const nick = selectedAddr ? nicknames.get(selectedAddr) : undefined
+              if (!nick || !selectedAddr) return null
+              const color = nicknames.colorFor(selectedAddr)
+              return (
+                <Box
+                  component="span"
+                  sx={{
+                    px: 0.85, py: 0.1, borderRadius: 0.75,
+                    fontSize: 11, fontWeight: 600, lineHeight: 1.4,
+                    bgcolor: color.bg, color: color.fg,
+                  }}
+                >
+                  {nick}
+                </Box>
+              )
+            })()}
+            <Box sx={{ flexGrow: 1 }} />
+            {selectedAddr && !isConnected && (
+              <Typography
+                component="button"
+                type="button"
+                onClick={() => setSelectedAddr(null)}
+                sx={{
+                  fontSize: 12,
+                  color: 'text.secondary',
+                  border: 0,
+                  bgcolor: 'transparent',
+                  cursor: 'pointer',
+                  p: 0,
+                  '&:hover': { color: 'text.primary', textDecoration: 'underline' },
+                }}
+              >
+                Clear
+              </Typography>
+            )}
+          </Stack>
           <Autocomplete
           size="small"
           freeSolo
+          disableClearable
           disabled={isConnected}
-          open={acOpen}
+          open={acOpen && filteredDevices.length > 0}
           onOpen={() => setAcOpen(true)}
           onClose={() => setAcOpen(false)}
           options={filteredDevices}
@@ -192,24 +249,46 @@ export function ConnectionPanel() {
             return opts.filter(
               (o) =>
                 o.address.toLowerCase().includes(q) ||
-                (o.name ?? '').toLowerCase().includes(q),
+                (o.name ?? '').toLowerCase().includes(q) ||
+                (nicknames.get(o.address) ?? '').toLowerCase().includes(q),
             )
           }}
-          renderOption={(props, opt) => (
-            <Box component="li" {...props} key={opt.address} sx={{ py: 0.75 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', gap: 2 }}>
-                <Box sx={{ minWidth: 0 }}>
-                  <Box sx={{ fontWeight: 500, fontSize: 13 }}>{opt.name ?? '(unnamed)'}</Box>
-                  <Box sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11, color: 'text.secondary' }}>
-                    {opt.address}
+          renderOption={(props, opt) => {
+            const nick = nicknames.get(opt.address)
+            const color = nicknames.colorFor(opt.address)
+            return (
+              <Box component="li" {...props} key={opt.address} sx={{ py: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', gap: 2 }}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                      <Box sx={{ fontWeight: 500, fontSize: 14.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {opt.name ?? '(unnamed)'}
+                      </Box>
+                      {nick && (
+                        <Box
+                          component="span"
+                          sx={{
+                            px: 0.85, py: 0.15, borderRadius: 0.75,
+                            fontSize: 12, fontWeight: 600, lineHeight: 1.4,
+                            bgcolor: color.bg, color: color.fg,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {nick}
+                        </Box>
+                      )}
+                    </Box>
+                    <Box sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5, color: 'text.secondary' }}>
+                      {opt.address}
+                    </Box>
+                  </Box>
+                  <Box sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                    {opt.rssi ?? '—'} dBm
                   </Box>
                 </Box>
-                <Box sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11, color: 'text.secondary', whiteSpace: 'nowrap' }}>
-                  {opt.rssi ?? '—'} dBm
-                </Box>
               </Box>
-            </Box>
-          )}
+            )
+          }}
           renderInput={(params) => (
             <TextField
               {...params}
@@ -218,6 +297,40 @@ export function ConnectionPanel() {
               InputProps={{
                 ...params.InputProps,
                 sx: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13 },
+                endAdornment: (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                    {selectedAddr && isKnownDevice && (
+                      <Tooltip title="Edit nickname" placement="top">
+                        <IconButton
+                          size="small"
+                          onClick={() => setEditMac(selectedAddr)}
+                          sx={{ p: 0.5, '&:hover': { bgcolor: 'transparent' } }}
+                        >
+                          <EditOutlinedIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    <Tooltip title={!selectedAddr ? '' : copied ? 'Copied!' : 'Copy MAC'} placement="top">
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={onCopyMac}
+                          disabled={!selectedAddr}
+                          sx={{
+                            p: 0.5,
+                            '&:hover': { bgcolor: 'transparent' },
+                            '&.Mui-disabled': { opacity: 0.4 },
+                          }}
+                        >
+                          {copied
+                            ? <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
+                            : <ContentCopyIcon sx={{ fontSize: 14 }} />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    {params.InputProps.endAdornment}
+                  </Box>
+                ),
               }}
             />
           )}
@@ -244,6 +357,7 @@ export function ConnectionPanel() {
           {isConnected ? 'Disconnect' : 'Connect'}
         </Button>
       </Stack>
+      <NicknameModal mac={editMac} onClose={() => setEditMac(null)} />
     </Box>
   )
 }

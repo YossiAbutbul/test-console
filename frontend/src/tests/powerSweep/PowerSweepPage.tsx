@@ -171,6 +171,7 @@ export function PowerSweepPage() {
         hidden={!showProgress}
       />
       <PageHeader
+        protocol="LoRa"
         group="TX"
         label="Mode Sweep"
         actions={

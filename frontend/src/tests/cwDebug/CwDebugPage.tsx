@@ -46,6 +46,7 @@ export function CwDebugPage() {
   return (
     <Box>
       <PageHeader
+        protocol="LoRa"
         group="TX"
         label="Debug"
         actions={

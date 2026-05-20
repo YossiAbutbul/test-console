@@ -15,7 +15,7 @@ import { getAppPalette } from './theme'
 import { testRegistry } from './tests/registry'
 import { Sidebar, SIDEBAR_W, TOP_BAR_H } from './components/Sidebar'
 
-const LOG_W = 400
+const LOG_W = 340
 
 function TestArea({ activeId }: { activeId: string }) {
   const { status } = useConnection()

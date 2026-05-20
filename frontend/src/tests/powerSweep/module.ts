@@ -6,6 +6,7 @@ import { PowerSweepPage } from './PowerSweepPage'
 export const powerSweepModule: TestModule = {
   id: 'power-sweep',
   label: 'Mode Sweep',
+  protocol: 'LoRa',
   group: 'TX',
   icon: createElement(SsidChartIcon, { fontSize: 'small' }),
   Page: PowerSweepPage,
