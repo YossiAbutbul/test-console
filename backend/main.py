@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import ble_router, device_router, test_router
+from .api import ble_router, device_router, instruments_router, test_router
 from .ble import manager as ble_manager
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -47,6 +47,7 @@ app.add_middleware(
 
 app.include_router(ble_router)
 app.include_router(device_router)
+app.include_router(instruments_router)
 app.include_router(test_router)
 
 

@@ -5,10 +5,13 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tests } from '../../api/tests'
 import { useLog } from '../../context/LogContext'
-import { ProgressRow } from '../../components/ProgressRow'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
+import { TopProgress } from '../../components/TopProgress'
+import { useInstruments, type InstrumentId } from '../../context/InstrumentsContext'
 import type { StartRequest } from '../../types/models'
+
+const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
 
 // Backend validation ranges (must match backend/test_runner.py)
 const RANGES = {
@@ -71,6 +74,8 @@ function RangeRow({
 export function PowerSweepPage() {
   const { log } = useLog()
   const qc = useQueryClient()
+  const { notifyMissing, instruments } = useInstruments()
+  const missing = REQUIRED_INSTRUMENTS.filter((id) => instruments[id].status !== 'connected')
 
   const [freqMhz, setFreqMhz] = useState('902.3')
   const [powerLo, setPowerLo] = useState(RANGES.power.min)
@@ -80,9 +85,6 @@ export function PowerSweepPage() {
   const [hpLo, setHpLo] = useState(RANGES.hp.min)
   const [hpHi, setHpHi] = useState(RANGES.hp.max)
   const [settle, setSettle] = useState(30)
-  const [sensorSerial, setSensorSerial] = useState('')
-  const [dcResource, setDcResource] = useState('USB0::0x0957::0x0F07::MY50000200::INSTR')
-  const [dcChannel, setDcChannel] = useState(3)
 
   const statusQ = useQuery({
     queryKey: ['test-status'],
@@ -97,6 +99,8 @@ export function PowerSweepPage() {
 
   const run = useMutation({
     mutationFn: () => {
+      const ps = instruments['power-sensor']
+      const dc = instruments['dc-analyzer']
       const req: StartRequest = {
         config: {
           freq_hz: Math.round(Number(freqMhz) * 1_000_000),
@@ -106,9 +110,9 @@ export function PowerSweepPage() {
           settle_ms: settle,
           cmd_timeout_s: 5,
         },
-        power_sensor_serial: sensorSerial.trim() || null,
-        dc_analyzer_resource: dcResource.trim() || null,
-        dc_analyzer_channel: dcChannel,
+        power_sensor_serial: ps.address.trim() || null,
+        dc_analyzer_resource: dc.address.trim() || null,
+        dc_analyzer_channel: dc.channel ?? 1,
       }
       return tests.run(req)
     },
@@ -145,9 +149,27 @@ export function PowerSweepPage() {
 
   const running = statusQ.data?.state === 'running'
   const cancelling = cancel.isPending || (running && cancel.isSuccess)
+  const total = statusQ.data?.total ?? 0
+  const completed = statusQ.data?.completed ?? 0
+  const pct = total > 0 ? (completed / total) * 100 : 0
+  const showProgress = running || cancelling
+
+  const onRun = () => {
+    if (missing.length > 0) {
+      log(`Cannot start: missing instruments — ${missing.join(', ')}`, 'warn')
+      notifyMissing(REQUIRED_INSTRUMENTS)
+      return
+    }
+    run.mutate()
+  }
 
   return (
     <Box>
+      <TopProgress
+        pct={pct}
+        indeterminate={cancelling}
+        hidden={!showProgress}
+      />
       <PageHeader
         group="TX"
         label="Mode Sweep"
@@ -168,7 +190,7 @@ export function PowerSweepPage() {
             <Button
               variant="contained"
               disabled={running || run.isPending}
-              onClick={() => run.mutate()}
+              onClick={onRun}
               endIcon={run.isPending ? <CircularProgress size={14} color="inherit" /> : undefined}
               sx={{ minWidth: 110, height: 36 }}
             >
@@ -219,36 +241,6 @@ export function PowerSweepPage() {
               min={RANGES.hp.min} max={RANGES.hp.max} />
           </Stack>
         </Box>
-
-        <Box>
-          <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: 'text.secondary', mb: 1.5 }}>
-            Instruments
-          </Typography>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} flexWrap="wrap">
-            <LabeledField
-              label="Power sensor serial"
-              hint="optional"
-              value={sensorSerial}
-              onChange={(e) => setSensorSerial(e.target.value)}
-              width={240}
-            />
-            <LabeledField
-              label="DC analyzer VISA resource"
-              value={dcResource}
-              onChange={(e) => setDcResource(e.target.value)}
-              width={340}
-            />
-            <LabeledField
-              label="DC channel"
-              type="number"
-              value={dcChannel}
-              onChange={(e) => setDcChannel(Number(e.target.value))}
-              width={120}
-            />
-          </Stack>
-        </Box>
-
-        <ProgressRow status={statusQ.data} cancelling={cancelling} />
       </Stack>
     </Box>
   )

@@ -8,6 +8,7 @@ import ScienceIcon from '@mui/icons-material/Science'
 import { ConnectionPanel } from './components/ConnectionPanel'
 import { SearchBar } from './components/SearchBar'
 import { LogPanel } from './components/LogPanel'
+import { InstrumentsModal } from './components/InstrumentsModal'
 import { useConnection } from './context/ConnectionContext'
 import { useThemeMode } from './context/ThemeModeContext'
 import { getAppPalette } from './theme'
@@ -160,6 +161,8 @@ export default function App() {
         </Box>
         <TestArea activeId={activeId} />
       </Box>
+
+      <InstrumentsModal />
 
       <Drawer
         anchor="right"

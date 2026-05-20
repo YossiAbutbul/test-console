@@ -8,8 +8,10 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import FolderIcon from '@mui/icons-material/Folder'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import SettingsIcon from '@mui/icons-material/Settings'
+import CableIcon from '@mui/icons-material/Cable'
 import CheckIcon from '@mui/icons-material/Check'
 import { useConnection } from '../context/ConnectionContext'
+import { useInstruments } from '../context/InstrumentsContext'
 import { useThemeMode, type ThemePreference } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
 import { testRegistry } from '../tests/registry'
@@ -157,6 +159,8 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
   const groups = useGroups()
   const { mode } = useThemeMode()
   const s = getAppPalette(mode).sidebar
+  const { setOpen: openInstruments, instruments } = useInstruments()
+  const anyConnected = Object.values(instruments).some((i) => i.status === 'connected')
   const [expanded, setExpanded] = useState<Record<string, boolean>>(
     () => Object.fromEntries(groups.map(([g]) => [g, true])),
   )
@@ -180,6 +184,30 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
       }}
     >
       <Box sx={{ flexGrow: 1, overflowY: 'auto', py: 1.5 }}>
+        <Box sx={{ px: 1.5, mb: 1.5 }}>
+          <ListItemButton
+            disableRipple
+            onClick={() => openInstruments(true)}
+            sx={{
+              borderRadius: 1.5,
+              px: 1.25,
+              py: 1,
+              color: s.textDim,
+              '&:hover': { bgcolor: s.hover, color: s.text },
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: 30, color: anyConnected ? s.success : 'inherit' }}>
+              <CableIcon sx={{ fontSize: 18 }} />
+            </ListItemIcon>
+            <ListItemText
+              primary="Instruments"
+              primaryTypographyProps={{ fontSize: 14.5, fontWeight: 500 }}
+            />
+            {anyConnected && (
+              <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: s.success, mr: 0.5 }} />
+            )}
+          </ListItemButton>
+        </Box>
         {groups.map(([group, mods]) => {
           const hasGroup = group !== '_'
           const isExp = expanded[group] ?? true
@@ -240,9 +268,6 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
                             '&:hover': { bgcolor: sel ? s.accentSoftHover : s.hover, color: s.text },
                           }}
                         >
-                          {m.icon && (
-                            <ListItemIcon sx={{ minWidth: 30, color: 'inherit' }}>{m.icon}</ListItemIcon>
-                          )}
                           <ListItemText
                             primary={m.label}
                             primaryTypographyProps={{ fontSize: 14.5, fontWeight: sel ? 600 : 500 }}

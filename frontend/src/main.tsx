@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { ThemeModeProvider } from './context/ThemeModeContext'
 import { ConnectionProvider } from './context/ConnectionContext'
 import { LogProvider } from './context/LogContext'
+import { InstrumentsProvider } from './context/InstrumentsContext'
 import App from './App'
 import './index.css'
 
@@ -19,7 +20,9 @@ createRoot(document.getElementById('root')!).render(
         <BrowserRouter>
           <LogProvider>
             <ConnectionProvider>
-              <App />
+              <InstrumentsProvider>
+                <App />
+              </InstrumentsProvider>
             </ConnectionProvider>
           </LogProvider>
         </BrowserRouter>

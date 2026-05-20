@@ -10,6 +10,7 @@ export default defineConfig({
     proxy: {
       '^/ble(/|$)': { target: backend, changeOrigin: true },
       '^/device(/|$)': { target: backend, changeOrigin: true },
+      '^/instruments(/|$)': { target: backend, changeOrigin: true },
       '^/test(/|$)': { target: backend, changeOrigin: true },
       '^/health$': { target: backend, changeOrigin: true },
     },
