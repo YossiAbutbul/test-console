@@ -36,7 +36,7 @@ _install("uvicorn", DefaultFormatter(_LOG_FMT, datefmt=_DATEFMT, use_colors=True
 _install("uvicorn.error", DefaultFormatter(_LOG_FMT, datefmt=_DATEFMT, use_colors=True))
 _install("uvicorn.access", AccessFormatter(_ACCESS_FMT, datefmt=_DATEFMT, use_colors=True))
 
-app = FastAPI(title="PA Modes Test Backend", version="0.1.0")
+app = FastAPI(title="Test Console Backend", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,

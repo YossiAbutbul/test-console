@@ -1,4 +1,4 @@
-# PA Modes — Power & CC
+# Test Console
 
 FastAPI backend + React/Vite frontend for BLE-driven PA mode testing with VISA RF instruments.
 

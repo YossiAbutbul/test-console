@@ -161,6 +161,34 @@ export function makeTheme(mode: ThemeMode): Theme {
       caption: { color: p.sidebar.textDim },
     },
     components: {
+      MuiCssBaseline: {
+        styleOverrides: {
+          '*': {
+            scrollbarColor: `${p.appBarBorder} transparent`,
+            scrollbarWidth: 'thin',
+          },
+          '*::-webkit-scrollbar': {
+            width: 10,
+            height: 10,
+          },
+          '*::-webkit-scrollbar-track': {
+            background: 'transparent',
+          },
+          '*::-webkit-scrollbar-thumb': {
+            background: p.appBarBorder,
+            borderRadius: 8,
+            border: '2px solid transparent',
+            backgroundClip: 'padding-box',
+          },
+          '*::-webkit-scrollbar-thumb:hover': {
+            background: p.sidebar.textDim,
+            backgroundClip: 'padding-box',
+          },
+          '*::-webkit-scrollbar-corner': {
+            background: 'transparent',
+          },
+        },
+      },
       MuiPaper: {
         defaultProps: { elevation: 0 },
         styleOverrides: {

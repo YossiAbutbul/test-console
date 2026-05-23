@@ -80,13 +80,17 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
           </Typography>
           <Stack spacing={2} sx={{ maxWidth: 360 }}>
             <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
+              historyKey={`${protocol}.debug.freqMhz`}
               onChange={(e) => setFreqMhz(Number(e.target.value))}
               inputProps={{ step: 0.1 }} />
             <LabeledField label="Power" hint="dBm" type="number" value={power}
+              historyKey={`${protocol}.debug.power_dbm`}
               onChange={(e) => setPower(Number(e.target.value))} />
             <LabeledField label="PA Duty Cycle" type="number" value={duty}
+              historyKey={`${protocol}.debug.duty`}
               onChange={(e) => setDuty(Number(e.target.value))} />
             <LabeledField label="HP Max" type="number" value={hp}
+              historyKey={`${protocol}.debug.hp`}
               onChange={(e) => setHp(Number(e.target.value))} />
             <LabeledField label="PA Mode" value="AUTO (0x02)" disabled />
           </Stack>

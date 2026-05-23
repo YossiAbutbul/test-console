@@ -15,7 +15,10 @@ interface Hit {
   id: string
   label: string
   group?: string
+  protocol: string
 }
+
+const PROTOCOL_ORDER = ['LoRa', 'BLE', 'LTE']
 
 export function SearchBar({ activeId, onSelect }: Props) {
   const { mode } = useThemeMode()
@@ -51,11 +54,22 @@ export function SearchBar({ activeId, onSelect }: Props) {
       id: m.id,
       label: m.label,
       group: m.group,
+      protocol: m.protocol,
     }))
-    if (!needle) return all
-    return all.filter((h) => {
-      const hay = `${h.group ?? ''} ${h.label}`.toLowerCase()
-      return hay.includes(needle)
+    const filtered = needle
+      ? all.filter((h) => {
+          const hay = `${h.protocol} ${h.group ?? ''} ${h.label}`.toLowerCase()
+          return hay.includes(needle)
+        })
+      : all
+    return filtered.sort((a, b) => {
+      const pa = PROTOCOL_ORDER.indexOf(a.protocol)
+      const pb = PROTOCOL_ORDER.indexOf(b.protocol)
+      if (pa !== pb) return (pa < 0 ? 99 : pa) - (pb < 0 ? 99 : pb)
+      const ga = a.group ?? ''
+      const gb = b.group ?? ''
+      if (ga !== gb) return ga.localeCompare(gb)
+      return a.label.localeCompare(b.label)
     })
   }, [q])
 
@@ -167,9 +181,6 @@ export function SearchBar({ activeId, onSelect }: Props) {
               zIndex: 1400,
             }}
           >
-            <Typography sx={{ px: 1.5, pt: 1, pb: 0.5, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: p.sidebar.textDim }}>
-              Pages
-            </Typography>
             {hits.length === 0 && (
               <Box sx={{ px: 1.5, py: 1, fontSize: 12, color: p.sidebar.textDim }}>
                 No matches
@@ -178,30 +189,37 @@ export function SearchBar({ activeId, onSelect }: Props) {
             {hits.map((h, i) => {
               const sel = i === cursor
               const isCur = h.id === activeId
+              const prev = hits[i - 1]
+              const showHeader = !prev || prev.protocol !== h.protocol
+              const path = [h.protocol, h.group].filter(Boolean).join(' / ')
               return (
-                <Stack
-                  key={h.id}
-                  direction="row"
-                  alignItems="center"
-                  onMouseEnter={() => setCursor(i)}
-                  onClick={() => pick(h)}
-                  sx={{
-                    px: 1.5, py: 0.85,
-                    cursor: 'pointer',
-                    bgcolor: sel ? p.sidebar.accentSoft : 'transparent',
-                    color: p.sidebar.text,
-                    gap: 1,
-                  }}
-                >
-                  <Typography sx={{ fontSize: 13, fontWeight: isCur ? 600 : 500, flexGrow: 1 }}>
-                    {h.label}
-                  </Typography>
-                  {h.group && (
-                    <Typography sx={{ fontSize: 11, color: p.sidebar.textDim }}>
-                      {h.group}
+                <Box key={h.id}>
+                  {showHeader && (
+                    <Typography sx={{ px: 1.5, pt: i === 0 ? 1 : 1.25, pb: 0.5, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: p.sidebar.textDim }}>
+                      {h.protocol}
                     </Typography>
                   )}
-                </Stack>
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    onMouseEnter={() => setCursor(i)}
+                    onClick={() => pick(h)}
+                    sx={{
+                      px: 1.5, py: 0.85,
+                      cursor: 'pointer',
+                      bgcolor: sel ? p.sidebar.accentSoft : 'transparent',
+                      color: p.sidebar.text,
+                      gap: 1,
+                    }}
+                  >
+                    <Typography sx={{ fontSize: 11, color: p.sidebar.textDim, flexShrink: 0 }}>
+                      {path} /
+                    </Typography>
+                    <Typography sx={{ fontSize: 13, fontWeight: isCur ? 600 : 500, flexGrow: 1 }}>
+                      {h.label}
+                    </Typography>
+                  </Stack>
+                </Box>
               )
             })}
           </Box>

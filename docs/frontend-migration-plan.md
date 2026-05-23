@@ -4,12 +4,12 @@
 
 ## What this is
 
-PA Modes RF Test Console for CATM2-family devices. BLE-connected device runs LoRa CW + parametric sweep tests; bench instruments (Mini-Circuits power meter, Keysight DC power analyzer) measure tx power and current draw. Backend = FastAPI; frontend = React+Vite SPA.
+RF Test Console for CATM2-family devices. BLE-connected device runs LoRa CW + parametric sweep tests; bench instruments (Mini-Circuits power meter, Keysight DC power analyzer) measure tx power and current draw. Backend = FastAPI; frontend = React+Vite SPA.
 
 ## Repo layout
 
 ```
-PA Modes - Power and CC/
+test-console/
 ├── backend/                     # FastAPI app
 │   ├── api/                     # ble.py · device.py · test.py
 │   ├── ble/                     # manager.py (Bleak wrapper) · models.py

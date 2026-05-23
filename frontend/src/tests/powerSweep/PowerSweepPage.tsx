@@ -29,7 +29,7 @@ function range(lo: number, hi: number): number[] {
 }
 
 function RangeRow({
-  label, lo, hi, setLo, setHi, min, max, unit,
+  label, lo, hi, setLo, setHi, min, max, unit, historyKey,
 }: {
   label: string
   lo: number
@@ -39,6 +39,7 @@ function RangeRow({
   min: number
   max: number
   unit?: string
+  historyKey?: string
 }) {
   const count = Math.max(0, Math.abs(hi - lo) + 1)
   return (
@@ -54,6 +55,7 @@ function RangeRow({
           label="From"
           type="number"
           value={lo}
+          historyKey={historyKey ? `${historyKey}.from` : undefined}
           inputProps={{ min, max }}
           onChange={(e) => setLo(Math.max(min, Math.min(max, Number(e.target.value) || min)))}
           width={120}
@@ -73,6 +75,7 @@ function RangeRow({
           label="To"
           type="number"
           value={hi}
+          historyKey={historyKey ? `${historyKey}.to` : undefined}
           inputProps={{ min, max }}
           onChange={(e) => setHi(Math.max(min, Math.min(max, Number(e.target.value) || min)))}
           width={120}
@@ -233,6 +236,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
               hint="MHz"
               type="number"
               value={freqMhz}
+              historyKey={`${protocol}.modeSweep.freqMhz`}
               onChange={(e) => setFreqMhz(e.target.value)}
               inputProps={{ step: 0.1 }}
               width={180}
@@ -242,6 +246,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
               hint="ms"
               type="number"
               value={settle}
+              historyKey={`${protocol}.modeSweep.settle`}
               onChange={(e) => setSettle(Number(e.target.value))}
               width={140}
             />
@@ -254,11 +259,14 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
           </Typography>
           <Stack spacing={2}>
             <RangeRow label="Power" lo={powerLo} hi={powerHi} setLo={setPowerLo} setHi={setPowerHi}
-              min={RANGES.power.min} max={RANGES.power.max} unit="dBm" />
+              min={RANGES.power.min} max={RANGES.power.max} unit="dBm"
+              historyKey={`${protocol}.modeSweep.power`} />
             <RangeRow label="PA Duty Cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
-              min={RANGES.duty.min} max={RANGES.duty.max} />
+              min={RANGES.duty.min} max={RANGES.duty.max}
+              historyKey={`${protocol}.modeSweep.duty`} />
             <RangeRow label="HP Max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
-              min={RANGES.hp.min} max={RANGES.hp.max} />
+              min={RANGES.hp.min} max={RANGES.hp.max}
+              historyKey={`${protocol}.modeSweep.hp`} />
           </Stack>
         </Box>
       </Stack>

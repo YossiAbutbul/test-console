@@ -232,14 +232,21 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
           const protoActive = groups.some((g) => g.mods.some((m) => m.id === activeId))
           const empty = groups.length === 0
           return (
-            <Box key={protocol} sx={{ mb: 2 }}>
+            <Box key={protocol} sx={{ mb: 0.5 }}>
               <Stack
                 direction="row"
                 alignItems="center"
-                onClick={() => setExpandedProto((st) => ({ ...st, [protocol]: !st[protocol] }))}
+                onClick={() => setExpandedProto((st) => {
+                  const isOpen = st[protocol]
+                  if (isOpen) return { ...st, [protocol]: false }
+                  const next: Record<string, boolean> = {}
+                  for (const k of Object.keys(st)) next[k] = false
+                  next[protocol] = true
+                  return next
+                })}
                 sx={{
                   mx: 1.5,
-                  mb: 0.5,
+                  mb: 0.25,
                   px: 1.25,
                   height: 36,
                   borderRadius: 1.5,
@@ -250,7 +257,8 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
                   gap: 1,
                 }}
               >
-                <Typography sx={{ flexGrow: 1, fontSize: 13.5, fontWeight: 700, letterSpacing: 0.6 }}>
+                {protoExp ? <FolderOpenIcon sx={{ fontSize: 15 }} /> : <FolderIcon sx={{ fontSize: 15 }} />}
+                <Typography sx={{ flexGrow: 1, fontSize: 13.5, fontWeight: 600 }}>
                   {protocol}
                 </Typography>
                 {empty && (
