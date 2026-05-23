@@ -14,6 +14,7 @@ from .protocol import Frame, Transport, pack_frame
 # --- Opcodes (raw 2-byte, as seen on wire) ---
 OPCODE_LORA_CW_DEBUG = b"\x28\x50"
 OPCODE_STOP_TEST = b"\x18\x50"
+OPCODE_LORA_POWER = b"\x00\x00"  # TODO placeholder — set real opcode
 
 
 class PaMode(IntEnum):
@@ -83,6 +84,28 @@ class Device:
         tx = params.encode()
         reply = await self._t.send(tx, timeout=timeout)
         return _make_result(tx, reply, expected_opcode=OPCODE_LORA_CW_DEBUG)
+
+    async def lora_power(
+        self,
+        freq_hz: int,
+        power_dbm: int,
+        pa_duty_cycle: int,
+        hp_max: int,
+        pa_mode: PaMode = PaMode.AUTO,
+        timeout: float = 5.0,
+    ) -> CommandResult:
+        # TODO placeholder — payload + opcode TBD
+        _check_u32("freq_hz", freq_hz)
+        _check_u8("power_dbm", power_dbm)
+        _check_u8("pa_duty_cycle", pa_duty_cycle)
+        _check_u8("hp_max", hp_max)
+        payload = (
+            freq_hz.to_bytes(4, "little")
+            + bytes([int(pa_mode), power_dbm, pa_duty_cycle, hp_max])
+        )
+        tx = pack_frame(OPCODE_LORA_POWER, payload)
+        reply = await self._t.send(tx, timeout=timeout)
+        return _make_result(tx, reply, expected_opcode=OPCODE_LORA_POWER)
 
     async def stop_test(self, timeout: float = 5.0) -> CommandResult:
         tx = pack_frame(OPCODE_STOP_TEST, b"")

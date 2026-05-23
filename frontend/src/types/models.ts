@@ -32,6 +32,14 @@ export interface LoraCwRequest {
   timeout?: number
 }
 
+export interface LoraPowerRequest {
+  freq_hz: number
+  power_dbm: number
+  pa_duty_cycle: number
+  hp_max: number
+  timeout?: number
+}
+
 export interface StopRequest {
   timeout?: number
 }

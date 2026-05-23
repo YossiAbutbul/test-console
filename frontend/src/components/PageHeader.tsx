@@ -9,17 +9,35 @@ interface Props {
 }
 
 export function PageHeader({ protocol, group, label, actions }: Props) {
+  const crumbs = [protocol, group].filter(Boolean) as string[]
   return (
     <Stack
       direction="row"
-      alignItems="center"
-      sx={{ mb: 3, gap: 2, minHeight: 40 }}
+      alignItems="flex-end"
+      sx={{ mb: '12px', gap: 2 }}
     >
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
-        {protocol && <Typography sx={{ fontWeight: 600, fontSize: 22, lineHeight: 1.2 }}>{protocol}</Typography>}
-        {group && <Typography sx={{ fontWeight: 600, fontSize: 22, lineHeight: 1.2 }}>{group}</Typography>}
-        <Typography sx={{ fontWeight: 600, fontSize: 22, lineHeight: 1.2 }}>{label}</Typography>
-      </Stack>
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+        {crumbs.length > 0 && (
+          <Typography
+            sx={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: 0.8,
+              textTransform: 'uppercase',
+              color: 'text.secondary',
+              mb: 0.5,
+            }}
+          >
+            {crumbs.join(' / ')}
+          </Typography>
+        )}
+        <Typography
+          component="h1"
+          sx={{ fontWeight: 700, fontSize: 26, lineHeight: 1.15, color: 'text.primary' }}
+        >
+          {label}
+        </Typography>
+      </Box>
       {actions && (
         <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
           {actions}

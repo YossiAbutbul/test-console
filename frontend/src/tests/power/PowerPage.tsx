@@ -1,74 +1,55 @@
 import { useState } from 'react'
 import { Box, Button, Stack, Typography } from '@mui/material'
+import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
-import { useMutation } from '@tanstack/react-query'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
 
-export function CwDebugPage({ protocol, group }: TestPageProps) {
+export function PowerPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
   const hasBackend = protocol === 'LoRa'
   const [freqMhz, setFreqMhz] = useState(902.3)
   const [power, setPower] = useState(14)
-  const [duty, setDuty] = useState(0)
-  const [hp, setHp] = useState(7)
   const [last, setLast] = useState<CommandResponse | null>(null)
-  const [active, setActive] = useState(false)
 
   const send = useMutation({
     mutationFn: () => {
       if (!hasBackend) {
-        log(`${protocol} Debug: no backend wired yet`, 'warn')
+        log(`${protocol} Power: no backend wired yet`, 'warn')
         return Promise.resolve(null)
       }
-      return device.loraCw({ freq_hz: Math.round(freqMhz * 1_000_000), power_dbm: power, pa_duty_cycle: duty, hp_max: hp })
+      return device.loraPower({
+        freq_hz: Math.round(freqMhz * 1_000_000),
+        power_dbm: power,
+        pa_duty_cycle: 0,
+        hp_max: 0,
+      })
     },
     onSuccess: (r) => {
       if (!r) return
       setLast(r)
-      if (r.ok) setActive(true)
-      log(`CW sent: ok=${r.ok} status=${r.status}`)
+      log(`Power sent: ok=${r.ok} status=${r.status}`)
     },
-    onError: (e: Error) => log(`CW failed: ${e.message}`, 'error'),
+    onError: (e: Error) => log(`Power failed: ${e.message}`, 'error'),
   })
-
-  const stop = useMutation({
-    mutationFn: () => {
-      if (!hasBackend) return Promise.resolve(null)
-      return device.stop()
-    },
-    onSuccess: (r) => {
-      if (!r) { setActive(false); return }
-      setLast(r)
-      setActive(false)
-      log(`Stop sent: ok=${r.ok} status=${r.status}`)
-    },
-    onError: (e: Error) => log(`Stop failed: ${e.message}`, 'error'),
-  })
-
-  const busy = send.isPending || stop.isPending
-  const toggle = () => {
-    if (active) stop.mutate()
-    else send.mutate()
-  }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
       <PageHeader
         protocol={protocol}
         group={group}
-        label="Debug"
+        label="Power"
         actions={
           <Button
             variant="contained"
-            disabled={busy}
-            onClick={toggle}
+            disabled={send.isPending}
+            onClick={() => send.mutate()}
             sx={{ minWidth: 96, height: 36 }}
           >
-            {busy ? (active ? 'Stopping…' : 'Sending…') : active ? 'Stop test' : 'Send'}
+            {send.isPending ? 'Sending…' : 'Send'}
           </Button>
         }
       />
@@ -84,10 +65,6 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
               inputProps={{ step: 0.1 }} />
             <LabeledField label="Power" hint="dBm" type="number" value={power}
               onChange={(e) => setPower(Number(e.target.value))} />
-            <LabeledField label="PA Duty Cycle" type="number" value={duty}
-              onChange={(e) => setDuty(Number(e.target.value))} />
-            <LabeledField label="HP Max" type="number" value={hp}
-              onChange={(e) => setHp(Number(e.target.value))} />
             <LabeledField label="PA Mode" value="AUTO (0x02)" disabled />
           </Stack>
         </Box>

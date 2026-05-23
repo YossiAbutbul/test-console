@@ -17,6 +17,14 @@ class LoraCwRequest(BaseModel):
     timeout: float = Field(default=5.0, ge=0.1, le=30.0)
 
 
+class LoraPowerRequest(BaseModel):
+    freq_hz: int = Field(..., ge=0, le=0xFFFFFFFF)
+    power_dbm: int = Field(..., ge=0, le=255)
+    pa_duty_cycle: int = Field(..., ge=0, le=255)
+    hp_max: int = Field(..., ge=0, le=255)
+    timeout: float = Field(default=5.0, ge=0.1, le=30.0)
+
+
 class StopRequest(BaseModel):
     timeout: float = Field(default=5.0, ge=0.1, le=30.0)
 
@@ -56,6 +64,24 @@ async def lora_cw(req: LoraCwRequest) -> CommandResponse:
     dev = _device()
     try:
         result = await dev.lora_cw(
+            freq_hz=req.freq_hz,
+            power_dbm=req.power_dbm,
+            pa_duty_cycle=req.pa_duty_cycle,
+            hp_max=req.hp_max,
+            timeout=req.timeout,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="No reply within timeout")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Send failed: {e}")
+    return CommandResponse.from_result(result)
+
+
+@router.post("/lora-power", response_model=CommandResponse)
+async def lora_power(req: LoraPowerRequest) -> CommandResponse:
+    dev = _device()
+    try:
+        result = await dev.lora_power(
             freq_hz=req.freq_hz,
             power_dbm=req.power_dbm,
             pa_duty_cycle=req.pa_duty_cycle,

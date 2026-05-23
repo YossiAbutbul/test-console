@@ -24,18 +24,19 @@ function TestArea({ activeId }: { activeId: string }) {
   const { Page } = mod
   return (
     <Box
-      component="fieldset"
-      disabled={gated}
+      aria-disabled={gated || undefined}
       sx={{
-        border: 0,
-        m: 0,
-        p: 0,
         minWidth: 0,
         opacity: gated ? 0.6 : 1,
+        pointerEvents: gated ? 'none' : 'auto',
         transition: 'opacity 0.15s',
+        display: 'flex',
+        flexDirection: 'column',
+        flexGrow: 1,
+        minHeight: 0,
       }}
     >
-      <Page />
+      <Page protocol={mod.protocol} group={mod.group} />
     </Box>
   )
 }
@@ -153,13 +154,18 @@ export default function App() {
           minWidth: 0,
           px: 4,
           pt: `${TOP_BAR_H + 24}px`,
-          pb: 3,
+          pb: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: '100vh',
         }}
       >
         <Box sx={{ pb: 2, mb: 3, borderBottom: `1px solid ${p.appBarBorder}` }}>
           <ConnectionPanel />
         </Box>
-        <TestArea activeId={activeId} />
+        <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <TestArea activeId={activeId} />
+        </Box>
       </Box>
 
       <InstrumentsModal />

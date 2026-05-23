@@ -10,6 +10,7 @@ import { LabeledField } from '../../components/LabeledField'
 import { TopProgress } from '../../components/TopProgress'
 import { useInstruments, type InstrumentId } from '../../context/InstrumentsContext'
 import type { StartRequest } from '../../types/models'
+import type { TestPageProps } from '../types'
 
 const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
 
@@ -42,13 +43,13 @@ function RangeRow({
   const count = Math.max(0, Math.abs(hi - lo) + 1)
   return (
     <Box>
-      <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 0.5 }}>
-        <Typography sx={{ fontSize: 13, fontWeight: 500 }}>{label}</Typography>
+      <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 0.75 }}>
+        <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'text.primary' }}>{label}</Typography>
         <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
           {min}–{max}{unit ? ` ${unit}` : ''} · {count} step{count === 1 ? '' : 's'}
         </Typography>
       </Stack>
-      <Stack direction="row" spacing={1.5} alignItems="center">
+      <Stack direction="row" spacing={1.5} alignItems="flex-end">
         <LabeledField
           label="From"
           type="number"
@@ -57,7 +58,17 @@ function RangeRow({
           onChange={(e) => setLo(Math.max(min, Math.min(max, Number(e.target.value) || min)))}
           width={120}
         />
-        <Box sx={{ color: 'text.disabled', fontSize: 13, mt: 2 }}>→</Box>
+        <Box
+          sx={{
+            color: 'text.disabled',
+            fontSize: 16,
+            height: 40,
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          →
+        </Box>
         <LabeledField
           label="To"
           type="number"
@@ -71,11 +82,12 @@ function RangeRow({
   )
 }
 
-export function PowerSweepPage() {
+export function PowerSweepPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
   const { notifyMissing, instruments } = useInstruments()
   const missing = REQUIRED_INSTRUMENTS.filter((id) => instruments[id].status !== 'connected')
+  const hasBackend = protocol === 'LoRa'
 
   const [freqMhz, setFreqMhz] = useState('902.3')
   const [powerLo, setPowerLo] = useState(RANGES.power.min)
@@ -87,9 +99,10 @@ export function PowerSweepPage() {
   const [settle, setSettle] = useState(30)
 
   const statusQ = useQuery({
-    queryKey: ['test-status'],
+    queryKey: ['test-status', protocol],
     queryFn: tests.status,
     refetchInterval: (q) => (q.state.data?.state === 'running' ? 500 : false),
+    enabled: hasBackend,
   })
 
   const totalSteps =
@@ -99,6 +112,10 @@ export function PowerSweepPage() {
 
   const run = useMutation({
     mutationFn: () => {
+      if (!hasBackend) {
+        log(`${protocol} Mode Sweep: no backend wired yet`, 'warn')
+        return Promise.resolve(null)
+      }
       const ps = instruments['power-sensor']
       const dc = instruments['dc-analyzer']
       const req: StartRequest = {
@@ -124,7 +141,10 @@ export function PowerSweepPage() {
   })
 
   const cancel = useMutation({
-    mutationFn: () => tests.cancel(),
+    mutationFn: () => {
+      if (!hasBackend) return Promise.resolve(null)
+      return tests.cancel()
+    },
     onSuccess: () => {
       log('Sweep cancelled')
       qc.invalidateQueries({ queryKey: ['test-status'] })
@@ -148,6 +168,7 @@ export function PowerSweepPage() {
   }
 
   const running = statusQ.data?.state === 'running'
+  const hasSweep = statusQ.data?.state != null && statusQ.data.state !== 'idle'
   const cancelling = cancel.isPending || (running && cancel.isSuccess)
   const total = statusQ.data?.total ?? 0
   const completed = statusQ.data?.completed ?? 0
@@ -155,7 +176,7 @@ export function PowerSweepPage() {
   const showProgress = running || cancelling
 
   const onRun = () => {
-    if (missing.length > 0) {
+    if (hasBackend && missing.length > 0) {
       log(`Cannot start: missing instruments — ${missing.join(', ')}`, 'warn')
       notifyMissing(REQUIRED_INSTRUMENTS)
       return
@@ -164,19 +185,19 @@ export function PowerSweepPage() {
   }
 
   return (
-    <Box>
+    <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
       <TopProgress
         pct={pct}
         indeterminate={cancelling}
         hidden={!showProgress}
       />
       <PageHeader
-        protocol="LoRa"
-        group="TX"
+        protocol={protocol}
+        group={group}
         label="Mode Sweep"
         actions={
           <Stack direction="row" spacing={1}>
-            <Button variant="outlined" onClick={onExport} sx={{ height: 36 }}>
+            <Button variant="outlined" onClick={onExport} disabled={!hasSweep} sx={{ height: 36 }}>
               Export Excel
             </Button>
             <Button
@@ -201,36 +222,34 @@ export function PowerSweepPage() {
         }
       />
 
-      <Stack spacing={3} sx={{ mt: 1 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-end">
-          <LabeledField
-            label="Frequency"
-            hint="MHz"
-            type="number"
-            value={freqMhz}
-            onChange={(e) => setFreqMhz(e.target.value)}
-            inputProps={{ step: 0.1 }}
-            width={180}
-          />
-          <LabeledField
-            label="Settle"
-            hint="ms"
-            type="number"
-            value={settle}
-            onChange={(e) => setSettle(Number(e.target.value))}
-            width={140}
-          />
-          <Box sx={{ flexGrow: 1 }} />
-          <Typography sx={{ fontSize: 12, color: 'text.secondary', pb: 1 }}>
-            Total steps:{' '}
-            <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>
-              {totalSteps}
-            </Box>
+      <Stack spacing={2} sx={{ mt: 1 }}>
+        <Box>
+          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
+            RF setup
           </Typography>
-        </Stack>
+          <Stack spacing={2}>
+            <LabeledField
+              label="Frequency"
+              hint="MHz"
+              type="number"
+              value={freqMhz}
+              onChange={(e) => setFreqMhz(e.target.value)}
+              inputProps={{ step: 0.1 }}
+              width={180}
+            />
+            <LabeledField
+              label="Settle"
+              hint="ms"
+              type="number"
+              value={settle}
+              onChange={(e) => setSettle(Number(e.target.value))}
+              width={140}
+            />
+          </Stack>
+        </Box>
 
         <Box>
-          <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: 'text.secondary', mb: 1.5 }}>
+          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
             Sweep ranges
           </Typography>
           <Stack spacing={2}>
@@ -243,6 +262,27 @@ export function PowerSweepPage() {
           </Stack>
         </Box>
       </Stack>
+
+      <Box sx={{ flexGrow: 1 }} />
+
+      <Box
+        sx={{
+          mt: 4,
+          mx: -4,
+          px: 4,
+          py: 1.25,
+          display: 'flex',
+          justifyContent: 'flex-end',
+          bgcolor: 'background.default',
+        }}
+      >
+        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+          Total steps:{' '}
+          <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>
+            {totalSteps}
+          </Box>
+        </Typography>
+      </Box>
     </Box>
   )
 }

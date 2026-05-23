@@ -175,7 +175,7 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
   const { setOpen: openInstruments, instruments } = useInstruments()
   const anyConnected = Object.values(instruments).some((i) => i.status === 'connected')
   const [expandedProto, setExpandedProto] = useState<Record<string, boolean>>(
-    () => ({ LoRa: true, LTE: true, BLE: true }),
+    () => ({ LoRa: true, LTE: false, BLE: false }),
   )
   const [expandedGroup, setExpandedGroup] = useState<Record<string, boolean>>(() => {
     const out: Record<string, boolean> = {}
