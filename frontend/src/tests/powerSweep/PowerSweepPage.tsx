@@ -8,6 +8,7 @@ import { useLog } from '../../context/LogContext'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import { TopProgress } from '../../components/TopProgress'
+import { MeasurementCard } from '../../components/MeasurementCard'
 import { useInstruments, type InstrumentId } from '../../context/InstrumentsContext'
 import type { StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
@@ -149,10 +150,10 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
       return tests.cancel()
     },
     onSuccess: () => {
-      log('Sweep cancelled')
+      log('Sweep stopped')
       qc.invalidateQueries({ queryKey: ['test-status'] })
     },
-    onError: (e: Error) => log(`Cancel failed: ${e.message}`, 'error'),
+    onError: (e: Error) => log(`Stop failed: ${e.message}`, 'error'),
   })
 
   async function onExport() {
@@ -210,7 +211,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
               endIcon={cancelling ? <CircularProgress size={14} color="inherit" /> : undefined}
               sx={{ minWidth: 96, height: 36 }}
             >
-              Cancel
+              {cancelling ? 'Stopping…' : 'Stop'}
             </Button>
             <Button
               variant="contained"
@@ -225,7 +226,33 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
         }
       />
 
-      <Stack spacing={2} sx={{ mt: 1 }}>
+      <Box
+        sx={{
+          mt: 1,
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+          columnGap: 4,
+          rowGap: 2,
+          alignItems: 'start',
+        }}
+      >
+        <Box>
+          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
+            Sweep ranges
+          </Typography>
+          <Stack spacing={2}>
+            <RangeRow label="Power" lo={powerLo} hi={powerHi} setLo={setPowerLo} setHi={setPowerHi}
+              min={RANGES.power.min} max={RANGES.power.max} unit="dBm"
+              historyKey={`${protocol}.modeSweep.power`} />
+            <RangeRow label="PA Duty Cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
+              min={RANGES.duty.min} max={RANGES.duty.max}
+              historyKey={`${protocol}.modeSweep.duty`} />
+            <RangeRow label="HP Max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
+              min={RANGES.hp.min} max={RANGES.hp.max}
+              historyKey={`${protocol}.modeSweep.hp`} />
+          </Stack>
+        </Box>
+
         <Box>
           <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
             RF setup
@@ -252,24 +279,26 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
             />
           </Stack>
         </Box>
+      </Box>
 
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            Sweep ranges
-          </Typography>
-          <Stack spacing={2}>
-            <RangeRow label="Power" lo={powerLo} hi={powerHi} setLo={setPowerLo} setHi={setPowerHi}
-              min={RANGES.power.min} max={RANGES.power.max} unit="dBm"
-              historyKey={`${protocol}.modeSweep.power`} />
-            <RangeRow label="PA Duty Cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
-              min={RANGES.duty.min} max={RANGES.duty.max}
-              historyKey={`${protocol}.modeSweep.duty`} />
-            <RangeRow label="HP Max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
-              min={RANGES.hp.min} max={RANGES.hp.max}
-              historyKey={`${protocol}.modeSweep.hp`} />
-          </Stack>
-        </Box>
-      </Stack>
+      {(() => {
+        const r = statusQ.data?.last_row
+        return (
+          <Box sx={{ mt: 2 }}>
+            <MeasurementCard
+              staticData={{
+                power_dbm: r?.tx_power_dbm ?? null,
+                current_a: r?.current_a ?? null,
+                voltage_v: r?.voltage_v ?? null,
+                label: 'Last measured row',
+                subLabel: r
+                  ? `#${r.idx + 1} · hp=${r.hp_max} duty=${r.pa_duty_cycle} pow=${r.power_dbm_setting}dBm`
+                  : 'waiting for first step…',
+              }}
+            />
+          </Box>
+        )
+      })()}
 
       <Box sx={{ flexGrow: 1 }} />
 

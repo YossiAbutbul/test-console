@@ -49,7 +49,7 @@ export function ConnectionPanel() {
   const [editMac, setEditMac] = useState<string | null>(null)
   const qc = useQueryClient()
   const [duration, setDuration] = useState(5)
-  const [nameFilter, setNameFilter] = useState('CATM2')
+  const [nameFilter, setNameFilter] = useState('Sonata2IL')
   const [devices, setDevices] = useState<ScannedDevice[]>([])
   const [acOpen, setAcOpen] = useState(false)
   const [scanning, setScanning] = useState(false)

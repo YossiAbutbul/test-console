@@ -1,5 +1,5 @@
 import { http } from './client'
-import type { CommandResponse, LoraCwRequest, LoraPowerRequest } from '../types/models'
+import type { CommandResponse, LoraCwRequest, LoraModulatedRequest, LoraPowerRequest } from '../types/models'
 
 export const device = {
   loraCw: (req: LoraCwRequest) =>
@@ -9,6 +9,11 @@ export const device = {
     }),
   loraPower: (req: LoraPowerRequest) =>
     http<CommandResponse>('/device/lora-power', {
+      method: 'POST',
+      body: JSON.stringify({ timeout: 5, ...req }),
+    }),
+  loraModulated: (req: LoraModulatedRequest) =>
+    http<CommandResponse>('/device/lora-modulated', {
       method: 'POST',
       body: JSON.stringify({ timeout: 5, ...req }),
     }),

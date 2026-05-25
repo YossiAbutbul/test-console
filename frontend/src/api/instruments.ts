@@ -11,6 +11,16 @@ interface ConnectResponse {
   idn: string | null
 }
 
+export interface MeasureResponse {
+  power_dbm: number | null
+  current_a: number | null
+  voltage_v: number | null
+  power_sensor_connected: boolean
+  dc_analyzer_connected: boolean
+  t_ms: number
+  error: string | null
+}
+
 export const instrumentsApi = {
   discover: (kind: InstrumentKind) =>
     http<DiscoverResponse>(`/instruments/discover/${kind}`),
@@ -23,4 +33,9 @@ export const instrumentsApi = {
     http<ConnectResponse>(`/instruments/${kind}/disconnect`, {
       method: 'POST',
     }),
+  measure: (freqHz?: number) =>
+    http<MeasureResponse>(
+      `/instruments/measure${freqHz ? `?freq_hz=${Math.round(freqHz)}` : ''}`,
+      { method: 'POST' },
+    ),
 }

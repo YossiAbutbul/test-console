@@ -3,6 +3,7 @@ import { Box, Button, Stack, Typography } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
+import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
 import type { CommandResponse } from '../../types/models'
@@ -14,6 +15,7 @@ export function PowerPage({ protocol, group }: TestPageProps) {
   const [freqMhz, setFreqMhz] = useState(902.3)
   const [power, setPower] = useState(14)
   const [last, setLast] = useState<CommandResponse | null>(null)
+  const [measureTrigger, setMeasureTrigger] = useState(0)
 
   const send = useMutation({
     mutationFn: () => {
@@ -24,17 +26,31 @@ export function PowerPage({ protocol, group }: TestPageProps) {
       return device.loraPower({
         freq_hz: Math.round(freqMhz * 1_000_000),
         power_dbm: power,
-        pa_duty_cycle: 0,
-        hp_max: 0,
       })
     },
     onSuccess: (r) => {
       if (!r) return
       setLast(r)
       log(`Power sent: ok=${r.ok} status=${r.status}`)
+      if (r.ok) setMeasureTrigger((n) => n + 1)
     },
     onError: (e: Error) => log(`Power failed: ${e.message}`, 'error'),
   })
+
+  const stop = useMutation({
+    mutationFn: () => {
+      if (!hasBackend) return Promise.resolve(null)
+      return device.stop()
+    },
+    onSuccess: (r) => {
+      if (!r) return
+      setLast(r)
+      log(`Stop sent: ok=${r.ok} status=${r.status}`)
+    },
+    onError: (e: Error) => log(`Stop failed: ${e.message}`, 'error'),
+  })
+
+  const busy = send.isPending || stop.isPending
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
@@ -43,14 +59,24 @@ export function PowerPage({ protocol, group }: TestPageProps) {
         group={group}
         label="Power"
         actions={
-          <Button
-            variant="contained"
-            disabled={send.isPending}
-            onClick={() => send.mutate()}
-            sx={{ minWidth: 96, height: 36 }}
-          >
-            {send.isPending ? 'Sending…' : 'Send'}
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              disabled={busy}
+              onClick={() => stop.mutate()}
+              sx={{ minWidth: 96, height: 36 }}
+            >
+              {stop.isPending ? 'Stopping…' : 'Stop'}
+            </Button>
+            <Button
+              variant="contained"
+              disabled={busy}
+              onClick={() => send.mutate()}
+              sx={{ minWidth: 96, height: 36 }}
+            >
+              {send.isPending ? 'Sending…' : 'Send'}
+            </Button>
+          </Stack>
         }
       />
 
@@ -70,6 +96,11 @@ export function PowerPage({ protocol, group }: TestPageProps) {
             <LabeledField label="PA Mode" value="AUTO (0x02)" disabled />
           </Stack>
         </Box>
+
+        <MeasurementCard
+          freqHz={Math.round(freqMhz * 1_000_000)}
+          triggerId={measureTrigger}
+        />
 
         {last && (
           <Box sx={{ fontFamily: 'monospace', fontSize: 12, p: 1.5, borderRadius: 1, border: 1, borderColor: 'divider' }}>

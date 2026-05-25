@@ -35,8 +35,15 @@ export interface LoraCwRequest {
 export interface LoraPowerRequest {
   freq_hz: number
   power_dbm: number
-  pa_duty_cycle: number
-  hp_max: number
+  timeout?: number
+}
+
+export interface LoraModulatedRequest {
+  bandwidth: number
+  freq_hz: number
+  power_dbm: number
+  modem: number
+  datarate: number
   timeout?: number
 }
 

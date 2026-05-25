@@ -14,11 +14,56 @@ from .protocol import Frame, Transport, pack_frame
 # --- Opcodes (raw 2-byte, as seen on wire) ---
 OPCODE_LORA_CW_DEBUG = b"\x28\x50"
 OPCODE_STOP_TEST = b"\x18\x50"
-OPCODE_LORA_POWER = b"\x00\x00"  # TODO placeholder — set real opcode
+OPCODE_LORA_POWER = b"\x17\x50"
+OPCODE_LORA_MODULATED = b"\x19\x50"
 
 
 class PaMode(IntEnum):
     AUTO = 0x02
+
+
+class Modem(IntEnum):
+    FSK = 0
+    LORA = 1
+
+
+@dataclass
+class LoraModulatedParams:
+    bandwidth: int          # uint8: 0=125k, 1=250k, 2=500k (FSK must be 0)
+    freq_hz: int            # uint32 LE
+    power_dbm: int          # uint8
+    modem: Modem            # uint32 LE
+    datarate: int           # uint32 LE: 6..12 for LoRa SF; bps for FSK
+
+    def encode(self) -> bytes:
+        _check_u8("bandwidth", self.bandwidth)
+        _check_u32("freq_hz", self.freq_hz)
+        _check_u8("power_dbm", self.power_dbm)
+        _check_u32("datarate", self.datarate)
+        payload = (
+            bytes([self.bandwidth])
+            + self.freq_hz.to_bytes(4, "little")
+            + bytes([self.power_dbm])
+            + int(self.modem).to_bytes(4, "little")
+            + self.datarate.to_bytes(4, "little")
+        )
+        return pack_frame(OPCODE_LORA_MODULATED, payload)
+
+
+@dataclass
+class LoraPowerParams:
+    freq_hz: int            # uint32 LE, Hz
+    power_dbm: int          # uint8, positive dBm
+    pa_mode: PaMode = PaMode.AUTO
+
+    def encode(self) -> bytes:
+        _check_u32("freq_hz", self.freq_hz)
+        _check_u8("power_dbm", self.power_dbm)
+        payload = (
+            self.freq_hz.to_bytes(4, "little")
+            + bytes([self.power_dbm, int(self.pa_mode)])
+        )
+        return pack_frame(OPCODE_LORA_POWER, payload)
 
 
 @dataclass
@@ -89,23 +134,35 @@ class Device:
         self,
         freq_hz: int,
         power_dbm: int,
-        pa_duty_cycle: int,
-        hp_max: int,
         pa_mode: PaMode = PaMode.AUTO,
         timeout: float = 5.0,
     ) -> CommandResult:
-        # TODO placeholder — payload + opcode TBD
-        _check_u32("freq_hz", freq_hz)
-        _check_u8("power_dbm", power_dbm)
-        _check_u8("pa_duty_cycle", pa_duty_cycle)
-        _check_u8("hp_max", hp_max)
-        payload = (
-            freq_hz.to_bytes(4, "little")
-            + bytes([int(pa_mode), power_dbm, pa_duty_cycle, hp_max])
+        params = LoraPowerParams(
+            freq_hz=freq_hz, power_dbm=power_dbm, pa_mode=pa_mode,
         )
-        tx = pack_frame(OPCODE_LORA_POWER, payload)
+        tx = params.encode()
         reply = await self._t.send(tx, timeout=timeout)
         return _make_result(tx, reply, expected_opcode=OPCODE_LORA_POWER)
+
+    async def lora_modulated(
+        self,
+        bandwidth: int,
+        freq_hz: int,
+        power_dbm: int,
+        modem: Modem,
+        datarate: int,
+        timeout: float = 5.0,
+    ) -> CommandResult:
+        params = LoraModulatedParams(
+            bandwidth=bandwidth,
+            freq_hz=freq_hz,
+            power_dbm=power_dbm,
+            modem=modem,
+            datarate=datarate,
+        )
+        tx = params.encode()
+        reply = await self._t.send(tx, timeout=timeout)
+        return _make_result(tx, reply, expected_opcode=OPCODE_LORA_MODULATED)
 
     async def stop_test(self, timeout: float = 5.0) -> CommandResult:
         tx = pack_frame(OPCODE_STOP_TEST, b"")

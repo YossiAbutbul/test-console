@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Box, Button, Stack, Typography } from '@mui/material'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
+import { MeasurementCard } from '../../components/MeasurementCard'
 import { useMutation } from '@tanstack/react-query'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
@@ -16,7 +17,7 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
   const [duty, setDuty] = useState(0)
   const [hp, setHp] = useState(7)
   const [last, setLast] = useState<CommandResponse | null>(null)
-  const [active, setActive] = useState(false)
+  const [measureTrigger, setMeasureTrigger] = useState(0)
 
   const send = useMutation({
     mutationFn: () => {
@@ -29,8 +30,8 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
     onSuccess: (r) => {
       if (!r) return
       setLast(r)
-      if (r.ok) setActive(true)
       log(`CW sent: ok=${r.ok} status=${r.status}`)
+      if (r.ok) setMeasureTrigger((n) => n + 1)
     },
     onError: (e: Error) => log(`CW failed: ${e.message}`, 'error'),
   })
@@ -41,19 +42,14 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
       return device.stop()
     },
     onSuccess: (r) => {
-      if (!r) { setActive(false); return }
+      if (!r) return
       setLast(r)
-      setActive(false)
       log(`Stop sent: ok=${r.ok} status=${r.status}`)
     },
     onError: (e: Error) => log(`Stop failed: ${e.message}`, 'error'),
   })
 
   const busy = send.isPending || stop.isPending
-  const toggle = () => {
-    if (active) stop.mutate()
-    else send.mutate()
-  }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
@@ -62,14 +58,24 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
         group={group}
         label="Debug"
         actions={
-          <Button
-            variant="contained"
-            disabled={busy}
-            onClick={toggle}
-            sx={{ minWidth: 96, height: 36 }}
-          >
-            {busy ? (active ? 'Stopping…' : 'Sending…') : active ? 'Stop test' : 'Send'}
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              disabled={busy}
+              onClick={() => stop.mutate()}
+              sx={{ minWidth: 96, height: 36 }}
+            >
+              {stop.isPending ? 'Stopping…' : 'Stop'}
+            </Button>
+            <Button
+              variant="contained"
+              disabled={busy}
+              onClick={() => send.mutate()}
+              sx={{ minWidth: 96, height: 36 }}
+            >
+              {send.isPending ? 'Sending…' : 'Send'}
+            </Button>
+          </Stack>
         }
       />
 
@@ -78,7 +84,7 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
           <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
             RF setup
           </Typography>
-          <Stack spacing={2} sx={{ maxWidth: 360 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, maxWidth: 760 }}>
             <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
               historyKey={`${protocol}.debug.freqMhz`}
               onChange={(e) => setFreqMhz(Number(e.target.value))}
@@ -93,8 +99,13 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
               historyKey={`${protocol}.debug.hp`}
               onChange={(e) => setHp(Number(e.target.value))} />
             <LabeledField label="PA Mode" value="AUTO (0x02)" disabled />
-          </Stack>
+          </Box>
         </Box>
+
+        <MeasurementCard
+          freqHz={Math.round(freqMhz * 1_000_000)}
+          triggerId={measureTrigger}
+        />
 
         {last && (
           <Box sx={{ fontFamily: 'monospace', fontSize: 12, p: 1.5, borderRadius: 1, border: 1, borderColor: 'divider' }}>

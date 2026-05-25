@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..ble import manager
-from ..device import CommandResult
+from ..device import CommandResult, Modem
 
 router = APIRouter(prefix="/device", tags=["device"])
 
@@ -20,8 +20,15 @@ class LoraCwRequest(BaseModel):
 class LoraPowerRequest(BaseModel):
     freq_hz: int = Field(..., ge=0, le=0xFFFFFFFF)
     power_dbm: int = Field(..., ge=0, le=255)
-    pa_duty_cycle: int = Field(..., ge=0, le=255)
-    hp_max: int = Field(..., ge=0, le=255)
+    timeout: float = Field(default=5.0, ge=0.1, le=30.0)
+
+
+class LoraModulatedRequest(BaseModel):
+    bandwidth: int = Field(..., ge=0, le=3, description="0=125k 1=250k 2=500k 3=reserved (FSK=0)")
+    freq_hz: int = Field(..., ge=0, le=0xFFFFFFFF)
+    power_dbm: int = Field(..., ge=0, le=255)
+    modem: int = Field(..., ge=0, le=1, description="0=FSK 1=LoRa")
+    datarate: int = Field(..., ge=0, le=0xFFFFFFFF, description="LoRa SF 6..12; FSK bps")
     timeout: float = Field(default=5.0, ge=0.1, le=30.0)
 
 
@@ -84,8 +91,25 @@ async def lora_power(req: LoraPowerRequest) -> CommandResponse:
         result = await dev.lora_power(
             freq_hz=req.freq_hz,
             power_dbm=req.power_dbm,
-            pa_duty_cycle=req.pa_duty_cycle,
-            hp_max=req.hp_max,
+            timeout=req.timeout,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="No reply within timeout")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Send failed: {e}")
+    return CommandResponse.from_result(result)
+
+
+@router.post("/lora-modulated", response_model=CommandResponse)
+async def lora_modulated(req: LoraModulatedRequest) -> CommandResponse:
+    dev = _device()
+    try:
+        result = await dev.lora_modulated(
+            bandwidth=req.bandwidth,
+            freq_hz=req.freq_hz,
+            power_dbm=req.power_dbm,
+            modem=Modem(req.modem),
+            datarate=req.datarate,
             timeout=req.timeout,
         )
     except asyncio.TimeoutError:
