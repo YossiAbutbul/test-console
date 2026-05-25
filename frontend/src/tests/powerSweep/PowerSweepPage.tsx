@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Box, Button, CircularProgress, Stack, Typography,
+  Box, Button, CircularProgress, MenuItem, Stack, Typography,
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tests } from '../../api/tests'
@@ -101,6 +101,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
   const [hpLo, setHpLo] = useState(RANGES.hp.min)
   const [hpHi, setHpHi] = useState(RANGES.hp.max)
   const [settle, setSettle] = useState(30)
+  const [paMode, setPaMode] = useState(0)
 
   const statusQ = useQuery({
     queryKey: ['test-status', protocol],
@@ -117,7 +118,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
   const run = useMutation({
     mutationFn: () => {
       if (!hasBackend) {
-        log(`${protocol} Mode Sweep: no backend wired yet`, 'warn')
+        log('Sweep', `${protocol} Mode Sweep: no backend wired yet`, 'warn')
         return Promise.resolve(null)
       }
       const ps = instruments['power-sensor']
@@ -130,6 +131,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
           hp_values: range(hpLo, hpHi),
           settle_ms: settle,
           cmd_timeout_s: 5,
+          pa_mode: paMode,
         },
         power_sensor_serial: ps.address.trim() || null,
         dc_analyzer_resource: dc.address.trim() || null,
@@ -138,10 +140,10 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
       return tests.run(req)
     },
     onSuccess: () => {
-      log(`Sweep started (${totalSteps} steps)`)
+      log('Sweep', `Started (${totalSteps} steps)`)
       qc.invalidateQueries({ queryKey: ['test-status'] })
     },
-    onError: (e: Error) => log(`Run failed: ${e.message}`, 'error'),
+    onError: (e: Error) => log('Sweep', `Run failed: ${e.message}`, 'error'),
   })
 
   const cancel = useMutation({
@@ -150,10 +152,10 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
       return tests.cancel()
     },
     onSuccess: () => {
-      log('Sweep stopped')
+      log('Sweep', 'Stopped')
       qc.invalidateQueries({ queryKey: ['test-status'] })
     },
-    onError: (e: Error) => log(`Stop failed: ${e.message}`, 'error'),
+    onError: (e: Error) => log('Sweep', `Stop failed: ${e.message}`, 'error'),
   })
 
   async function onExport() {
@@ -165,9 +167,9 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
       a.download = filename
       a.click()
       URL.revokeObjectURL(url)
-      log(`Exported ${filename}`)
+      log('Sweep', `Exported ${filename}`)
     } catch (e) {
-      log(`Export failed: ${(e as Error).message}`, 'error')
+      log('Sweep', `Export failed: ${(e as Error).message}`, 'error')
     }
   }
 
@@ -181,9 +183,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
 
   const onRun = () => {
     if (hasBackend && missing.length > 0) {
-      log(`Cannot start: missing instruments — ${missing.join(', ')}`, 'warn')
-      notifyMissing(REQUIRED_INSTRUMENTS)
-      return
+      log('Sweep', `Warning: instruments not connected in UI — ${missing.join(', ')}. Backend will try to init.`, 'warn')
     }
     run.mutate()
   }
@@ -277,6 +277,17 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
               onChange={(e) => setSettle(Number(e.target.value))}
               width={140}
             />
+            <LabeledField
+              label="PA Mode"
+              select
+              value={paMode}
+              onChange={(e) => setPaMode(Number(e.target.value))}
+              sx={{ maxWidth: 180 }}
+            >
+              <MenuItem value={0}>Off</MenuItem>
+              <MenuItem value={1}>On</MenuItem>
+              <MenuItem value={2}>Auto</MenuItem>
+            </LabeledField>
           </Stack>
         </Box>
       </Box>

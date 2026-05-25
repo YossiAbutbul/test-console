@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Box, Button, Stack, Typography } from '@mui/material'
+import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
@@ -14,27 +14,29 @@ export function PowerPage({ protocol, group }: TestPageProps) {
   const hasBackend = protocol === 'LoRa'
   const [freqMhz, setFreqMhz] = useState(902.3)
   const [power, setPower] = useState(14)
+  const [paMode, setPaMode] = useState(2)
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
 
   const send = useMutation({
     mutationFn: () => {
       if (!hasBackend) {
-        log(`${protocol} Power: no backend wired yet`, 'warn')
+        log('DUT', `${protocol} Power: no backend wired yet`, 'warn')
         return Promise.resolve(null)
       }
       return device.loraPower({
         freq_hz: Math.round(freqMhz * 1_000_000),
         power_dbm: power,
+        pa_mode: paMode,
       })
     },
     onSuccess: (r) => {
       if (!r) return
       setLast(r)
-      log(`Power sent: ok=${r.ok} status=${r.status}`)
+      log('DUT', `Power sent: ok=${r.ok} status=${r.status}`)
       if (r.ok) setMeasureTrigger((n) => n + 1)
     },
-    onError: (e: Error) => log(`Power failed: ${e.message}`, 'error'),
+    onError: (e: Error) => log('DUT', `Power failed: ${e.message}`, 'error'),
   })
 
   const stop = useMutation({
@@ -45,9 +47,9 @@ export function PowerPage({ protocol, group }: TestPageProps) {
     onSuccess: (r) => {
       if (!r) return
       setLast(r)
-      log(`Stop sent: ok=${r.ok} status=${r.status}`)
+      log('DUT', `Stop sent: ok=${r.ok} status=${r.status}`)
     },
-    onError: (e: Error) => log(`Stop failed: ${e.message}`, 'error'),
+    onError: (e: Error) => log('DUT', `Stop failed: ${e.message}`, 'error'),
   })
 
   const busy = send.isPending || stop.isPending
@@ -93,7 +95,16 @@ export function PowerPage({ protocol, group }: TestPageProps) {
             <LabeledField label="Power" hint="dBm" type="number" value={power}
               historyKey={`${protocol}.power.power_dbm`}
               onChange={(e) => setPower(Number(e.target.value))} />
-            <LabeledField label="PA Mode" value="AUTO (0x02)" disabled />
+            <LabeledField
+              label="PA Mode"
+              select
+              value={paMode}
+              onChange={(e) => setPaMode(Number(e.target.value))}
+            >
+              <MenuItem value={2}>Auto</MenuItem>
+              <MenuItem value={1}>On</MenuItem>
+              <MenuItem value={0}>Off</MenuItem>
+            </LabeledField>
           </Stack>
         </Box>
 

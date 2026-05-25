@@ -21,7 +21,14 @@ export interface MeasureResponse {
   error: string | null
 }
 
+export interface StatusResponse {
+  power_sensor: { connected: boolean; idn: string | null }
+  dc_analyzer: { connected: boolean; idn: string | null }
+  spectrum: { connected: boolean; idn: string | null }
+}
+
 export const instrumentsApi = {
+  status: () => http<StatusResponse>('/instruments/status'),
   discover: (kind: InstrumentKind) =>
     http<DiscoverResponse>(`/instruments/discover/${kind}`),
   connect: (kind: InstrumentKind, address: string, channel?: number) =>

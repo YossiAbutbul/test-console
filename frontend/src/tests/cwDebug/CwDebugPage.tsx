@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Box, Button, Stack, Typography } from '@mui/material'
+import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
@@ -16,24 +16,25 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
   const [power, setPower] = useState(14)
   const [duty, setDuty] = useState(0)
   const [hp, setHp] = useState(7)
+  const [paMode, setPaMode] = useState(0)
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
 
   const send = useMutation({
     mutationFn: () => {
       if (!hasBackend) {
-        log(`${protocol} Debug: no backend wired yet`, 'warn')
+        log('DUT', `${protocol} Debug: no backend wired yet`, 'warn')
         return Promise.resolve(null)
       }
-      return device.loraCw({ freq_hz: Math.round(freqMhz * 1_000_000), power_dbm: power, pa_duty_cycle: duty, hp_max: hp })
+      return device.loraCw({ freq_hz: Math.round(freqMhz * 1_000_000), power_dbm: power, pa_duty_cycle: duty, hp_max: hp, pa_mode: paMode })
     },
     onSuccess: (r) => {
       if (!r) return
       setLast(r)
-      log(`CW sent: ok=${r.ok} status=${r.status}`)
+      log('DUT', `CW sent: ok=${r.ok} status=${r.status}`)
       if (r.ok) setMeasureTrigger((n) => n + 1)
     },
-    onError: (e: Error) => log(`CW failed: ${e.message}`, 'error'),
+    onError: (e: Error) => log('DUT', `CW failed: ${e.message}`, 'error'),
   })
 
   const stop = useMutation({
@@ -44,9 +45,9 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
     onSuccess: (r) => {
       if (!r) return
       setLast(r)
-      log(`Stop sent: ok=${r.ok} status=${r.status}`)
+      log('DUT', `Stop sent: ok=${r.ok} status=${r.status}`)
     },
-    onError: (e: Error) => log(`Stop failed: ${e.message}`, 'error'),
+    onError: (e: Error) => log('DUT', `Stop failed: ${e.message}`, 'error'),
   })
 
   const busy = send.isPending || stop.isPending
@@ -98,7 +99,16 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
             <LabeledField label="HP Max" type="number" value={hp}
               historyKey={`${protocol}.debug.hp`}
               onChange={(e) => setHp(Number(e.target.value))} />
-            <LabeledField label="PA Mode" value="AUTO (0x02)" disabled />
+            <LabeledField
+              label="PA Mode"
+              select
+              value={paMode}
+              onChange={(e) => setPaMode(Number(e.target.value))}
+            >
+              <MenuItem value={2}>Auto</MenuItem>
+              <MenuItem value={1}>On</MenuItem>
+              <MenuItem value={0}>Off</MenuItem>
+            </LabeledField>
           </Box>
         </Box>
 

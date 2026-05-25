@@ -179,7 +179,7 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
   )
   const [expandedGroup, setExpandedGroup] = useState<Record<string, boolean>>(() => {
     const out: Record<string, boolean> = {}
-    for (const p of tree) for (const g of p.groups) out[`${p.protocol}/${g.group}`] = true
+    for (const p of tree) for (const g of p.groups) out[`${p.protocol}/${g.group}`] = g.group !== 'Other'
     return out
   })
   return (

@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..ble import manager
-from ..device import CommandResult, Modem
+from ..device import CommandResult, Modem, PaMode
 
 router = APIRouter(prefix="/device", tags=["device"])
 
@@ -14,12 +14,14 @@ class LoraCwRequest(BaseModel):
     power_dbm: int = Field(..., ge=0, le=255, description="Transmit power in dBm (positive)")
     pa_duty_cycle: int = Field(..., ge=0, le=255)
     hp_max: int = Field(..., ge=0, le=255)
+    pa_mode: int = Field(default=2, ge=0, le=2, description="0=OFF 1=ON 2=AUTO")
     timeout: float = Field(default=5.0, ge=0.1, le=30.0)
 
 
 class LoraPowerRequest(BaseModel):
     freq_hz: int = Field(..., ge=0, le=0xFFFFFFFF)
     power_dbm: int = Field(..., ge=0, le=255)
+    pa_mode: int = Field(default=2, ge=0, le=2, description="0=OFF 1=ON 2=AUTO")
     timeout: float = Field(default=5.0, ge=0.1, le=30.0)
 
 
@@ -75,6 +77,7 @@ async def lora_cw(req: LoraCwRequest) -> CommandResponse:
             power_dbm=req.power_dbm,
             pa_duty_cycle=req.pa_duty_cycle,
             hp_max=req.hp_max,
+            pa_mode=PaMode(req.pa_mode),
             timeout=req.timeout,
         )
     except asyncio.TimeoutError:
@@ -91,6 +94,7 @@ async def lora_power(req: LoraPowerRequest) -> CommandResponse:
         result = await dev.lora_power(
             freq_hz=req.freq_hz,
             power_dbm=req.power_dbm,
+            pa_mode=PaMode(req.pa_mode),
             timeout=req.timeout,
         )
     except asyncio.TimeoutError:

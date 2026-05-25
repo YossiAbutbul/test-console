@@ -7,6 +7,7 @@ import { ConnectionProvider } from './context/ConnectionContext'
 import { LogProvider } from './context/LogContext'
 import { InstrumentsProvider } from './context/InstrumentsContext'
 import { NicknamesProvider } from './context/NicknamesContext'
+import { PathLossProvider } from './context/PathLossContext'
 import App from './App'
 import './index.css'
 
@@ -23,7 +24,9 @@ createRoot(document.getElementById('root')!).render(
             <ConnectionProvider>
               <InstrumentsProvider>
                 <NicknamesProvider>
-                  <App />
+                  <PathLossProvider>
+                    <App />
+                  </PathLossProvider>
                 </NicknamesProvider>
               </InstrumentsProvider>
             </ConnectionProvider>

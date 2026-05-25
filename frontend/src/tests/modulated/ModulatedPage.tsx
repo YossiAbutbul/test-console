@@ -40,7 +40,7 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
   const send = useMutation({
     mutationFn: () => {
       if (!hasBackend) {
-        log(`${protocol} Modulated: no backend wired yet`, 'warn')
+        log('DUT', `${protocol} Modulated: no backend wired yet`, 'warn')
         return Promise.resolve(null)
       }
       return device.loraModulated({
@@ -54,10 +54,10 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
     onSuccess: (r) => {
       if (!r) return
       setLast(r)
-      log(`Modulated sent: ok=${r.ok} status=${r.status}`)
+      log('DUT', `Modulated sent: ok=${r.ok} status=${r.status}`)
       if (r.ok) setMeasureTrigger((n) => n + 1)
     },
-    onError: (e: Error) => log(`Modulated failed: ${e.message}`, 'error'),
+    onError: (e: Error) => log('DUT', `Modulated failed: ${e.message}`, 'error'),
   })
 
   const stop = useMutation({
@@ -68,9 +68,9 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
     onSuccess: (r) => {
       if (!r) return
       setLast(r)
-      log(`Stop sent: ok=${r.ok} status=${r.status}`)
+      log('DUT', `Stop sent: ok=${r.ok} status=${r.status}`)
     },
-    onError: (e: Error) => log(`Stop failed: ${e.message}`, 'error'),
+    onError: (e: Error) => log('DUT', `Stop failed: ${e.message}`, 'error'),
   })
 
   const busy = send.isPending || stop.isPending

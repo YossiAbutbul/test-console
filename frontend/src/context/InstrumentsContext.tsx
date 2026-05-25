@@ -1,12 +1,20 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { instrumentsApi } from '../api/instruments'
 
-export type InstrumentId = 'power-sensor' | 'dc-analyzer' | 'spectrum'
+export type InstrumentId =
+  | 'power-sensor'
+  | 'dc-analyzer'
+  | 'spectrum'
+  | 'network-analyzer'
+  | 'rf-switch'
+  | 'rf-trombone'
+  | 'attenuator'
 export type InstrumentStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
 export interface InstrumentState {
   id: InstrumentId
   label: string
+  model?: string
   /** Address / serial / VISA resource string. */
   address: string
   /** Optional secondary field (e.g., DC channel). */
@@ -14,6 +22,8 @@ export interface InstrumentState {
   status: InstrumentStatus
   idn?: string
   error?: string
+  /** Not yet wired to backend — UI placeholder. */
+  placeholder?: boolean
 }
 
 interface Ctx {
@@ -43,6 +53,7 @@ const INITIAL: Record<InstrumentId, InstrumentState> = {
   'dc-analyzer': {
     id: 'dc-analyzer',
     label: 'DC analyzer',
+    model: 'N6705C',
     address: '',
     channel: 3,
     status: 'disconnected',
@@ -50,8 +61,40 @@ const INITIAL: Record<InstrumentId, InstrumentState> = {
   spectrum: {
     id: 'spectrum',
     label: 'Spectrum analyzer',
+    model: 'FSW26',
     address: '',
     status: 'disconnected',
+  },
+  'network-analyzer': {
+    id: 'network-analyzer',
+    label: 'Network analyzer',
+    model: 'N5224B',
+    address: '',
+    status: 'disconnected',
+    placeholder: true,
+  },
+  'rf-switch': {
+    id: 'rf-switch',
+    label: 'RF switch',
+    address: '',
+    status: 'disconnected',
+    placeholder: true,
+  },
+  'rf-trombone': {
+    id: 'rf-trombone',
+    label: 'RF trombone motor',
+    model: 'MT986A',
+    address: '',
+    status: 'disconnected',
+    placeholder: true,
+  },
+  attenuator: {
+    id: 'attenuator',
+    label: 'Configurable attenuator',
+    model: '50PA-847',
+    address: '',
+    status: 'disconnected',
+    placeholder: true,
   },
 }
 
@@ -62,12 +105,40 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
   const instrumentsRef = useRef(instruments)
   useEffect(() => { instrumentsRef.current = instruments }, [instruments])
 
+  // On mount, sync from backend so connections survive page reload.
+  useEffect(() => {
+    let cancelled = false
+    instrumentsApi.status()
+      .then((s) => {
+        if (cancelled) return
+        const apply = (id: InstrumentId, st: { connected: boolean; idn: string | null }) => {
+          if (!st.connected) return
+          setInstruments((prev) => ({
+            ...prev,
+            [id]: { ...prev[id], status: 'connected', idn: st.idn ?? undefined },
+          }))
+        }
+        apply('power-sensor', s.power_sensor)
+        apply('dc-analyzer', s.dc_analyzer)
+        apply('spectrum', s.spectrum)
+      })
+      .catch(() => { /* offline — leave INITIAL */ })
+    return () => { cancelled = true }
+  }, [])
+
   const setOpen = useCallback((b: boolean) => {
+    if (b && typeof document !== 'undefined') {
+      // Blur trigger so MUI can apply aria-hidden to the root without warning.
+      (document.activeElement as HTMLElement | null)?.blur?.()
+    }
     setOpenState(b)
     if (!b) setRequired([])
   }, [])
 
   const notifyMissing = useCallback((ids: InstrumentId[]) => {
+    if (typeof document !== 'undefined') {
+      (document.activeElement as HTMLElement | null)?.blur?.()
+    }
     setRequired(ids)
     setOpenState(true)
   }, [])

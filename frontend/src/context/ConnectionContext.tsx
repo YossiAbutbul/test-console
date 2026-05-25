@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ble } from '../api/ble'
 import type { ConnectionStatus } from '../types/models'
@@ -18,7 +18,17 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['ble-status'],
     queryFn: ble.status,
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
   })
+
+  // After page refresh, sync selectedAddr from backend's reported address so
+  // the MAC field stays populated for the still-active connection.
+  useEffect(() => {
+    if (data?.connected && data.address && !selectedAddr) {
+      setSelectedAddr(data.address)
+    }
+  }, [data?.connected, data?.address, selectedAddr])
   const value = useMemo<ConnectionCtx>(
     () => ({ status: data, isLoading, selectedAddr, setSelectedAddr, refetch: () => void refetch() }),
     [data, isLoading, selectedAddr, refetch],

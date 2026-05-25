@@ -33,7 +33,16 @@ class MiniCircuitsPowerMeter(PowerMeter):
                 "power_sensor package not installed"
             ) from e
         s = PowerSensor()
-        s.connect(self._serial)
+        sn = (self._serial or "").strip()
+        # lib's connect(serial) dispatches to usb_pm.Connect_By_SN which is
+        # missing on some driver builds — fall back to no-arg connect.
+        if sn:
+            try:
+                s.connect(sn)
+            except AttributeError:
+                s.connect()
+        else:
+            s.connect()
         if self._averaging_enabled is not None:
             s.averaging_enabled = self._averaging_enabled
         if self._average_count is not None:

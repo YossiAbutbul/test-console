@@ -29,12 +29,14 @@ export interface LoraCwRequest {
   power_dbm: number
   pa_duty_cycle: number
   hp_max: number
+  pa_mode?: number
   timeout?: number
 }
 
 export interface LoraPowerRequest {
   freq_hz: number
   power_dbm: number
+  pa_mode?: number
   timeout?: number
 }
 
@@ -67,6 +69,7 @@ export interface SweepConfig {
   hp_values: number[]
   settle_ms: number
   cmd_timeout_s: number
+  pa_mode?: number
 }
 
 export interface StartRequest {

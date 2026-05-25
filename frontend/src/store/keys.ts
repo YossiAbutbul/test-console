@@ -6,6 +6,8 @@
 export const STORAGE_KEYS = {
   themePref: 'app-theme-pref',
   nicknames: 'mac-nicknames-v1',
+  logWidth: 'log-panel-width-v1',
+  pathLossDb: 'path-loss-db-v1',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

@@ -10,5 +10,5 @@ export const loadPullModule: TestModule = {
   group: 'Other',
   icon: createElement(TuneIcon, { fontSize: 'small' }),
   Page: LoadPullPage,
-  requiresConnection: true,
+  requiresConnection: false,
 }

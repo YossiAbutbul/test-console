@@ -14,7 +14,7 @@ export function LogPanel({ embedded = false }: Props) {
   const view = [...entries].reverse()
 
   const download = () => {
-    const text = entries.map((e) => `[${e.ts}] ${(e.level ?? 'info').toUpperCase()} ${e.msg}`).join('\n')
+    const text = entries.map((e) => `[${e.ts}] ${(e.level ?? 'info').toUpperCase()} [${e.source}] ${e.msg}`).join('\n')
     const blob = new Blob([text], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const ts = new Date().toISOString().replace(/[:.]/g, '-')
@@ -32,14 +32,18 @@ export function LogPanel({ embedded = false }: Props) {
         {embedded && <Box />}
         <Stack direction="row" spacing={0.5}>
           <Tooltip title="Download as .txt">
-            <IconButton size="small" onClick={download} disabled={entries.length === 0}>
-              <FileDownloadOutlinedIcon sx={{ fontSize: 18 }} />
-            </IconButton>
+            <span>
+              <IconButton size="small" onClick={download} disabled={entries.length === 0}>
+                <FileDownloadOutlinedIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </span>
           </Tooltip>
           <Tooltip title="Clear log">
-            <IconButton size="small" onClick={clear} disabled={entries.length === 0}>
-              <DeleteOutlineIcon sx={{ fontSize: 18 }} />
-            </IconButton>
+            <span>
+              <IconButton size="small" onClick={clear} disabled={entries.length === 0}>
+                <DeleteOutlineIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </span>
           </Tooltip>
         </Stack>
       </Stack>
@@ -67,7 +71,8 @@ export function LogPanel({ embedded = false }: Props) {
               whiteSpace: 'pre-wrap',
             }}
           >
-            [{e.ts}] {e.msg}
+            <Box component="span" sx={{ color: 'text.disabled' }}>[{e.ts}]</Box>{' '}
+            <Box component="span" sx={{ fontWeight: 700 }}>[{e.source}]</Box> {e.msg}
           </Box>
         ))}
       </Box>

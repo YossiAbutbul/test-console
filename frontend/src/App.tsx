@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Box, Drawer, IconButton, Stack, Tooltip, Typography,
 } from '@mui/material'
@@ -14,8 +14,11 @@ import { useThemeMode } from './context/ThemeModeContext'
 import { getAppPalette } from './theme'
 import { testRegistry } from './tests/registry'
 import { Sidebar, SIDEBAR_W, TOP_BAR_H } from './components/Sidebar'
+import { STORAGE_KEYS, usePersistedState } from './store'
 
-const LOG_W = 340
+const LOG_MIN_W = 240
+const LOG_MAX_W = 720
+const LOG_DEFAULT_W = 340
 
 function TestArea({ activeId }: { activeId: string }) {
   const { status } = useConnection()
@@ -43,10 +46,39 @@ function TestArea({ activeId }: { activeId: string }) {
 
 export default function App() {
   const [logOpen, setLogOpen] = useState(true)
+  const [logW, setLogW] = usePersistedState<number>(STORAGE_KEYS.logWidth, LOG_DEFAULT_W)
   const [activeId, setActiveId] = useState(testRegistry[0]?.id ?? '')
   const { mode } = useThemeMode()
   const p = getAppPalette(mode)
   const s = p.sidebar
+  const dragging = useRef(false)
+
+  const onDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    dragging.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [])
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current) return
+      const next = Math.max(LOG_MIN_W, Math.min(LOG_MAX_W, window.innerWidth - e.clientX))
+      setLogW(next)
+    }
+    const onUp = () => {
+      if (!dragging.current) return
+      dragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [setLogW])
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
@@ -123,7 +155,7 @@ export default function App() {
         {logOpen && (
           <Box
             sx={{
-              width: LOG_W,
+              width: logW,
               flexShrink: 0,
               display: 'flex',
               alignItems: 'center',
@@ -176,10 +208,10 @@ export default function App() {
         onClose={() => setLogOpen(false)}
         variant="persistent"
         sx={{
-          width: logOpen ? LOG_W : 0,
+          width: logOpen ? logW : 0,
           flexShrink: 0,
           '& .MuiDrawer-paper': {
-            width: LOG_W,
+            width: logW,
             boxSizing: 'border-box',
             bgcolor: p.logBg,
             border: 0,
@@ -188,6 +220,21 @@ export default function App() {
           },
         }}
       >
+        <Box
+          onMouseDown={onDragStart}
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: 6,
+            height: '100%',
+            cursor: 'col-resize',
+            zIndex: 1,
+            '&:hover': { bgcolor: p.appBarBorder },
+            '&:active': { bgcolor: s.accent ?? p.appBarBorder },
+            transition: 'background-color 0.15s',
+          }}
+        />
         <Stack sx={{ p: 2, height: '100%', overflow: 'hidden' }}>
           <LogPanel embedded />
         </Stack>

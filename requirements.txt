@@ -7,3 +7,5 @@ pyvisa>=1.16
 pyvisa-py>=0.8
 # RF instrument wrappers (not on PyPI; installed from GitHub)
 rf-instruments @ git+https://github.com/YossiAbutbul/rf-instrument-wrappers
+# Arcus DMX-J-SA motor (USB) wrapper
+dmx-j-sa @ git+https://github.com/YossiAbutbul/DMX-J-SA-Motor-python-interface

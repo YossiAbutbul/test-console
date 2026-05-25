@@ -97,6 +97,37 @@ def _list_power_sensor_serials() -> list[str]:
             pass
 
 
+# ---------- Status ----------
+
+class InstrumentStatus(BaseModel):
+    connected: bool
+    idn: Optional[str] = None
+
+
+class StatusResponse(BaseModel):
+    power_sensor: InstrumentStatus
+    dc_analyzer: InstrumentStatus
+    spectrum: InstrumentStatus
+
+
+@router.get("/status", response_model=StatusResponse)
+async def status() -> StatusResponse:
+    return StatusResponse(
+        power_sensor=InstrumentStatus(
+            connected=_state.power_sensor is not None,
+            idn=_state.power_sensor_idn,
+        ),
+        dc_analyzer=InstrumentStatus(
+            connected=_state.dc_analyzer is not None,
+            idn=_state.dc_analyzer_idn,
+        ),
+        spectrum=InstrumentStatus(
+            connected=_state.spectrum is not None,
+            idn=_state.spectrum_idn,
+        ),
+    )
+
+
 # ---------- Discover endpoints ----------
 
 @router.get("/discover/power-sensor", response_model=DiscoverResponse)

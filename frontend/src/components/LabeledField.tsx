@@ -2,6 +2,13 @@ import { Autocomplete, Box, Stack, TextField, Typography, type TextFieldProps } 
 import type { ChangeEvent, FocusEvent } from 'react'
 import { useFieldHistory } from '../hooks/useFieldHistory'
 
+function selectOnFocus(e: FocusEvent<HTMLInputElement>) {
+  // Only HTMLInputElement / HTMLTextAreaElement expose .select() — guard for
+  // select-style fields (MUI renders a non-input element on focus).
+  const t = e.target as HTMLElement & { select?: () => void }
+  if (typeof t.select === 'function') t.select()
+}
+
 interface Props extends Omit<TextFieldProps, 'label' | 'variant'> {
   label: string
   hint?: string
@@ -10,7 +17,11 @@ interface Props extends Omit<TextFieldProps, 'label' | 'variant'> {
   historyKey?: string
 }
 
-export function LabeledField({ label, hint, width, sx, historyKey, ...rest }: Props) {
+export function LabeledField({ label, hint, width, sx, historyKey, onFocus, ...rest }: Props) {
+  const focusHandler = (e: FocusEvent<HTMLInputElement>) => {
+    selectOnFocus(e)
+    onFocus?.(e)
+  }
   return (
     <Stack spacing={0.5} sx={{ width: width ?? '100%' }}>
       <Box>
@@ -30,9 +41,9 @@ export function LabeledField({ label, hint, width, sx, historyKey, ...rest }: Pr
         )}
       </Box>
       {historyKey ? (
-        <HistoryInput sx={sx} historyKey={historyKey} {...rest} />
+        <HistoryInput sx={sx} historyKey={historyKey} onFocus={focusHandler} {...rest} />
       ) : (
-        <TextField size="small" variant="outlined" sx={sx} {...rest} />
+        <TextField size="small" variant="outlined" sx={sx} onFocus={focusHandler} {...rest} />
       )}
     </Stack>
   )
@@ -51,14 +62,16 @@ function HistoryInput({ historyKey, value, onChange, onBlur, sx, type, inputProp
     onChange(evt)
   }
 
+  const strValue = value == null ? '' : String(value)
   return (
     <Autocomplete
       freeSolo
       openOnFocus
       disableClearable
       options={history}
-      value={(value as string | number | undefined) ?? ''}
-      inputValue={value == null ? '' : String(value)}
+      getOptionLabel={(opt) => (typeof opt === 'string' ? opt : String(opt))}
+      value={strValue}
+      inputValue={strValue}
       onInputChange={(_, v) => fireOnChange(v)}
       onChange={(_, v) => fireOnChange(typeof v === 'string' ? v : '')}
       size="small"

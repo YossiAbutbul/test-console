@@ -1,17 +1,17 @@
 import logging
 from pathlib import Path
 
+from . import dll_setup  # noqa: F401 — must import before instrument wrappers
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import ble_router, device_router, instruments_router, test_router
+from .api import ble_router, device_router, instruments_router, motor_router, test_router
 from .ble import manager as ble_manager
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
-LEGACY_STATIC_DIR = Path(__file__).parent / "static"
 
 from uvicorn.logging import AccessFormatter, DefaultFormatter
 
@@ -30,11 +30,21 @@ def _install(name: str, formatter: logging.Formatter) -> None:
     lg.setLevel(logging.INFO)
 
 
+# Suppress chatty poll endpoints from the access log
+class _PollNoiseFilter(logging.Filter):
+    QUIET_PATHS = ("/ble/status", "/motor/status", "/test/status")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(f'"GET {p} ' in msg for p in self.QUIET_PATHS)
+
+
 _install("", DefaultFormatter(_LOG_FMT, datefmt=_DATEFMT, use_colors=True))
 logging.getLogger().setLevel(logging.INFO)
 _install("uvicorn", DefaultFormatter(_LOG_FMT, datefmt=_DATEFMT, use_colors=True))
 _install("uvicorn.error", DefaultFormatter(_LOG_FMT, datefmt=_DATEFMT, use_colors=True))
 _install("uvicorn.access", AccessFormatter(_ACCESS_FMT, datefmt=_DATEFMT, use_colors=True))
+logging.getLogger("uvicorn.access").addFilter(_PollNoiseFilter())
 
 app = FastAPI(title="Test Console Backend", version="0.1.0")
 
@@ -48,6 +58,7 @@ app.add_middleware(
 app.include_router(ble_router)
 app.include_router(device_router)
 app.include_router(instruments_router)
+app.include_router(motor_router)
 app.include_router(test_router)
 
 
@@ -57,31 +68,26 @@ async def health() -> dict:
 
 
 # Serve the React SPA in production (after `npm run build` in frontend/).
-# Falls back to the legacy single-file console at backend/static/index.html
-# while migration is in progress.
-def _index_path() -> Path:
-    spa_index = FRONTEND_DIST / "index.html"
-    if spa_index.is_file():
-        return spa_index
-    return LEGACY_STATIC_DIR / "index.html"
+SPA_INDEX = FRONTEND_DIST / "index.html"
 
 
 @app.get("/")
 async def index() -> FileResponse:
-    return FileResponse(_index_path())
+    return FileResponse(SPA_INDEX)
 
 
-# Static assets — prefer SPA build assets, keep legacy mount for back-compat.
 if FRONTEND_DIST.is_dir():
     app.mount(
         "/assets",
         StaticFiles(directory=FRONTEND_DIST / "assets"),
         name="spa-assets",
     )
-app.mount("/static", StaticFiles(directory=LEGACY_STATIC_DIR), name="static")
 
 
-_API_PREFIXES = ("/ble", "/device", "/test", "/health", "/assets", "/static", "/docs", "/redoc", "/openapi.json")
+_API_PREFIXES = (
+    "/ble", "/device", "/instruments", "/motor", "/test", "/health",
+    "/assets", "/docs", "/redoc", "/openapi.json",
+)
 
 
 @app.get("/{full_path:path}")
@@ -90,7 +96,7 @@ async def spa_fallback(full_path: str, request: Request) -> FileResponse:
     p = "/" + full_path
     if any(p == pref or p.startswith(pref + "/") for pref in _API_PREFIXES):
         raise HTTPException(status_code=404)
-    return FileResponse(_index_path())
+    return FileResponse(SPA_INDEX)
 
 
 @app.on_event("shutdown")

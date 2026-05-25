@@ -19,6 +19,8 @@ OPCODE_LORA_MODULATED = b"\x19\x50"
 
 
 class PaMode(IntEnum):
+    OFF = 0x00
+    ON = 0x01
     AUTO = 0x02
 
 

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton,
-  MenuItem, Select, Stack, TextField, Typography,
+  MenuItem, Select, Stack, Tab, Tabs, TextField, Typography,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import SearchIcon from '@mui/icons-material/Search'
@@ -62,7 +62,21 @@ function InstrumentRow({ id, required }: { id: InstrumentId; required?: boolean 
       }}
     >
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1.25 }}>
-        <Typography sx={{ fontSize: 15, fontWeight: 600, flexGrow: 1 }}>{inst.label}</Typography>
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: 15, fontWeight: 600 }}>{inst.label}</Typography>
+          {inst.model && (
+            <Typography sx={{ fontSize: 11, color: 'text.secondary', fontFamily: 'ui-monospace, monospace' }}>
+              {inst.model}
+            </Typography>
+          )}
+        </Box>
+        {inst.placeholder && (
+          <Chip
+            size="small"
+            label="Coming soon"
+            sx={{ height: 22, fontSize: 11, fontWeight: 600, fontStyle: 'italic' }}
+          />
+        )}
         {required && !connected && (
           <Chip
             size="small"
@@ -120,8 +134,14 @@ function InstrumentRow({ id, required }: { id: InstrumentId; required?: boolean 
               fullWidth
               value={inst.address}
               onChange={(e) => setAddress(id, e.target.value)}
-              disabled={connected || busy}
-              placeholder={id === 'power-sensor' ? 'e.g., MY50000200' : 'USB0::0x...::INSTR'}
+              disabled={connected || busy || inst.placeholder}
+              placeholder={
+                inst.placeholder
+                  ? 'not wired yet'
+                  : id === 'power-sensor'
+                    ? 'e.g., MY50000200'
+                    : 'USB0::0x...::INSTR'
+              }
               InputProps={{ sx: { fontFamily: 'ui-monospace, monospace', fontSize: 13 } }}
             />
           )}
@@ -145,7 +165,7 @@ function InstrumentRow({ id, required }: { id: InstrumentId; required?: boolean 
         <Button
           variant="outlined"
           onClick={onDiscover}
-          disabled={discovering || connected || busy}
+          disabled={discovering || connected || busy || inst.placeholder}
           startIcon={discovering ? <CircularProgress size={14} color="inherit" /> : <SearchIcon sx={{ fontSize: 16 }} />}
           sx={{ height: 36, minWidth: 110 }}
         >
@@ -155,7 +175,7 @@ function InstrumentRow({ id, required }: { id: InstrumentId; required?: boolean 
         <Button
           variant="contained"
           onClick={() => (connected ? disconnect(id) : connect(id))}
-          disabled={(!connected && !inst.address.trim()) || busy}
+          disabled={inst.placeholder || (!connected && !inst.address.trim()) || busy}
           endIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
           sx={{ height: 36, minWidth: 120 }}
         >
@@ -183,24 +203,43 @@ function InstrumentRow({ id, required }: { id: InstrumentId; required?: boolean 
   )
 }
 
+type TabKey = 'general' | 'load-pull'
+
+const TAB_INSTRUMENTS: Record<TabKey, InstrumentId[]> = {
+  general: ['power-sensor', 'dc-analyzer', 'spectrum'],
+  'load-pull': ['spectrum', 'network-analyzer', 'rf-switch', 'rf-trombone', 'dc-analyzer', 'attenuator'],
+}
+
 export function InstrumentsModal() {
   const { open, setOpen, required, instruments } = useInstruments()
+  const [tab, setTab] = useState<TabKey>('general')
   const missing = required.filter((id) => instruments[id].status !== 'connected')
+  const ids = TAB_INSTRUMENTS[tab]
   return (
     <Dialog
       open={open}
       onClose={() => setOpen(false)}
       maxWidth="md"
       fullWidth
-      slotProps={{ paper: { sx: { borderRadius: 2 } } }}
+      slotProps={{ paper: { sx: { borderRadius: 2, height: 620, maxHeight: '90vh' } } }}
     >
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1.5 }}>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1.5, pb: 0 }}>
         <Typography sx={{ fontSize: 17, fontWeight: 700 }}>Instruments</Typography>
         <IconButton size="small" onClick={() => setOpen(false)}>
           <CloseIcon sx={{ fontSize: 18 }} />
         </IconButton>
       </DialogTitle>
-      <DialogContent dividers sx={{ py: 0 }}>
+      <Box sx={{ px: 3, borderBottom: 1, borderColor: 'divider' }}>
+        <Tabs
+          value={tab}
+          onChange={(_, v) => setTab(v)}
+          sx={{ minHeight: 38, '& .MuiTab-root': { minHeight: 38, py: 0.5, fontSize: 13, textTransform: 'none', fontWeight: 600 } }}
+        >
+          <Tab value="general" label="General" />
+          <Tab value="load-pull" label="Load Pull" />
+        </Tabs>
+      </Box>
+      <DialogContent dividers sx={{ py: 0, overflowY: 'auto' }}>
         {missing.length > 0 && (
           <Alert
             severity="warning"
@@ -211,9 +250,9 @@ export function InstrumentsModal() {
           </Alert>
         )}
         <Stack divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
-          <InstrumentRow id="power-sensor" required={required.includes('power-sensor')} />
-          <InstrumentRow id="dc-analyzer" required={required.includes('dc-analyzer')} />
-          <InstrumentRow id="spectrum" required={required.includes('spectrum')} />
+          {ids.map((id) => (
+            <InstrumentRow key={`${tab}-${id}`} id={id} required={required.includes(id)} />
+          ))}
         </Stack>
       </DialogContent>
     </Dialog>

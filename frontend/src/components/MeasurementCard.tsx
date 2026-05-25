@@ -5,6 +5,7 @@ import CableIcon from '@mui/icons-material/Cable'
 import { useMutation } from '@tanstack/react-query'
 import { instrumentsApi, type MeasureResponse } from '../api/instruments'
 import { useInstruments } from '../context/InstrumentsContext'
+import { usePathLoss } from '../context/PathLossContext'
 
 interface Props {
   /** Hz, used to set sensor calibration freq before reading. */
@@ -49,6 +50,7 @@ function Metric({
 
 export function MeasurementCard({ freqHz, triggerId, settleMs = 250, onResult, staticData }: Props) {
   const { instruments, setOpen: openInstruments } = useInstruments()
+  const { pathLossDb } = usePathLoss()
   const isStatic = staticData !== undefined
   const ps = isStatic
     ? staticData?.power_dbm != null
@@ -76,7 +78,10 @@ export function MeasurementCard({ freqHz, triggerId, settleMs = 250, onResult, s
   }, [triggerId, anyConnected, settleMs, fire, isStatic])
 
   const data = measure.data
-  const power = isStatic ? staticData?.power_dbm : data?.power_dbm
+  const rawPower = isStatic ? staticData?.power_dbm : data?.power_dbm
+  const power = rawPower != null && Number.isFinite(rawPower)
+    ? rawPower + pathLossDb
+    : rawPower
   const cur = isStatic ? staticData?.current_a : data?.current_a
   const volt = isStatic ? staticData?.voltage_v : data?.voltage_v
   const power_mW = power != null && Number.isFinite(power) ? Math.pow(10, power / 10) : null

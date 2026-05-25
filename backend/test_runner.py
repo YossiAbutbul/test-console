@@ -15,7 +15,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from .device import Device
+from .device import Device, PaMode
 from .instruments.base import CurrentMeter, PowerMeter
 
 log = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ class SweepConfig(BaseModel):
     hp_values: list[int] = Field(default_factory=lambda: list(HP_MAX_RANGE))
     settle_ms: int = Field(default=30, ge=0, le=10_000)
     cmd_timeout_s: float = Field(default=5.0, ge=0.1, le=60.0)
+    pa_mode: int = Field(default=0, ge=0, le=2, description="0=OFF 1=ON 2=AUTO")
 
     def validate_ranges(self) -> None:
         for v in self.duty_values:
@@ -187,6 +188,7 @@ class TestRunner:
                                 power_dbm=power,
                                 pa_duty_cycle=duty,
                                 hp_max=hp,
+                                pa_mode=PaMode(ctx.config.pa_mode),
                                 timeout=ctx.config.cmd_timeout_s,
                             )
                             t_cmd = time.perf_counter()

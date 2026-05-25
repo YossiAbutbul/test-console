@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from ..ble import manager
 from ..excel import build_workbook
 from ..instruments.base import CurrentMeter, PowerMeter
-from ..instruments.real import KeysightDCPowerAnalyzer, MiniCircuitsPowerMeter
+from ..instruments.adapters import KeysightDCPowerAnalyzer, MiniCircuitsPowerMeter
 from ..test_runner import ResultRow, RunStatus, SweepConfig, runner
 
 log = logging.getLogger(__name__)

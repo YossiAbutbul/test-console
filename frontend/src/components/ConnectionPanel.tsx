@@ -7,6 +7,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import { useNicknames } from '../context/NicknamesContext'
+import { usePathLoss } from '../context/PathLossContext'
 import { NicknameModal } from './NicknameModal'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ble, scanStream } from '../api/ble'
@@ -46,6 +47,7 @@ export function ConnectionPanel() {
   const { mode } = useThemeMode()
   const a = getAppPalette(mode).actions
   const nicknames = useNicknames()
+  const { pathLossDb, setPathLossDb } = usePathLoss()
   const [editMac, setEditMac] = useState<string | null>(null)
   const qc = useQueryClient()
   const [duration, setDuration] = useState(5)
@@ -69,7 +71,7 @@ export function ConnectionPanel() {
     setScanning(true)
     setAcOpen(true)
     acInputRef.current?.focus()
-    log(`Scan started (${duration}s)`)
+    log('DUT', `Scan started (${duration}s)`)
     stopScanRef.current = scanStream(duration, {
       onDevice: (d) => {
         setDevices((prev) => {
@@ -86,7 +88,7 @@ export function ConnectionPanel() {
       onError: (msg) => {
         setScanning(false)
         stopScanRef.current = null
-        log(`Scan failed: ${msg}`, 'error')
+        log('DUT', `Scan failed: ${msg}`, 'error')
       },
     })
   }
@@ -94,20 +96,24 @@ export function ConnectionPanel() {
   const connect = useMutation({
     mutationFn: (addr: string) => ble.connect(addr),
     onSuccess: (s) => {
-      log(`Connected: ${s.name ?? s.address}`)
+      log('DUT', `Connected: ${s.address}`)
       qc.invalidateQueries({ queryKey: ['ble-status'] })
     },
-    onError: (e: Error) => log(`Connect failed: ${e.message}`, 'error'),
+    onError: (e: Error) => log('DUT', `Connect failed: ${e.message}`, 'error'),
   })
 
   const disconnect = useMutation({
-    mutationFn: () => ble.disconnect(),
-    onSuccess: () => {
-      log('Disconnected')
+    mutationFn: async () => {
+      const addr = status?.address ?? selectedAddr ?? ''
+      await ble.disconnect()
+      return addr
+    },
+    onSuccess: (addr) => {
+      log('DUT', `Disconnected: ${addr || '(unknown)'}`)
       setSelectedAddr(null)
       qc.invalidateQueries({ queryKey: ['ble-status'] })
     },
-    onError: (e: Error) => log(`Disconnect failed: ${e.message}`, 'error'),
+    onError: (e: Error) => log('DUT', `Disconnect failed: ${e.message}`, 'error'),
   })
 
   const filteredDevices = useMemo(() => {
@@ -152,12 +158,26 @@ export function ConnectionPanel() {
     <Box sx={{ width: '100%' }}>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems="flex-end" flexWrap="wrap">
         <Box sx={{ width: 110 }}>
+          {fieldLabel('Path loss (dB)')}
+          <TextField
+            type="number"
+            size="small"
+            value={pathLossDb}
+            onChange={(e) => setPathLossDb(Number(e.target.value) || 0)}
+            onFocus={(e) => (e.target as HTMLInputElement).select()}
+            inputProps={{ step: 0.1 }}
+            fullWidth
+          />
+        </Box>
+
+        <Box sx={{ width: 110 }}>
           {fieldLabel('Duration (sec)')}
           <TextField
             type="number"
             size="small"
             value={duration}
             onChange={(e) => setDuration(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
+            onFocus={(e) => (e.target as HTMLInputElement).select()}
             inputProps={{ min: 1, max: 30 }}
             fullWidth
             disabled={isConnected || scanning}
@@ -245,13 +265,18 @@ export function ConnectionPanel() {
           }}
           filterOptions={(opts, state) => {
             const q = state.inputValue.toLowerCase()
-            if (!q) return opts
-            return opts.filter(
+            const filtered = !q ? opts : opts.filter(
               (o) =>
                 o.address.toLowerCase().includes(q) ||
                 (o.name ?? '').toLowerCase().includes(q) ||
                 (nicknames.get(o.address) ?? '').toLowerCase().includes(q),
             )
+            // Tagged devices first, then by RSSI strength (already sorted in scan)
+            return [...filtered].sort((a, b) => {
+              const ta = nicknames.get(a.address) ? 1 : 0
+              const tb = nicknames.get(b.address) ? 1 : 0
+              return tb - ta
+            })
           }}
           renderOption={(props, opt) => {
             const nick = nicknames.get(opt.address)
