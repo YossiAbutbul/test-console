@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import ble_router, device_router, instruments_router, motor_router, test_router
+from .api import ble_router, device_router, instruments_router, motor_router, servo_router, test_router
 from .ble import manager as ble_manager
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -32,7 +32,7 @@ def _install(name: str, formatter: logging.Formatter) -> None:
 
 # Suppress chatty poll endpoints from the access log
 class _PollNoiseFilter(logging.Filter):
-    QUIET_PATHS = ("/ble/status", "/motor/status", "/test/status")
+    QUIET_PATHS = ("/ble/status", "/motor/status", "/servo/status", "/test/status")
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
@@ -59,6 +59,7 @@ app.include_router(ble_router)
 app.include_router(device_router)
 app.include_router(instruments_router)
 app.include_router(motor_router)
+app.include_router(servo_router)
 app.include_router(test_router)
 
 
@@ -85,7 +86,7 @@ if FRONTEND_DIST.is_dir():
 
 
 _API_PREFIXES = (
-    "/ble", "/device", "/instruments", "/motor", "/test", "/health",
+    "/ble", "/device", "/instruments", "/motor", "/servo", "/test", "/health",
     "/assets", "/docs", "/redoc", "/openapi.json",
 )
 

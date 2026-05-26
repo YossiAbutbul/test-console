@@ -1,8 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  Box, Collapse, Drawer, IconButton, ListItemButton, ListItemIcon,
-  ListItemText, Popover, Stack, Tooltip, Typography,
+  Box, Collapse, Divider, Drawer, IconButton, ListItemButton, ListItemIcon,
+  ListItemText, Popover, Stack, Switch, TextField, Tooltip, Typography,
 } from '@mui/material'
+import { instrumentsApi } from '../api/instruments'
+import { STORAGE_KEYS } from '../store/keys'
+import { usePersistedState } from '../store/persistent'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import FolderIcon from '@mui/icons-material/Folder'
@@ -57,6 +60,93 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: 'system', label: 'Match system' },
 ]
 
+function DcSupplySection() {
+  const { mode } = useThemeMode()
+  const s = getAppPalette(mode).sidebar
+  const { instruments } = useInstruments()
+  const dcConnected = instruments['dc-analyzer']?.status === 'connected'
+  const [enabled, setEnabled] = usePersistedState<boolean>(STORAGE_KEYS.dcSupplyEnabled, false)
+  const [voltage, setVoltage] = usePersistedState<number>(STORAGE_KEYS.dcSupplyVoltage, 3.6)
+  const [draft, setDraft] = useState<string>(String(voltage))
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => { setDraft(String(voltage)) }, [voltage])
+
+  // Auto-apply persisted setting when DC analyzer (re)connects — but only
+  // when the supply is enabled. Sending disable_output on every reconnect
+  // (the disabled-by-default case) spams the backend with calls that fail
+  // 500 when the wrapper isn't fully ready yet.
+  useEffect(() => {
+    if (!dcConnected || !enabled) return
+    setBusy(true); setErr(null)
+    instrumentsApi.setDcSupply(true, voltage)
+      .catch((e: any) => setErr(String(e?.message ?? e)))
+      .finally(() => setBusy(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dcConnected])
+
+  const apply = async (en: boolean, v: number) => {
+    if (!dcConnected) return
+    setBusy(true); setErr(null)
+    try {
+      await instrumentsApi.setDcSupply(en, v)
+    } catch (e: any) {
+      setErr(String(e?.message ?? e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onToggle = (next: boolean) => {
+    setEnabled(next)
+    void apply(next, voltage)
+  }
+
+  const commitVoltage = () => {
+    const n = Number(draft)
+    if (!Number.isFinite(n) || n < 0 || n > 60) { setDraft(String(voltage)); return }
+    setVoltage(n)
+    if (enabled) void apply(true, n)
+  }
+
+  return (
+    <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5 }}>
+      <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: s.textDim, mb: 0.5 }}>
+        DC Analyzer Supply
+      </Typography>
+      <Stack direction="row" alignItems="center" spacing={1}>
+        <Switch
+          size="small"
+          checked={enabled}
+          disabled={!dcConnected || busy}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+        <TextField
+          size="small"
+          type="number"
+          value={draft}
+          disabled={busy}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitVoltage}
+          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+          onFocus={(e) => (e.target as HTMLInputElement).select()}
+          inputProps={{ step: 0.1, min: 0, max: 60, style: { fontSize: 13, padding: '4px 8px', width: 64 } }}
+          sx={{ '& .MuiInputBase-root': { color: s.text } }}
+        />
+        <Typography sx={{ fontSize: 12, color: s.textDim }}>V</Typography>
+      </Stack>
+      {!dcConnected && (
+        <Typography sx={{ fontSize: 11, color: s.textDim, mt: 0.5 }}>
+          Connect DC analyzer to apply.
+        </Typography>
+      )}
+      {err && (
+        <Typography sx={{ fontSize: 11, color: '#f87171', mt: 0.5 }}>{err}</Typography>
+      )}
+    </Box>
+  )
+}
+
 function SettingsButton() {
   const { mode } = useThemeMode()
   const s = getAppPalette(mode).sidebar
@@ -82,7 +172,7 @@ function SettingsButton() {
         slotProps={{
           paper: {
             sx: {
-              minWidth: 200,
+              minWidth: 240,
               bgcolor: s.bg,
               color: s.text,
               border: `1px solid ${s.border}`,
@@ -93,6 +183,8 @@ function SettingsButton() {
           },
         }}
       >
+        <DcSupplySection />
+        <Divider sx={{ my: 0.5, borderColor: s.border }} />
         <Typography sx={{ px: 1.5, pt: 0.5, pb: 0.5, fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: s.textDim }}>
           Theme
         </Typography>

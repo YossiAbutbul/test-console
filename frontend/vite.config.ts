@@ -12,6 +12,7 @@ export default defineConfig({
       '^/device(/|$)': { target: backend, changeOrigin: true },
       '^/instruments(/|$)': { target: backend, changeOrigin: true },
       '^/motor(/|$)': { target: backend, changeOrigin: true },
+      '^/servo(/|$)': { target: backend, changeOrigin: true },
       '^/test(/|$)': { target: backend, changeOrigin: true },
       '^/health$': { target: backend, changeOrigin: true },
     },

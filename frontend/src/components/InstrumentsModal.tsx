@@ -1,14 +1,29 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
-  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton,
-  MenuItem, Select, Stack, Tab, Tabs, TextField, Typography,
+  Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent,
+  DialogTitle, IconButton, LinearProgress, Stack, TextField, Typography,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
-import SearchIcon from '@mui/icons-material/Search'
+import RefreshIcon from '@mui/icons-material/Refresh'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import { useInstruments, type InstrumentId, type InstrumentState } from '../context/InstrumentsContext'
+import type { DiscoverCandidate } from '../api/instruments'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
+
+interface CategoryGroup {
+  label: string
+  ids: InstrumentId[]
+}
+
+/** All categories shown on one page (no tabs). */
+const GROUPS: CategoryGroup[] = [
+  { label: 'RF Measurement', ids: ['power-sensor', 'spectrum', 'network-analyzer'] },
+  { label: 'DC Supply', ids: ['dc-analyzer'] },
+  { label: 'Switching', ids: ['rf-switch'] },
+  { label: 'Motion', ids: ['rf-trombone'] },
+  { label: 'Attenuation', ids: ['attenuator'] },
+]
 
 function statusColor(s: InstrumentState['status'], p: ReturnType<typeof getAppPalette>) {
   switch (s) {
@@ -19,242 +34,415 @@ function statusColor(s: InstrumentState['status'], p: ReturnType<typeof getAppPa
   }
 }
 
-function statusLabel(s: InstrumentState['status']) {
-  return { disconnected: 'Disconnected', connecting: 'Connecting…', connected: 'Connected', error: 'Error' }[s]
+function fieldPlaceholder(id: InstrumentId, placeholder?: boolean): string {
+  if (placeholder) return 'not wired yet'
+  if (id === 'power-sensor') return 'Serial — e.g., MY50000200'
+  if (id === 'rf-switch') return 'COM port — e.g., COM3'
+  if (id === 'rf-trombone') return 'Device index — 0'
+  return 'VISA — USB0::0x...::INSTR'
 }
 
-function InstrumentRow({ id, required }: { id: InstrumentId; required?: boolean }) {
+/** Substring to look for in the discovered IDN to pre-select the right
+ *  resource. Without this, discovery would just pick the first candidate
+ *  which can be the wrong instrument when several VISA devices are present. */
+const EXPECTED_MODEL: Partial<Record<InstrumentId, string>> = {
+  'dc-analyzer': 'N6705',
+  'network-analyzer': 'E5061',
+  spectrum: 'FSW',
+}
+
+function pickDefault(id: InstrumentId, list: DiscoverCandidate[]): DiscoverCandidate | null {
+  if (list.length === 0) return null
+  const want = EXPECTED_MODEL[id]
+  if (want) {
+    const m = list.find((c) => c.idn?.toLowerCase().includes(want.toLowerCase()))
+    if (m) return m
+  }
+  return list[0]
+}
+
+interface RowProps {
+  id: InstrumentId
+  required?: boolean
+  discoverKey: string
+}
+
+function InstrumentRow({ id, required, discoverKey }: RowProps) {
   const { instruments, setAddress, setChannel, connect, disconnect, discover } = useInstruments()
   const { mode } = useThemeMode()
   const p = getAppPalette(mode)
   const inst = instruments[id]
-  const [candidates, setCandidates] = useState<string[] | null>(null)
-  const [discovering, setDiscovering] = useState(false)
+  const [candidates, setCandidates] = useState<DiscoverCandidate[] | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const lastAutoKey = useRef<string | null>(null)
   const busy = inst.status === 'connecting'
   const connected = inst.status === 'connected'
+  const sColor = statusColor(inst.status, p)
+  const highlight = required && !connected
 
-  const onDiscover = async () => {
-    setDiscovering(true)
+  const runDiscover = async (opts: { focus?: boolean } = {}) => {
+    if (inst.placeholder) return
+    setScanning(true)
     try {
       const list = await discover(id)
       setCandidates(list)
+      // Helpful default: if user hasn't typed anything and we found a sensible
+      // candidate, pre-fill it. Prefers the model-matched device (e.g. N6705B
+      // for dc-analyzer, E5061B for network-analyzer) to avoid mis-mapping
+      // when multiple VISA instruments are present.
+      const pick = pickDefault(id, list)
+      if (pick && !inst.address.trim() && !connected) {
+        setAddress(id, pick.resource)
+      }
+      if (opts.focus) setTimeout(() => inputRef.current?.focus(), 0)
     } finally {
-      setDiscovering(false)
+      setScanning(false)
     }
   }
 
-  const onPick = (v: string) => {
-    setAddress(id, v)
-    setCandidates(null)
-  }
+  useEffect(() => {
+    if (lastAutoKey.current === discoverKey) return
+    lastAutoKey.current = discoverKey
+    // Don't fire scans while the modal is closing (key transitions to
+    // 'closed' before unmount and would spam the backend with N requests).
+    if (!discoverKey.startsWith('open')) return
+    if (inst.placeholder || connected || busy) return
+    void runDiscover()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [discoverKey])
 
-  const sColor = statusColor(inst.status, p)
-  const highlight = required && !connected
+  const showChannel = id === 'dc-analyzer'
+
   return (
     <Box
       sx={{
-        py: 2,
-        px: 2,
-        mx: -2,
-        borderLeft: highlight ? `3px solid ${p.actions.disconnect.bg}` : '3px solid transparent',
-        bgcolor: highlight ? `${p.actions.disconnect.bg}0F` : 'transparent',
-        transition: 'background-color 0.2s',
+        position: 'relative',
+        px: 2, py: 1.25,
+        borderRadius: 1.25,
+        border: 1,
+        borderColor: highlight ? p.actions.disconnect.bg : 'divider',
+        bgcolor: highlight ? `${p.actions.disconnect.bg}0A` : 'background.paper',
+        transition: 'border-color 0.2s, background-color 0.2s',
       }}
     >
-      <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1.25 }}>
-        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-          <Typography sx={{ fontSize: 15, fontWeight: 600 }}>{inst.label}</Typography>
-          {inst.model && (
-            <Typography sx={{ fontSize: 11, color: 'text.secondary', fontFamily: 'ui-monospace, monospace' }}>
-              {inst.model}
+      {/* Main row: 3 logical columns — label / address+ch / actions */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', md: 'minmax(180px, 220px) minmax(0, 1fr) auto' },
+          alignItems: 'center',
+          columnGap: 1.5,
+          rowGap: 1,
+        }}
+      >
+        {/* Col 1: status dot + label/model */}
+        <Stack direction="row" alignItems="center" spacing={1.25} sx={{ minWidth: 0 }}>
+          <Box
+            sx={{
+              width: 9, height: 9, borderRadius: '50%',
+              bgcolor: sColor,
+              boxShadow: connected ? `0 0 0 3px ${sColor}26` : 'none',
+              flexShrink: 0,
+            }}
+          />
+          <Box sx={{ minWidth: 0, height: 32, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <Typography sx={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {inst.label}
             </Typography>
-          )}
-        </Box>
-        {inst.placeholder && (
-          <Chip
-            size="small"
-            label="Coming soon"
-            sx={{ height: 22, fontSize: 11, fontWeight: 600, fontStyle: 'italic' }}
-          />
-        )}
-        {required && !connected && (
-          <Chip
-            size="small"
-            icon={<WarningAmberIcon sx={{ fontSize: 14 }} />}
-            label="Required"
-            sx={{ height: 22, fontSize: 11, fontWeight: 600, bgcolor: `${p.actions.disconnect.bg}1F`, color: p.actions.disconnect.bg }}
-          />
-        )}
-        <Chip
-          size="small"
-          label={statusLabel(inst.status)}
-          icon={
-            inst.status === 'connecting'
-              ? <CircularProgress size={10} sx={{ color: `${sColor} !important` }} />
-              : <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: sColor, ml: 0.5 }} />
-          }
-          sx={{
-            height: 22,
-            fontSize: 11.5,
-            fontWeight: 600,
-            color: sColor,
-            bgcolor: `${sColor}1A`,
-            border: `1px solid ${sColor}33`,
-            '& .MuiChip-icon': { ml: 0.75, mr: -0.25 },
-          }}
-        />
-      </Stack>
-
-      <Stack direction="row" spacing={1.5} alignItems="flex-end">
-        <Box sx={{ flexGrow: 1 }}>
-          <Typography sx={{ fontSize: 13, fontWeight: 500, mb: 0.5 }}>
-            {id === 'power-sensor' ? 'Serial' : 'VISA resource'}
-          </Typography>
-          {candidates ? (
-            <Select
-              size="small"
-              fullWidth
-              autoFocus
-              open
-              value=""
-              onChange={(e) => onPick(String(e.target.value))}
-              onClose={() => setCandidates(null)}
-              displayEmpty
+            <Typography
+              sx={{
+                fontSize: 10.5, color: 'text.secondary',
+                fontFamily: 'ui-monospace, monospace', lineHeight: 1.2,
+                minHeight: 14,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}
             >
-              {candidates.length === 0 && (
-                <MenuItem disabled value="">No devices found</MenuItem>
-              )}
-              {candidates.map((c) => (
-                <MenuItem key={c} value={c}>{c}</MenuItem>
-              ))}
-            </Select>
-          ) : (
-            <TextField
-              size="small"
-              fullWidth
-              value={inst.address}
-              onChange={(e) => setAddress(id, e.target.value)}
-              disabled={connected || busy || inst.placeholder}
-              placeholder={
-                inst.placeholder
-                  ? 'not wired yet'
-                  : id === 'power-sensor'
-                    ? 'e.g., MY50000200'
-                    : 'USB0::0x...::INSTR'
-              }
-              InputProps={{ sx: { fontFamily: 'ui-monospace, monospace', fontSize: 13 } }}
-            />
-          )}
-        </Box>
+              {inst.model ?? ' '}
+            </Typography>
+          </Box>
+        </Stack>
 
-        {id === 'dc-analyzer' && (
-          <Box sx={{ width: 100 }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 500, mb: 0.5 }}>Channel</Typography>
+        {/* Col 2: address + channel — uniform input style */}
+        <Stack direction="row" spacing={1} sx={{ minWidth: 0 }}>
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Autocomplete
+              size="small"
+              freeSolo
+              disableClearable
+              openOnFocus
+              options={candidates ?? []}
+              getOptionLabel={(o) => (typeof o === 'string' ? o : o.resource)}
+              isOptionEqualToValue={(o, v) => {
+                const a = typeof o === 'string' ? o : o.resource
+                const b = typeof v === 'string' ? v : v.resource
+                return a === b
+              }}
+              value={inst.address}
+              onChange={(_e, v) => {
+                if (v == null) return
+                setAddress(id, typeof v === 'string' ? v : v.resource)
+              }}
+              onInputChange={(_e, v) => setAddress(id, v ?? '')}
+              disabled={connected || busy || inst.placeholder}
+              renderOption={(props, o) => {
+                if (typeof o === 'string') return <li {...props} key={o}>{o}</li>
+                return (
+                  <li {...props} key={o.resource} style={{ display: 'block', padding: '6px 12px' }}>
+                    <Typography sx={{ fontFamily: 'ui-monospace, monospace', fontSize: 13, lineHeight: 1.3 }}>
+                      {o.resource}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: 11,
+                        color: o.idn ? 'text.secondary' : 'text.disabled',
+                        fontStyle: o.idn ? 'normal' : 'italic',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {o.idn ?? 'no IDN response'}
+                    </Typography>
+                  </li>
+                )
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  inputRef={inputRef}
+                  placeholder={fieldPlaceholder(id, inst.placeholder)}
+                  InputProps={{
+                    ...params.InputProps,
+                    sx: { fontFamily: 'ui-monospace, monospace', fontSize: 12.5, height: 34 },
+                  }}
+                />
+              )}
+            />
+          </Box>
+          {showChannel && (
             <TextField
               size="small"
-              fullWidth
               type="number"
               value={inst.channel ?? 1}
               onChange={(e) => setChannel(id, Number(e.target.value))}
               inputProps={{ min: 1, max: 4 }}
               disabled={connected || busy}
+              label="Ch"
+              InputLabelProps={{ sx: { fontSize: 11 } }}
+              sx={{ width: 60, flexShrink: 0, '& .MuiInputBase-root': { height: 34, fontSize: 12.5 } }}
             />
-          </Box>
-        )}
+          )}
+        </Stack>
 
-        <Button
-          variant="outlined"
-          onClick={onDiscover}
-          disabled={discovering || connected || busy || inst.placeholder}
-          startIcon={discovering ? <CircularProgress size={14} color="inherit" /> : <SearchIcon sx={{ fontSize: 16 }} />}
-          sx={{ height: 36, minWidth: 110 }}
-        >
-          Discover
-        </Button>
-
-        <Button
-          variant="contained"
-          onClick={() => (connected ? disconnect(id) : connect(id))}
-          disabled={inst.placeholder || (!connected && !inst.address.trim()) || busy}
-          endIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
-          sx={{ height: 36, minWidth: 120 }}
-        >
-          {connected ? 'Disconnect' : 'Connect'}
-        </Button>
-      </Stack>
-
-      <Box sx={{ mt: 1, minHeight: 18 }}>
-        {inst.error ? (
-          <Typography sx={{ fontSize: 12, color: 'error.main' }}>{inst.error}</Typography>
-        ) : (
-          <Typography
-            sx={{
-              fontSize: 11,
-              fontFamily: 'ui-monospace, monospace',
-              color: 'text.secondary',
-              visibility: inst.idn && connected ? 'visible' : 'hidden',
-            }}
+        {/* Col 3: actions */}
+        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flexShrink: 0 }}>
+          <IconButton
+            size="small"
+            onClick={() => runDiscover({ focus: true })}
+            disabled={connected || busy || inst.placeholder}
+            title="Re-scan"
+            sx={{ width: 30, height: 30 }}
           >
-            {inst.idn ?? 'placeholder'}
-          </Typography>
-        )}
+            <RefreshIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+          <Button
+            size="small"
+            variant={connected ? 'outlined' : 'contained'}
+            color={connected ? 'inherit' : 'primary'}
+            onClick={() => (connected ? disconnect(id) : connect(id))}
+            disabled={inst.placeholder || (!connected && !inst.address.trim()) || busy}
+            sx={{ minWidth: 116, height: 32, fontSize: 12.5 }}
+          >
+            {busy ? 'Connecting…' : connected ? 'Disconnect' : 'Connect'}
+          </Button>
+          {inst.placeholder && (
+            <Chip size="small" label="Soon" sx={{ height: 20, fontSize: 10.5, fontWeight: 600, fontStyle: 'italic' }} />
+          )}
+          {required && !connected && (
+            <Chip
+              size="small"
+              icon={<WarningAmberIcon sx={{ fontSize: 12 }} />}
+              label="Required"
+              sx={{ height: 20, fontSize: 10, fontWeight: 600, bgcolor: `${p.actions.disconnect.bg}1F`, color: p.actions.disconnect.bg }}
+            />
+          )}
+        </Stack>
       </Box>
+
+      {/* Footer line: IDN / error — always reserved height so row doesn't jump on connect */}
+      <Typography
+        sx={{
+          mt: 0.75, pl: 2.5,
+          minHeight: 14,
+          fontSize: 10.5,
+          fontFamily: inst.error ? 'inherit' : 'ui-monospace, monospace',
+          color: inst.error ? 'error.main' : 'text.secondary',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}
+      >
+        {inst.error ?? (connected ? inst.idn ?? ' ' : ' ')}
+      </Typography>
+
+      {/* Subtle scanning indicator — thin bar at the bottom edge of the row */}
+      {scanning && (
+        <LinearProgress
+          sx={{
+            position: 'absolute', left: 0, right: 0, bottom: 0,
+            height: 2,
+            borderBottomLeftRadius: 10, borderBottomRightRadius: 10,
+            '& .MuiLinearProgress-bar': { transition: 'transform 0.2s linear' },
+          }}
+        />
+      )}
     </Box>
   )
 }
 
-type TabKey = 'general' | 'load-pull'
-
-const TAB_INSTRUMENTS: Record<TabKey, InstrumentId[]> = {
-  general: ['power-sensor', 'dc-analyzer', 'spectrum'],
-  'load-pull': ['spectrum', 'network-analyzer', 'rf-switch', 'rf-trombone', 'dc-analyzer', 'attenuator'],
-}
-
 export function InstrumentsModal() {
-  const { open, setOpen, required, instruments } = useInstruments()
-  const [tab, setTab] = useState<TabKey>('general')
+  const { open, setOpen, required, instruments, connect, disconnect } = useInstruments()
   const missing = required.filter((id) => instruments[id].status !== 'connected')
-  const ids = TAB_INSTRUMENTS[tab]
+  const discoverKey = open ? `open-${open}` : 'closed'
+
+  // Eligible = live, has an address, not already connected.
+  const eligible = (Object.values(instruments) as InstrumentState[]).filter(
+    (i) => !i.placeholder && i.status !== 'connected' && i.address.trim().length > 0,
+  )
+  const connectedList = (Object.values(instruments) as InstrumentState[]).filter(
+    (i) => i.status === 'connected',
+  )
+  const [connectingAll, setConnectingAll] = useState(false)
+  const [disconnectingAll, setDisconnectingAll] = useState(false)
+  const busyAll = connectingAll || disconnectingAll
+  const connectAll = async () => {
+    setConnectingAll(true)
+    try {
+      // Sequential to avoid VISA / driver races between concurrent opens.
+      for (const i of eligible) {
+        await connect(i.id)
+      }
+    } finally {
+      setConnectingAll(false)
+    }
+  }
+  const disconnectAll = async () => {
+    setDisconnectingAll(true)
+    try {
+      for (const i of connectedList) {
+        await disconnect(i.id)
+      }
+    } finally {
+      setDisconnectingAll(false)
+    }
+  }
+
   return (
     <Dialog
       open={open}
       onClose={() => setOpen(false)}
       maxWidth="md"
       fullWidth
-      slotProps={{ paper: { sx: { borderRadius: 2, height: 620, maxHeight: '90vh' } } }}
+      transitionDuration={{ enter: 200, exit: 0 }}
+      slotProps={{ paper: { sx: { borderRadius: 2, height: 560, maxHeight: '88vh' } } }}
     >
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1.5, pb: 0 }}>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1.5, pb: 1 }}>
         <Typography sx={{ fontSize: 17, fontWeight: 700 }}>Instruments</Typography>
         <IconButton size="small" onClick={() => setOpen(false)}>
           <CloseIcon sx={{ fontSize: 18 }} />
         </IconButton>
       </DialogTitle>
-      <Box sx={{ px: 3, borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs
-          value={tab}
-          onChange={(_, v) => setTab(v)}
-          sx={{ minHeight: 38, '& .MuiTab-root': { minHeight: 38, py: 0.5, fontSize: 13, textTransform: 'none', fontWeight: 600 } }}
-        >
-          <Tab value="general" label="General" />
-          <Tab value="load-pull" label="Load Pull" />
-        </Tabs>
-      </Box>
-      <DialogContent dividers sx={{ py: 0, overflowY: 'auto' }}>
+
+      <DialogContent dividers sx={{ py: 0, overflowY: 'auto', bgcolor: 'action.hover' }}>
         {missing.length > 0 && (
-          <Alert
-            severity="warning"
-            icon={<WarningAmberIcon />}
-            sx={{ mt: 2, mb: 1 }}
-          >
+          <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mt: 2 }}>
             This test requires {missing.map((id) => instruments[id].label).join(' and ')} to be connected.
           </Alert>
         )}
-        <Stack divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
-          {ids.map((id) => (
-            <InstrumentRow key={`${tab}-${id}`} id={id} required={required.includes(id)} />
-          ))}
-        </Stack>
+        {(() => {
+          // Pull placeholder devices out of their original groups into a single
+          // bottom "Coming Soon" section so the live ones are grouped tightly.
+          const liveGroups = GROUPS.map((g) => ({
+            label: g.label,
+            ids: g.ids.filter((id) => !instruments[id]?.placeholder),
+          })).filter((g) => g.ids.length > 0)
+          const soonIds = GROUPS.flatMap((g) => g.ids).filter(
+            (id) => instruments[id]?.placeholder,
+          )
+          return (
+            <Stack spacing={2.5} sx={{ py: 2 }}>
+              {liveGroups.map((g) => (
+                <Box key={g.label}>
+                  <Typography
+                    sx={{
+                      fontSize: 11, fontWeight: 700, letterSpacing: 0.8,
+                      textTransform: 'uppercase', color: 'text.secondary',
+                      mb: 1,
+                    }}
+                  >
+                    {g.label}
+                  </Typography>
+                  <Stack spacing={0.75}>
+                    {g.ids.map((id) => (
+                      <InstrumentRow
+                        key={id}
+                        id={id}
+                        required={required.includes(id)}
+                        discoverKey={discoverKey}
+                      />
+                    ))}
+                  </Stack>
+                </Box>
+              ))}
+              {soonIds.length > 0 && (
+                <Box>
+                  <Typography
+                    sx={{
+                      fontSize: 11, fontWeight: 700, letterSpacing: 0.8,
+                      textTransform: 'uppercase', color: 'text.disabled',
+                      mb: 1,
+                    }}
+                  >
+                    Coming Soon
+                  </Typography>
+                  <Stack spacing={0.75} sx={{ opacity: 0.7 }}>
+                    {soonIds.map((id) => (
+                      <InstrumentRow
+                        key={id}
+                        id={id}
+                        required={required.includes(id)}
+                        discoverKey={discoverKey}
+                      />
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+            </Stack>
+          )
+        })()}
       </DialogContent>
+      <DialogActions sx={{ px: 3, py: 1.5, borderTop: 1, borderColor: 'divider' }}>
+        {(() => {
+          // One button toggles by mode: if anything is connected we offer
+          // disconnect-all; otherwise we offer connect-all.
+          const mode: 'disconnect' | 'connect' =
+            connectedList.length > 0 ? 'disconnect' : 'connect'
+          const count = mode === 'disconnect' ? connectedList.length : eligible.length
+          const onClick = mode === 'disconnect' ? disconnectAll : connectAll
+          const busy = mode === 'disconnect' ? disconnectingAll : connectingAll
+          const label = busy
+            ? mode === 'disconnect' ? 'Disconnecting…' : 'Connecting…'
+            : mode === 'disconnect' ? `Disconnect all (${count})` : `Connect all (${count})`
+          return (
+            <Button
+              variant={mode === 'disconnect' ? 'outlined' : 'contained'}
+              color={mode === 'disconnect' ? 'inherit' : 'primary'}
+              onClick={onClick}
+              disabled={count === 0 || busyAll}
+              sx={{ minWidth: 180, height: 34, fontSize: 13 }}
+            >
+              {label}
+            </Button>
+          )
+        })()}
+      </DialogActions>
     </Dialog>
   )
 }

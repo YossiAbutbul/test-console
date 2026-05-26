@@ -1,9 +1,15 @@
 import { http } from './client'
 
-export type InstrumentKind = 'power-sensor' | 'dc-analyzer' | 'spectrum'
+export type InstrumentKind = 'power-sensor' | 'dc-analyzer' | 'spectrum' | 'network-analyzer'
+
+export interface DiscoverCandidate {
+  resource: string
+  idn: string | null
+}
 
 interface DiscoverResponse {
   candidates: string[]
+  details?: DiscoverCandidate[] | null
 }
 
 interface ConnectResponse {
@@ -25,6 +31,13 @@ export interface StatusResponse {
   power_sensor: { connected: boolean; idn: string | null }
   dc_analyzer: { connected: boolean; idn: string | null }
   spectrum: { connected: boolean; idn: string | null }
+  network_analyzer: { connected: boolean; idn: string | null }
+}
+
+export interface SupplyResponse {
+  enabled: boolean
+  voltage_v: number | null
+  channel: number
 }
 
 export const instrumentsApi = {
@@ -45,4 +58,10 @@ export const instrumentsApi = {
       `/instruments/measure${freqHz ? `?freq_hz=${Math.round(freqHz)}` : ''}`,
       { method: 'POST' },
     ),
+  getDcSupply: () => http<SupplyResponse>('/instruments/dc-analyzer/supply'),
+  setDcSupply: (enabled: boolean, voltage_v: number, channel?: number) =>
+    http<SupplyResponse>('/instruments/dc-analyzer/supply', {
+      method: 'POST',
+      body: JSON.stringify({ enabled, voltage_v, channel: channel ?? null }),
+    }),
 }
