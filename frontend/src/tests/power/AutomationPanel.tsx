@@ -503,7 +503,16 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
           </Typography>
         ) : (
           <Box ref={resultsScrollRef} sx={{ flexGrow: 1, minHeight: 0, overflowY: 'scroll', overflowX: 'auto' }}>
-            <Table size="small" stickyHeader>
+            <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%' }}>
+              <colgroup>
+                <col style={{ width: '6%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '20%' }} />
+              </colgroup>
               <TableHead>
                 <TableRow>
                   <TableCell>#</TableCell>
