@@ -10,6 +10,7 @@ export const STORAGE_KEYS = {
   pathLossDb: 'path-loss-db-v1',
   dcSupplyEnabled: 'dc-supply-enabled-v1',
   dcSupplyVoltage: 'dc-supply-voltage-v1',
+  powerPage: 'power-page-snapshot-v1',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

@@ -10,6 +10,9 @@ export type LogSource =
   | 'Motor'
   | 'Sweep'
   | 'System'
+  | 'Automation'
+  | 'Servo'
+  | 'VNA'
 
 export interface LogEntry {
   ts: string

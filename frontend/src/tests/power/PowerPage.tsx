@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
+import { useEffect, useState } from 'react'
+import { Box, Button, MenuItem, Stack, Tab, Tabs, Typography } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
@@ -8,6 +8,8 @@ import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
+import { AutomationPanel } from './AutomationPanel'
+import { powerPageSnapshot, persistPowerPage, type PowerPageTab } from '../../store/powerPageStore'
 
 export function PowerPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
@@ -17,6 +19,8 @@ export function PowerPage({ protocol, group }: TestPageProps) {
   const [paMode, setPaMode] = useState(2)
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
+  const [tab, setTab] = useState<PowerPageTab>(() => powerPageSnapshot.tab ?? 'manual')
+  useEffect(() => { powerPageSnapshot.tab = tab; persistPowerPage() }, [tab])
 
   const send = useMutation({
     mutationFn: () => {
@@ -61,28 +65,50 @@ export function PowerPage({ protocol, group }: TestPageProps) {
         group={group}
         label="Power"
         actions={
-          <Stack direction="row" spacing={1}>
-            <Button
-              variant="outlined"
-              disabled={busy}
-              onClick={() => stop.mutate()}
-              sx={{ minWidth: 96, height: 36 }}
-            >
-              {stop.isPending ? 'Stopping…' : 'Stop'}
-            </Button>
-            <Button
-              variant="contained"
-              disabled={busy}
-              onClick={() => send.mutate()}
-              sx={{ minWidth: 96, height: 36 }}
-            >
-              {send.isPending ? 'Sending…' : 'Send'}
-            </Button>
-          </Stack>
+          tab === 'manual' ? (
+            <Stack direction="row" spacing={1}>
+              <Button
+                variant="outlined"
+                disabled={busy}
+                onClick={() => stop.mutate()}
+                sx={{ minWidth: 96, height: 36 }}
+              >
+                {stop.isPending ? 'Stopping…' : 'Stop'}
+              </Button>
+              <Button
+                variant="contained"
+                disabled={busy}
+                onClick={() => send.mutate()}
+                sx={{ minWidth: 96, height: 36 }}
+              >
+                {send.isPending ? 'Sending…' : 'Send'}
+              </Button>
+            </Stack>
+          ) : null
         }
       />
 
-      <Stack spacing={2} sx={{ mt: 1 }}>
+      <Tabs
+        value={tab}
+        onChange={(_, v) => setTab(v)}
+        sx={{
+          minHeight: 36, mt: -0.5,
+          borderBottom: 1, borderColor: 'divider',
+          '& .MuiTab-root': {
+            minHeight: 36, py: 0.25, fontSize: 13,
+            textTransform: 'none', fontWeight: 600,
+          },
+        }}
+      >
+        <Tab value="manual" label="Manual" />
+        <Tab value="automation" label="Automation" />
+      </Tabs>
+
+      {/* Both panels stay mounted; toggle via display so switching is instant. */}
+      <Stack
+        spacing={2}
+        sx={{ mt: 2, display: tab === 'manual' ? 'flex' : 'none' }}
+      >
         <Box>
           <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
             RF setup
@@ -122,6 +148,15 @@ export function PowerPage({ protocol, group }: TestPageProps) {
           </Box>
         )}
       </Stack>
+
+      <Box
+        sx={{
+          mt: 2, flexGrow: 1, minHeight: 0, flexDirection: 'column',
+          display: tab === 'automation' ? 'flex' : 'none',
+        }}
+      >
+        <AutomationPanel protocol={protocol} />
+      </Box>
     </Box>
   )
 }

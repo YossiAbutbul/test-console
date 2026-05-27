@@ -81,7 +81,7 @@ export default function App() {
   }, [setLogW])
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
+    <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden', bgcolor: 'background.default' }}>
       {/* Unified top bar across whole window */}
       <Box
         sx={{
@@ -186,10 +186,11 @@ export default function App() {
           minWidth: 0,
           px: 4,
           pt: `${TOP_BAR_H + 24}px`,
-          pb: 0,
+          pb: 3,
           display: 'flex',
           flexDirection: 'column',
-          minHeight: '100vh',
+          height: '100vh',
+          overflow: 'hidden',
         }}
       >
         <Box sx={{ pb: 2, mb: 3, borderBottom: `1px solid ${p.appBarBorder}` }}>
