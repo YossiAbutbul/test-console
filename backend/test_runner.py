@@ -16,7 +16,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from .device import Device, PaMode
-from .instruments.base import CurrentMeter, PowerMeter
+from .hw.base import CurrentMeter, PowerMeter
 
 log = logging.getLogger(__name__)
 

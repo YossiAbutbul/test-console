@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from . import dll_setup  # noqa: F401 — must import before instrument wrappers
+from .hw import dll_setup  # noqa: F401 — must import before instrument wrappers
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse

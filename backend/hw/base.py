@@ -1,4 +1,4 @@
-"""Instrument abstractions. Concrete adapters in real.py / mock.py."""
+"""Hardware instrument abstractions. Concrete adapters live in adapters.py."""
 
 from __future__ import annotations
 

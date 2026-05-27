@@ -4,7 +4,7 @@ Must be imported BEFORE any module that imports an instrument wrapper
 (power_sensor, dmx_j_sa, etc.). main.py does this at the very top.
 
 Layout:
-    backend/dlls/<device>/*.dll
+    backend/hw/dlls/<device>/*.dll
 
 For each subdirectory we:
   1. Call os.add_dll_directory() so Windows' DLL loader can resolve deps.
