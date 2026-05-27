@@ -28,14 +28,15 @@ export interface InstrumentState {
   placeholder?: boolean
 }
 
-interface Ctx {
+interface State {
   open: boolean
-  setOpen: (b: boolean) => void
-  /** Open the modal and flag these instruments as required for the current intent. */
-  notifyMissing: (ids: InstrumentId[]) => void
-  /** Ids that must be connected; cleared when modal closes. */
   required: InstrumentId[]
   instruments: Record<InstrumentId, InstrumentState>
+}
+
+interface Actions {
+  setOpen: (b: boolean) => void
+  notifyMissing: (ids: InstrumentId[]) => void
   setAddress: (id: InstrumentId, address: string) => void
   setChannel: (id: InstrumentId, channel: number) => void
   connect: (id: InstrumentId) => Promise<void>
@@ -43,7 +44,14 @@ interface Ctx {
   discover: (id: InstrumentId) => Promise<DiscoverCandidate[]>
 }
 
-const InstrumentsCtx = createContext<Ctx | null>(null)
+// Split state (changes on every poll) from actions (stable refs). Components
+// that only need callbacks subscribe to ActionsCtx and never re-render on
+// poll. Components that care about a single instrument can read from
+// StateCtx but use React.memo + per-row props to skip sibling re-renders.
+const StateCtx = createContext<State | null>(null)
+const ActionsCtx = createContext<Actions | null>(null)
+
+type Ctx = State & Actions
 
 const INITIAL: Record<InstrumentId, InstrumentState> = {
   'power-sensor': {
@@ -258,16 +266,53 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo<Ctx>(() => ({
-    open: openState, setOpen, notifyMissing, required,
-    instruments, setAddress, setChannel, connect, disconnect, discover,
-  }), [openState, setOpen, notifyMissing, required, instruments, setAddress, setChannel, connect, disconnect, discover])
+  const state = useMemo<State>(
+    () => ({ open: openState, required, instruments }),
+    [openState, required, instruments],
+  )
+  const actions = useMemo<Actions>(
+    () => ({ setOpen, notifyMissing, setAddress, setChannel, connect, disconnect, discover }),
+    [setOpen, notifyMissing, setAddress, setChannel, connect, disconnect, discover],
+  )
 
-  return <InstrumentsCtx.Provider value={value}>{children}</InstrumentsCtx.Provider>
+  return (
+    <ActionsCtx.Provider value={actions}>
+      <StateCtx.Provider value={state}>
+        {children}
+      </StateCtx.Provider>
+    </ActionsCtx.Provider>
+  )
 }
 
-export function useInstruments(): Ctx {
-  const v = useContext(InstrumentsCtx)
-  if (!v) throw new Error('useInstruments must be inside InstrumentsProvider')
+export function useInstrumentsState(): State {
+  const v = useContext(StateCtx)
+  if (!v) throw new Error('useInstrumentsState must be inside InstrumentsProvider')
   return v
+}
+
+export function useInstrumentsActions(): Actions {
+  const v = useContext(ActionsCtx)
+  if (!v) throw new Error('useInstrumentsActions must be inside InstrumentsProvider')
+  return v
+}
+
+/** Legacy combined hook — re-renders on every state change. New code should
+ *  prefer the granular hooks below. */
+export function useInstruments(): Ctx {
+  return { ...useInstrumentsState(), ...useInstrumentsActions() }
+}
+
+/** Returns only one instrument's record. Re-renders only when THIS id changes
+ *  because our `apply` keeps unchanged rows referentially stable. */
+export function useInstrumentValue(id: InstrumentId): InstrumentState {
+  const { instruments } = useInstrumentsState()
+  return instruments[id]
+}
+
+/** Modal-only state — open, required, setOpen. Doesn't track instruments,
+ *  so it ignores poll-induced map changes. */
+export function useInstrumentsModal() {
+  const { open, required } = useInstrumentsState()
+  const { setOpen, notifyMissing } = useInstrumentsActions()
+  return { open, required, setOpen, notifyMissing }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import {
   Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent,
   DialogTitle, IconButton, LinearProgress, Stack, TextField, Typography,
@@ -6,7 +6,10 @@ import {
 import CloseIcon from '@mui/icons-material/Close'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
-import { useInstruments, type InstrumentId, type InstrumentState } from '../context/InstrumentsContext'
+import {
+  useInstrumentsModal, useInstrumentsActions, useInstrumentsState,
+  type InstrumentId, type InstrumentState,
+} from '../context/InstrumentsContext'
 import type { DiscoverCandidate } from '../api/instruments'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
@@ -63,15 +66,17 @@ function pickDefault(id: InstrumentId, list: DiscoverCandidate[]): DiscoverCandi
 
 interface RowProps {
   id: InstrumentId
+  inst: InstrumentState
   required?: boolean
   discoverKey: string
 }
 
-function InstrumentRow({ id, required, discoverKey }: RowProps) {
-  const { instruments, setAddress, setChannel, connect, disconnect, discover } = useInstruments()
+/** Per-row component. Receives its `inst` as a prop so wrapping with
+ *  React.memo lets sibling rows re-render without us re-rendering too. */
+const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discoverKey }: RowProps) {
+  const { setAddress, setChannel, connect, disconnect, discover } = useInstrumentsActions()
   const { mode } = useThemeMode()
   const p = getAppPalette(mode)
-  const inst = instruments[id]
   const [candidates, setCandidates] = useState<DiscoverCandidate[] | null>(null)
   const [scanning, setScanning] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -295,10 +300,12 @@ function InstrumentRow({ id, required, discoverKey }: RowProps) {
       )}
     </Box>
   )
-}
+})
 
 export function InstrumentsModal() {
-  const { open, setOpen, required, instruments, connect, disconnect } = useInstruments()
+  const { open, setOpen, required } = useInstrumentsModal()
+  const { instruments } = useInstrumentsState()
+  const { connect, disconnect } = useInstrumentsActions()
   const missing = required.filter((id) => instruments[id].status !== 'connected')
   const discoverKey = open ? `open-${open}` : 'closed'
 
@@ -384,6 +391,7 @@ export function InstrumentsModal() {
                       <InstrumentRow
                         key={id}
                         id={id}
+                        inst={instruments[id]}
                         required={required.includes(id)}
                         discoverKey={discoverKey}
                       />
@@ -407,6 +415,7 @@ export function InstrumentsModal() {
                       <InstrumentRow
                         key={id}
                         id={id}
+                        inst={instruments[id]}
                         required={required.includes(id)}
                         discoverKey={discoverKey}
                       />

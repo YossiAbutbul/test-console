@@ -14,7 +14,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import CableIcon from '@mui/icons-material/Cable'
 import CheckIcon from '@mui/icons-material/Check'
 import { useConnection } from '../context/ConnectionContext'
-import { useInstruments } from '../context/InstrumentsContext'
+import { useInstrumentsActions, useInstrumentsState } from '../context/InstrumentsContext'
 import { useThemeMode, type ThemePreference } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
 import { testRegistry } from '../tests/registry'
@@ -63,7 +63,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 function DcSupplySection() {
   const { mode } = useThemeMode()
   const s = getAppPalette(mode).sidebar
-  const { instruments } = useInstruments()
+  const { instruments } = useInstrumentsState()
   const dcConnected = instruments['dc-analyzer']?.status === 'connected'
   const [enabled, setEnabled] = usePersistedState<boolean>(STORAGE_KEYS.dcSupplyEnabled, false)
   const [voltage, setVoltage] = usePersistedState<number>(STORAGE_KEYS.dcSupplyVoltage, 3.6)
@@ -264,8 +264,12 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
   const tree = useProtocolTree()
   const { mode } = useThemeMode()
   const s = getAppPalette(mode).sidebar
-  const { setOpen: openInstruments, instruments } = useInstruments()
-  const anyConnected = Object.values(instruments).some((i) => i.status === 'connected')
+  const { setOpen: openInstruments } = useInstrumentsActions()
+  const { instruments } = useInstrumentsState()
+  const anyConnected = useMemo(
+    () => Object.values(instruments).some((i) => i.status === 'connected'),
+    [instruments],
+  )
   const [expandedProto, setExpandedProto] = useState<Record<string, boolean>>(
     () => ({ LoRa: true, LTE: false, BLE: false }),
   )

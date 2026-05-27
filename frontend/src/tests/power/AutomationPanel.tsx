@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import {
   Box, Button, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Typography,
@@ -16,6 +16,7 @@ import { instrumentsApi } from '../../api/instruments'
 import { usePathLoss } from '../../context/PathLossContext'
 import { useLog } from '../../context/LogContext'
 import { useConnection } from '../../context/ConnectionContext'
+import { useNotify } from '../../context/NotifyContext'
 import {
   powerPageSnapshot,
   persistPowerPage,
@@ -24,6 +25,26 @@ import {
 } from '../../store/powerPageStore'
 
 type ResultRow = AutomationResultRow
+
+const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i: number }) {
+  return (
+    <TableRow>
+      <TableCell>{i + 1}</TableCell>
+      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{r.freq_mhz.toFixed(3)}</TableCell>
+      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{r.set_power_dbm}</TableCell>
+      <TableCell>{PA_MODE_LABEL[r.pa_mode] ?? r.pa_mode}</TableCell>
+      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmt(r.measured_dbm, 2)}</TableCell>
+      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmt(r.current_a == null ? null : r.current_a * 1000, 1)}</TableCell>
+      <TableCell sx={{ fontSize: 11 }}>
+        {r.error
+          ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
+          : r.ok
+            ? <Box component="span" sx={{ color: 'success.main' }}>ok</Box>
+            : '—'}
+      </TableCell>
+    </TableRow>
+  )
+})
 
 const PA_MODE_LABEL = ['Off', 'On', 'Auto']
 
@@ -73,18 +94,21 @@ function downloadCsv(rows: ResultRow[], pathLossDb: number, mac: string | null):
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-/** Parse a per-row power spec.
+/** Parse a list/range spec for either freq or power.
  *  Supported:
- *    ""          → [fallback]
+ *    ""          → fallback != null ? [fallback] : []
  *    "12"        → [12]
  *    "0-14"      → 0..14 step 1
  *    "0-14:2"    → 0,2,4,…,14
  *    "0,5,10,14" → [0,5,10,14]
  *  Returns [] on syntax error so the caller can flag the row.
  */
-function parsePowers(raw: string, fallback: number): number[] {
-  const s = raw.trim()
-  if (!s) return [fallback]
+function parseList(raw: string, fallback: number | null = null): number[] {
+  // Normalize various dash chars (en-dash, em-dash, minus sign, etc.) to a
+  // plain hyphen so the range syntax keeps working when the user pastes
+  // text that auto-corrected the dash.
+  const s = raw.trim().replace(/[‐-―−]/g, '-')
+  if (!s) return fallback == null ? [] : [fallback]
   const m = s.match(/^(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)(?:\s*:\s*(-?\d+(?:\.\d+)?))?$/)
   if (m) {
     const a = Number(m[1]); const b = Number(m[2])
@@ -99,6 +123,9 @@ function parsePowers(raw: string, fallback: number): number[] {
   return parts
 }
 
+// Back-compat alias used elsewhere in the file.
+const parsePowers = parseList
+
 type FreqRow = AutomationFreqRow
 
 /** Nested snapshot — auto-created on first write so the page-level store
@@ -112,6 +139,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   const { log } = useLog()
   const { pathLossDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
+  const notify = useNotify()
   const hasBackend = protocol === 'LoRa'
   const DEFAULT_POWER = '14'
   const [rows, setRows] = useState<FreqRow[]>(() => snap().rows ?? [
@@ -137,6 +165,8 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const freqRefs = useRef<Array<HTMLInputElement | null>>([])
   const [pendingFocusIdx, setPendingFocusIdx] = useState<number | null>(null)
+  // Auto-follow the results table to the latest row during a run.
+  const resultsScrollRef = useRef<HTMLDivElement | null>(null)
 
   const addRow = () => {
     setRows((arr) => {
@@ -149,12 +179,13 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   const updateRow = (i: number, patch: Partial<FreqRow>) =>
     setRows((arr) => arr.map((x, j) => (j === i ? { ...x, ...patch } : x)))
 
-  // Build the run plan: ordered list of (freq, power) pairs.
+  // Build the run plan: cartesian product of freqs × powers per row.
   const plan: Array<{ freq: number; pow: number }> = []
   for (const r of rows) {
-    const f = Number(r.freq)
-    if (!Number.isFinite(f) || f <= 0) continue
-    for (const p of parsePowers(r.power, power)) plan.push({ freq: f, pow: p })
+    const freqs = parseList(r.freq).filter((f) => f > 0)
+    if (freqs.length === 0) continue
+    const powers = parseList(r.power, power)
+    for (const f of freqs) for (const p of powers) plan.push({ freq: f, pow: p })
   }
   const totalPoints = plan.length
 
@@ -218,14 +249,42 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
         // Best-effort stop after sweep.
         try { await device.stop() } catch { /* ignore */ }
         log('Automation', `done — ${collected.length}/${plan.length} points`)
+        const errCount = collected.filter((r) => r.error).length
+        if (abortRef.stop) {
+          notify.warning(
+            `Stopped at ${collected.length}/${plan.length} points`,
+            { title: 'Automation cancelled' },
+          )
+        } else if (errCount > 0) {
+          notify.warning(
+            `Finished with ${errCount} error${errCount === 1 ? '' : 's'} (${collected.length}/${plan.length} points)`,
+            { title: 'Automation done' },
+          )
+        } else {
+          notify.success(
+            `${collected.length} point${collected.length === 1 ? '' : 's'} measured`,
+            { title: 'Automation done' },
+          )
+        }
       } finally {
         setRunning(false)
       }
     },
-    onError: (e: Error) => log('Automation', `failed: ${e.message}`, 'error'),
+    onError: (e: Error) => {
+      log('Automation', `failed: ${e.message}`, 'error')
+      notify.error(e.message, { title: 'Automation failed' })
+    },
   })
 
-  const onStop = () => { abortRef.stop = true }
+  const onStop = () => {
+    abortRef.stop = true
+    // Also send a real stop to the DUT immediately so it doesn't keep
+    // transmitting between the current point and where the loop notices
+    // the abort flag.
+    if (hasBackend) {
+      void device.stop().catch((e: Error) => log('Automation', `stop failed: ${e.message}`, 'error'))
+    }
+  }
 
   useEffect(() => {
     if (pendingFocusIdx == null) return
@@ -235,6 +294,13 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
     if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' })
     setPendingFocusIdx(null)
   }, [pendingFocusIdx, rows.length])
+
+  // Auto-scroll results to the bottom each time a new measurement lands.
+  useEffect(() => {
+    const el = resultsScrollRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }, [results.length])
 
   const PANEL_HEIGHT = 250
   const cardSx = {
@@ -288,6 +354,8 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
           <Box ref={bodyRef} sx={cardBodySx}>
           <Stack spacing={0.75}>
             {rows.map((r, i) => {
+              const freqs = parseList(r.freq).filter((f) => f > 0)
+              const badFreq = r.freq.trim() !== '' && freqs.length === 0
               const powers = parsePowers(r.power, power)
               const bad = r.power.trim() !== '' && powers.length === 0
               const headerCss = { fontSize: 13, fontWeight: 500, color: 'text.primary' as const }
@@ -302,7 +370,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
                       </Typography>
                     </Box>
                   </Stack>
-                  <Stack spacing={0.5} sx={{ width: 130 }}>
+                  <Stack spacing={0.5} sx={{ width: 180 }}>
                     {hasHeader && (
                       <Typography sx={{ ...headerCss, whiteSpace: 'nowrap' }}>
                         Freq
@@ -311,14 +379,13 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
                     )}
                     <TextField
                       size="small"
-                      type="number"
                       value={r.freq}
                       onChange={(e) => updateRow(i, { freq: e.target.value })}
                       onFocus={(e) => (e.target as HTMLInputElement).select()}
-                      inputProps={{ step: 0.1, min: 0 }}
                       inputRef={(el: HTMLInputElement | null) => { freqRefs.current[i] = el }}
-                      placeholder="e.g. 915"
+                      placeholder="e.g. 915 or 900-930"
                       disabled={running}
+                      error={badFreq}
                     />
                   </Stack>
                   <Stack spacing={0.5} sx={{ width: 220 }}>
@@ -340,7 +407,10 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
                   </Stack>
                   <Stack spacing={0.5}>
                     {hasHeader && <Box sx={{ height: 19 }} />}
-                    <Box sx={{ height: 40, display: 'flex', alignItems: 'center' }}>
+                    <Box sx={{ height: 40, display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography sx={{ fontSize: 10.5, color: 'text.disabled', minWidth: 56, whiteSpace: 'nowrap' }}>
+                        {freqs.length * powers.length} step{freqs.length * powers.length === 1 ? '' : 's'}
+                      </Typography>
                       <IconButton size="small" onClick={() => removeRow(i)} disabled={running}>
                         <DeleteIcon sx={{ fontSize: 18 }} />
                       </IconButton>
@@ -352,7 +422,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
           </Stack>
           </Box>
           <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 1, pt: 1, borderTop: 1, borderColor: 'divider', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            Power: "12" · "0-14" · "0-14:2" · "0,5,10,14"
+            Freq / Power: "915" · "900-930" · "900-930:5" · "902.3,915,927.5"
           </Typography>
         </Box>
 
@@ -432,7 +502,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
             No data yet. Add frequencies and press Run.
           </Typography>
         ) : (
-          <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'scroll', overflowX: 'auto' }}>
+          <Box ref={resultsScrollRef} sx={{ flexGrow: 1, minHeight: 0, overflowY: 'scroll', overflowX: 'auto' }}>
             <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
@@ -447,21 +517,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
               </TableHead>
               <TableBody>
                 {results.map((r, i) => (
-                  <TableRow key={i}>
-                    <TableCell>{i + 1}</TableCell>
-                    <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{r.freq_mhz.toFixed(3)}</TableCell>
-                    <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{r.set_power_dbm}</TableCell>
-                    <TableCell>{PA_MODE_LABEL[r.pa_mode] ?? r.pa_mode}</TableCell>
-                    <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmt(r.measured_dbm, 2)}</TableCell>
-                    <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmt(r.current_a == null ? null : r.current_a * 1000, 1)}</TableCell>
-                    <TableCell sx={{ fontSize: 11 }}>
-                      {r.error
-                        ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
-                        : r.ok
-                          ? <Box component="span" sx={{ color: 'success.main' }}>ok</Box>
-                          : '—'}
-                    </TableCell>
-                  </TableRow>
+                  <ResultTableRow key={i} r={r} i={i} />
                 ))}
               </TableBody>
             </Table>

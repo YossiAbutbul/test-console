@@ -22,9 +22,13 @@ const LOG_DEFAULT_W = 340
 
 function TestArea({ activeId }: { activeId: string }) {
   const { status } = useConnection()
-  const mod = testRegistry.find((m) => m.id === activeId) ?? testRegistry[0]
-  const gated = mod.requiresConnection && !(status?.connected && status?.transport_ready)
-  const { Page } = mod
+  const activeMod = testRegistry.find((m) => m.id === activeId) ?? testRegistry[0]
+  const gated = activeMod.requiresConnection && !(status?.connected && status?.transport_ready)
+
+  // All pages mount once on app start and we toggle visibility via `display`.
+  // This trades a slightly slower first paint for instant sidebar navigation —
+  // no remount, no useQuery refetch storm. Pages keep their internal state
+  // (form inputs, results tables) across switches automatically.
   return (
     <Box
       aria-disabled={gated || undefined}
@@ -39,7 +43,22 @@ function TestArea({ activeId }: { activeId: string }) {
         minHeight: 0,
       }}
     >
-      <Page protocol={mod.protocol} group={mod.group} />
+      {testRegistry.map((mod) => {
+        const { Page } = mod
+        const isActive = mod.id === activeMod.id
+        return (
+          <Box
+            key={mod.id}
+            sx={{
+              flexGrow: 1, minHeight: 0, minWidth: 0,
+              display: isActive ? 'flex' : 'none',
+              flexDirection: 'column',
+            }}
+          >
+            <Page protocol={mod.protocol} group={mod.group} />
+          </Box>
+        )
+      })}
     </Box>
   )
 }
