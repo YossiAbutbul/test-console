@@ -60,13 +60,13 @@ def connect(device_index: int) -> int:
         device_index=device_index, dll=dll,
         read_timeout_ms=2000, write_timeout_ms=2000,
     )
-    # Default config matches examples/basic.py — motor won't move without these.
+    # Motor Configs
     try:
         m.enable(True)
         m.high_speed = 5000
         m.low_speed = 500
         m.acceleration = 300
-        m.run_current = 1000
+        m.run_current = 2000
         m.idle_current = 300
     except Exception:
         pass
