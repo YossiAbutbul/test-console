@@ -15,8 +15,9 @@ from typing import Optional
 
 # Software travel limits — the firmware has no programmable limits, so we gate
 # every move at the API layer. Values measured manually for the current rig.
-SOFT_MIN_POS = -29118  # retracted mech end
-SOFT_MAX_POS = 25282   # extended mech end
+# Between Min to Max there is 51,800 pulses
+SOFT_MIN_POS = -48000  # retracted mech end
+SOFT_MAX_POS = 3800   # extended mech end
 
 
 @dataclass

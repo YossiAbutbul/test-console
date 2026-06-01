@@ -30,7 +30,9 @@ export function SearchBar({ activeId, onSelect }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+      // Ctrl+K is hijacked by Chrome (omnibox search-keyword mode), so use
+      // Ctrl+Shift+K. Esc still closes the panel.
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'k' || e.key === 'K' || e.code === 'KeyK')) {
         e.preventDefault()
         const isFocused = document.activeElement === inputRef.current
         if (isFocused || open) {
@@ -141,6 +143,27 @@ export function SearchBar({ activeId, onSelect }: Props) {
               }}
             >
               Ctrl
+            </Box>
+            <Box component="span" sx={{ fontSize: 11, color: p.sidebar.textDim }}>+</Box>
+            <Box
+              component="kbd"
+              sx={{
+                fontFamily: 'inherit',
+                fontSize: 11,
+                fontWeight: 600,
+                px: 0.75,
+                py: 0.1,
+                minWidth: 18,
+                textAlign: 'center',
+                color: p.sidebar.textDim,
+                bgcolor: p.sidebar.bg,
+                border: `1px solid ${p.appBarBorder}`,
+                borderRadius: 0.75,
+                boxShadow: `0 1px 0 ${p.appBarBorder}`,
+                lineHeight: 1.4,
+              }}
+            >
+              Shift
             </Box>
             <Box component="span" sx={{ fontSize: 11, color: p.sidebar.textDim }}>+</Box>
             <Box

@@ -222,6 +222,38 @@ export default function App() {
 
       <InstrumentsModal />
 
+      {/* Global footer — bottom-right, always visible regardless of log drawer. */}
+      <Box
+        component="footer"
+        sx={{
+          position: 'fixed',
+          bottom: 6,
+          right: 12,
+          fontSize: 10.5,
+          color: p.sidebar.textDim,
+          pointerEvents: 'none',
+          zIndex: (t) => t.zIndex.drawer + 3,
+        }}
+      >
+        © {new Date().getFullYear()}{' '}
+        <Box
+          component="a"
+          href="https://github.com/YossiAbutbul"
+          target="_blank"
+          rel="noopener noreferrer"
+          sx={{
+            color: p.sidebar.text,
+            textDecoration: 'none',
+            fontWeight: 600,
+            pointerEvents: 'auto',
+            '&:hover': { textDecoration: 'underline' },
+          }}
+        >
+          Yossi Abutbul
+        </Box>
+        {' · '}All rights reserved
+      </Box>
+
       <Drawer
         anchor="right"
         open={logOpen}

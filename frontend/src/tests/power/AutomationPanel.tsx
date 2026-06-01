@@ -9,6 +9,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import StopIcon from '@mui/icons-material/Stop'
 import DownloadIcon from '@mui/icons-material/Download'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
+import ShowChartIcon from '@mui/icons-material/ShowChart'
 import { useMutation } from '@tanstack/react-query'
 import { LabeledField } from '../../components/LabeledField'
 import { device } from '../../api/device'
@@ -17,6 +18,7 @@ import { usePathLoss } from '../../context/PathLossContext'
 import { useLog } from '../../context/LogContext'
 import { useConnection } from '../../context/ConnectionContext'
 import { useNotify } from '../../context/NotifyContext'
+import { ResultsGraphModal } from './ResultsGraphModal'
 import {
   powerPageSnapshot,
   persistPowerPage,
@@ -167,6 +169,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   const [pendingFocusIdx, setPendingFocusIdx] = useState<number | null>(null)
   // Auto-follow the results table to the latest row during a run.
   const resultsScrollRef = useRef<HTMLDivElement | null>(null)
+  const [graphOpen, setGraphOpen] = useState(false)
 
   const addRow = () => {
     setRows((arr) => {
@@ -482,6 +485,14 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
         </Button>
         <Button
           variant="outlined"
+          startIcon={<ShowChartIcon />}
+          onClick={() => setGraphOpen(true)}
+          disabled={results.length === 0}
+        >
+          Graph
+        </Button>
+        <Button
+          variant="outlined"
           startIcon={<DownloadIcon />}
           onClick={() => downloadCsv(results, pathLossDb, bleStatus?.address ?? null)}
           disabled={results.length === 0}
@@ -533,6 +544,12 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
           </Box>
         )}
       </Box>
+
+      <ResultsGraphModal
+        open={graphOpen}
+        onClose={() => setGraphOpen(false)}
+        results={results}
+      />
     </Stack>
   )
 }
