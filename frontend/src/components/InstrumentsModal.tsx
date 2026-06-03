@@ -54,6 +54,23 @@ const EXPECTED_MODEL: Partial<Record<InstrumentId, string>> = {
   spectrum: 'FSW',
 }
 
+/** Drop candidates that clearly belong to a *different* known instrument.
+ *  Keeps the model-matched device plus any with no IDN (still unidentified),
+ *  so the network-analyzer picker won't list the DC analyzer (N6705) etc. */
+function filterCandidates(id: InstrumentId, list: DiscoverCandidate[]): DiscoverCandidate[] {
+  const want = EXPECTED_MODEL[id]?.toLowerCase()
+  if (!want) return list
+  const others = Object.entries(EXPECTED_MODEL)
+    .filter(([k]) => k !== id)
+    .map(([, v]) => v.toLowerCase())
+  return list.filter((c) => {
+    const idn = c.idn?.toLowerCase()
+    if (!idn) return true // unidentified — keep selectable
+    if (idn.includes(want)) return true
+    return !others.some((o) => idn.includes(o)) // exclude known-other models
+  })
+}
+
 function pickDefault(id: InstrumentId, list: DiscoverCandidate[]): DiscoverCandidate | null {
   if (list.length === 0) return null
   const want = EXPECTED_MODEL[id]
@@ -90,7 +107,7 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
     if (inst.placeholder) return
     setScanning(true)
     try {
-      const list = await discover(id)
+      const list = filterCandidates(id, await discover(id))
       setCandidates(list)
       // Helpful default: if user hasn't typed anything and we found a sensible
       // candidate, pre-fill it. Prefers the model-matched device (e.g. N6705B

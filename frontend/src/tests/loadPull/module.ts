@@ -1,14 +1,13 @@
 import { createElement } from 'react'
-import TuneIcon from '@mui/icons-material/Tune'
+import ScienceIcon from '@mui/icons-material/Science'
 import type { TestModule } from '../types'
 import { LoadPullPage } from './LoadPullPage'
 
 export const loadPullModule: TestModule = {
   id: 'load-pull',
-  label: 'Load Pull',
+  label: 'Load Pull Test',
   protocol: 'LoRa',
-  group: 'Other',
-  icon: createElement(TuneIcon, { fontSize: 'small' }),
+  icon: createElement(ScienceIcon, { fontSize: 'small' }),
   Page: LoadPullPage,
   requiresConnection: false,
 }

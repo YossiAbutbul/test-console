@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box, Collapse, Divider, Drawer, IconButton, ListItemButton, ListItemIcon,
   ListItemText, Popover, Stack, Switch, TextField, Tooltip, Typography,
@@ -72,18 +72,19 @@ function DcSupplySection() {
   const [err, setErr] = useState<string | null>(null)
   useEffect(() => { setDraft(String(voltage)) }, [voltage])
 
-  // Auto-apply persisted setting when DC analyzer (re)connects — but only
-  // when the supply is enabled. Sending disable_output on every reconnect
-  // (the disabled-by-default case) spams the backend with calls that fail
-  // 500 when the wrapper isn't fully ready yet.
+  // No auto-apply on connect / menu open: the supply turns on ONLY when the
+  // user flips the toggle below. Avoids surprise power-on when opening settings.
+  // Since we no longer push the persisted state to the hardware, reset the
+  // toggle to OFF once on mount so it matches the known-off supply — otherwise
+  // a stale persisted `true` would show ON while the output is actually off,
+  // making the first toggle click send *disable* and look like a no-op.
+  const didInit = useRef(false)
   useEffect(() => {
-    if (!dcConnected || !enabled) return
-    setBusy(true); setErr(null)
-    instrumentsApi.setDcSupply(true, voltage)
-      .catch((e: any) => setErr(String(e?.message ?? e)))
-      .finally(() => setBusy(false))
+    if (didInit.current) return
+    didInit.current = true
+    if (enabled) setEnabled(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dcConnected])
+  }, [])
 
   const apply = async (en: boolean, v: number) => {
     if (!dcConnected) return
@@ -167,6 +168,7 @@ function SettingsButton() {
         open={!!anchor}
         anchorEl={anchor}
         onClose={() => setAnchor(null)}
+        keepMounted
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
         transformOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         slotProps={{

@@ -18,9 +18,14 @@ class MotorStatus(BaseModel):
     moving: bool = False
     position: Optional[int] = None
     device_index: Optional[int] = None
-    soft_min: int = svc.SOFT_MIN_POS
-    soft_max: int = svc.SOFT_MAX_POS
+    soft_min: Optional[int] = None
+    soft_max: Optional[int] = None
     error: Optional[str] = None
+
+
+class LimitsRequest(BaseModel):
+    soft_min: Optional[int] = Field(default=None, description="Min travel limit (pulses); null = unbounded")
+    soft_max: Optional[int] = Field(default=None, description="Max travel limit (pulses); null = unbounded")
 
 
 class ConnectRequest(BaseModel):
@@ -34,6 +39,11 @@ class MoveRequest(BaseModel):
 
 class HomeRequest(BaseModel):
     direction: str = Field(..., pattern="^(positive|negative)$")
+
+
+class JogRequest(BaseModel):
+    positive: bool = Field(..., description="True = jog toward max, False = toward min")
+    speed: Optional[int] = Field(default=None, ge=1, le=5000, description="Jog speed (pulses/s)")
 
 
 class DiscoverResponse(BaseModel):
@@ -104,6 +114,37 @@ async def home(req: HomeRequest) -> MotorStatus:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"home failed: {e}")
+    return await _status()
+
+
+@router.post("/limits", response_model=MotorStatus)
+async def set_limits(req: LimitsRequest) -> MotorStatus:
+    try:
+        await _to_thread(svc.set_limits, req.soft_min, req.soft_max)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"set limits failed: {e}")
+    return await _status()
+
+
+@router.post("/jog/start", response_model=MotorStatus)
+async def jog_start(req: JogRequest) -> MotorStatus:
+    try:
+        await _to_thread(svc.jog_start, req.positive, req.speed)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"jog start failed: {e}")
+    return await _status()
+
+
+@router.post("/jog/stop", response_model=MotorStatus)
+async def jog_stop() -> MotorStatus:
+    try:
+        await _to_thread(svc.jog_stop)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"jog stop failed: {e}")
     return await _status()
 
 

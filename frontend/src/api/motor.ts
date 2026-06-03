@@ -6,8 +6,8 @@ export interface MotorStatus {
   position: number | null
   device_index: number | null
   error: string | null
-  soft_min: number
-  soft_max: number
+  soft_min: number | null
+  soft_max: number | null
 }
 
 export const motor = {
@@ -29,6 +29,17 @@ export const motor = {
     http<MotorStatus>('/motor/home', {
       method: 'POST',
       body: JSON.stringify({ direction }),
+    }),
+  jogStart: (positive: boolean, speed?: number) =>
+    http<MotorStatus>('/motor/jog/start', {
+      method: 'POST',
+      body: JSON.stringify({ positive, speed: speed ?? null }),
+    }),
+  jogStop: () => http<MotorStatus>('/motor/jog/stop', { method: 'POST' }),
+  setLimits: (softMin: number | null, softMax: number | null) =>
+    http<MotorStatus>('/motor/limits', {
+      method: 'POST',
+      body: JSON.stringify({ soft_min: softMin, soft_max: softMax }),
     }),
   stop: () => http<MotorStatus>('/motor/stop', { method: 'POST' }),
 }

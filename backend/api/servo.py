@@ -61,15 +61,18 @@ async def status() -> ServoStatus:
 
 @router.get("/discover", response_model=DiscoverResponse)
 async def discover() -> DiscoverResponse:
+    # List ports only — never open/probe them here. Opening the Arduino during a
+    # scan is what wedges the USB-serial driver (PermissionError 13). The IDN is
+    # read once at connect and exposed via status afterwards.
     try:
-        details = await _to_thread(svc.discover_with_idn)
+        ports = await _to_thread(svc.discover)
     except RuntimeError as e:
         raise HTTPException(status_code=501, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"discover failed: {e}")
     return DiscoverResponse(
-        candidates=[d["port"] for d in details],
-        details=[DiscoverCandidate(**d) for d in details],
+        candidates=ports,
+        details=[DiscoverCandidate(port=p, idn=None) for p in ports],
     )
 
 

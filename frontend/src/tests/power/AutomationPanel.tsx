@@ -254,20 +254,23 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
         log('Automation', `done — ${collected.length}/${plan.length} points`)
         const errCount = collected.filter((r) => r.error).length
         if (abortRef.stop) {
-          notify.warning(
-            `Stopped at ${collected.length}/${plan.length} points`,
-            { title: 'Automation cancelled' },
-          )
+          notify.complete({
+            severity: 'warning',
+            title: 'Automation cancelled',
+            message: `Stopped at ${collected.length}/${plan.length} points`,
+          })
         } else if (errCount > 0) {
-          notify.warning(
-            `Finished with ${errCount} error${errCount === 1 ? '' : 's'} (${collected.length}/${plan.length} points)`,
-            { title: 'Automation done' },
-          )
+          notify.complete({
+            severity: 'warning',
+            title: 'Automation done',
+            message: `Finished with ${errCount} error${errCount === 1 ? '' : 's'} (${collected.length}/${plan.length} points)`,
+          })
         } else {
-          notify.success(
-            `${collected.length} point${collected.length === 1 ? '' : 's'} measured`,
-            { title: 'Automation done' },
-          )
+          notify.complete({
+            severity: 'success',
+            title: 'Automation done',
+            message: `${collected.length} point${collected.length === 1 ? '' : 's'} measured`,
+          })
         }
       } finally {
         setRunning(false)
