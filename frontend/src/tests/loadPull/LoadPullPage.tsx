@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Box, Button, Chip, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, Typography,
@@ -12,7 +12,7 @@ import StopIcon from '@mui/icons-material/Stop'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import DownloadIcon from '@mui/icons-material/Download'
 import ScatterPlotIcon from '@mui/icons-material/ScatterPlot'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import { motor } from '../../api/motor'
@@ -30,10 +30,11 @@ import {
   loadPullPageSnapshot, persistLoadPullPage, type LoadPullResultRow,
 } from '../../store/loadPullPageStore'
 import { SmithChartModal } from './SmithChartModal'
+import { runSequence } from '../engine/runSequence'
+import { planPositions } from './plan'
+import { useTromboneJog } from './useTromboneJog'
 
 const PULSES_PER_MM = 400
-const POLL_MS = 500
-const MOTOR_WAIT_TIMEOUT_MS = 60_000
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const mm = (p: number) => p / PULSES_PER_MM
@@ -92,21 +93,6 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const { status: bleStatus } = useConnection()
   const hasBackend = protocol === 'LoRa'
 
-  const qc = useQueryClient()
-  // Poll continuously (not gated on connected) so the page picks up a trombone
-  // that gets connected later via the Instruments modal — otherwise an early
-  // connected:false would latch polling off and the jog controls stay disabled.
-  const motorStatusQ = useQuery({
-    queryKey: ['motor', 'status'],
-    queryFn: motor.status,
-    refetchInterval: POLL_MS,
-    refetchOnWindowFocus: false,
-  })
-  const motorS = motorStatusQ.data
-  const motorConnected = !!motorS?.connected
-  const motorMoving = !!motorS?.moving
-  const motorPos = motorS?.position ?? null
-
   const ps = useInstrumentValue('power-sensor')
   const dc = useInstrumentValue('dc-analyzer')
   const na = useInstrumentValue('network-analyzer')
@@ -152,48 +138,14 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }, [results.length])
 
-  // Manual trombone jog
-  const refreshMotor = () => qc.invalidateQueries({ queryKey: ['motor', 'status'] })
-  const onMotorOk = (label: string) => () => { log('Motor', `${label} ok`); refreshMotor() }
-  const onMotorErr = (label: string) => (e: Error) => {
-    log('Motor', `${label} failed: ${e.message}`, 'error')
-    notify.error(e.message, { title: `Trombone ${label}` })
-  }
-
-  // Continuous jog: press-and-hold a direction → motor runs at a reduced speed
-  // until released. The backend gates the motion at the soft limits. A ref
-  // tracks the active direction so a key-repeat / duplicate keydown doesn't
-  // restart it, and so we only stop the jog we actually started.
-  const jogDirRef = useRef<number>(0)
-  const [jogDir, setJogDir] = useState<number>(0)
-  const startJog = (positive: boolean) => {
-    if (!motorConnected || running) return
-    const dir = positive ? 1 : -1
-    if (jogDirRef.current === dir) return // already jogging this way
-    jogDirRef.current = dir
-    setJogDir(dir)
-    motor.jogStart(positive, jogSpeed).catch((e: Error) => {
-      jogDirRef.current = 0
-      setJogDir(0)
-      log('Motor', `jog ${positive ? '+' : '−'} failed: ${e.message}`, 'error')
-      if (!/limit/i.test(e.message)) notify.error(e.message, { title: 'Trombone jog' })
-    })
-  }
-  const stopJog = () => {
-    if (jogDirRef.current === 0) return
-    jogDirRef.current = 0
-    setJogDir(0)
-    motor.jogStop()
-      .then(() => refreshMotor())
-      .catch((e: Error) => log('Motor', `jog stop failed: ${e.message}`, 'error'))
-  }
-  // Min/Max jump to the user-captured zero/end positions (local state). Each is
-  // enabled independently as soon as its own point is captured — Min needs only
-  // zero, Max needs only end. Don't wait on the backend soft-limit echo.
-  const travelMin = zeroPulses
-  const travelMax = endPulses
-  const goMinM = useMutation({ mutationFn: () => motor.move(travelMin ?? 0, true), onSuccess: onMotorOk('go zero'), onError: onMotorErr('go zero') })
-  const goMaxM = useMutation({ mutationFn: () => motor.move(travelMax ?? 0, true), onSuccess: onMotorOk('go end'), onError: onMotorErr('go end') })
+  // Trombone status + jog + soft-limit sync + wait-for-idle, all in one hook.
+  const {
+    motorConnected, motorMoving, motorPos,
+    jogDir, jogFocused, setJogFocused,
+    startJog, stopJog, onJogKeyDown, onJogKeyUp,
+    goMinM, goMaxM, motorJogBusy,
+    travelMin, travelMax, waitForMotorIdle,
+  } = useTromboneJog({ running, zeroPulses, endPulses, jogSpeed, abortRef })
 
   // Manual RF switch routing — same servo presets the run loop uses.
   const swConnected = sw.status === 'connected'
@@ -206,47 +158,64 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
     },
   })
 
-  // Plan: list of trombone positions in pulses from zero -> end stepping by delta
+  // Plan: trombone positions (pulses) from zero -> end stepping by delta.
   const deltaPulses = Math.max(1, Math.round(deltaXmm * PULSES_PER_MM))
-  const positions: number[] = (() => {
-    if (zeroPulses == null || endPulses == null || deltaXmm <= 0) return []
-    const a = zeroPulses, b = endPulses
-    const out: number[] = []
-    if (a === b) return [a]
-    const step = a < b ? deltaPulses : -deltaPulses
-    // a..b are the user-captured travel ends, so no extra clamping needed.
-    for (let p = a; (step > 0 ? p <= b + 1e-9 : p >= b - 1e-9); p += step) {
-      out.push(Math.round(p))
-      if (out.length > 5000) break // safety
-    }
-    return out
-  })()
+  const positions = deltaXmm <= 0 ? [] : planPositions(zeroPulses, endPulses, deltaPulses)
   const totalPoints = positions.length
-
-  // The captured zero & end define the travel range, so push them to the
-  // backend as the soft limits. While either is unset, limits are cleared so
-  // the user can jog freely to find the ends.
-  useEffect(() => {
-    const apply = zeroPulses != null && endPulses != null
-      ? motor.setLimits(Math.min(zeroPulses, endPulses), Math.max(zeroPulses, endPulses))
-      : motor.setLimits(null, null)
-    void apply.then(() => refreshMotor()).catch(() => { /* ignore */ })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zeroPulses, endPulses])
 
   const canRun = hasBackend && allReady && pathAck && totalPoints > 0 && !running
 
-  const waitForMotorIdle = async (): Promise<void> => {
-    const t0 = Date.now()
-    // give the move command a beat to register before we start polling
-    await sleep(120)
-    while (Date.now() - t0 < MOTOR_WAIT_TIMEOUT_MS) {
-      if (abortRef.stop) return
-      const s = await motor.status()
-      if (!s.moving) return
-      await sleep(150)
+  // Measure one trombone position: move → VNA marker (R/J/S11) → PCB → TX →
+  // power+CC. Never throws — failures are recorded in the returned row.
+  const measureAt = async (pos: number, freqHz: number): Promise<LoadPullResultRow> => {
+    const row: LoadPullResultRow = {
+      pos_pulses: pos, pos_mm: mm(pos),
+      power_dbm: null, current_a: null,
+      r_ohm: null, x_ohm: null, s11_db: null,
+      error: null,
     }
-    throw new Error('motor move timed out')
+    try {
+      // 1. trombone -> position
+      await motor.move(pos, true)
+      await waitForMotorIdle()
+      if (abortRef.stop) return row
+
+      // 2. switch -> VNA, measure marker
+      await servo.goto('VNA')
+      await sleep(settleMs)
+      const m = await vna.measure([freqHz])
+      const mk = m.markers?.[0]
+      if (mk) {
+        row.r_ohm = mk.r_ohm
+        row.x_ohm = mk.x_ohm
+        row.s11_db = mk.s11_mag_db
+      } else if (m.error) {
+        row.error = `vna: ${m.error}`
+      }
+
+      // 3. switch -> PCB
+      await servo.goto('PCB')
+      await sleep(settleMs)
+
+      // 4. TX on
+      const tx = await device.loraPower({ freq_hz: freqHz, power_dbm: powerDbm, pa_mode: paMode })
+      if (!tx.ok) {
+        row.error = (row.error ? row.error + '; ' : '') + `tx status=${tx.status}`
+      } else {
+        await sleep(settleMs)
+        // 5. measure power + CC; apply path loss correction
+        const meas = await instrumentsApi.measure(freqHz)
+        row.power_dbm = meas.power_dbm == null ? null : meas.power_dbm + pathLossDb
+        row.current_a = meas.current_a
+        if (meas.error) row.error = (row.error ? row.error + '; ' : '') + meas.error
+      }
+      // 6. TX off
+      try { await device.stop() } catch { /* ignore */ }
+    } catch (e) {
+      row.error = (e as Error).message
+      try { await device.stop() } catch { /* ignore */ }
+    }
+    return row
   }
 
   const runM = useMutation({
@@ -257,85 +226,22 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
       setProgressIdx(0)
       const freqHz = Math.round(freqMhz * 1_000_000)
       try {
-        try { await vna.setMarkers([freqHz]) }
-        catch (e) { log('LoadPull', `setMarkers failed: ${(e as Error).message}`, 'warn') }
-
-        const collected: LoadPullResultRow[] = []
-        for (let i = 0; i < positions.length; i++) {
-          if (abortRef.stop) { log('LoadPull', 'stopped by user', 'warn'); break }
-          setProgressIdx(i + 1)
-          const pos = positions[i]
-          const row: LoadPullResultRow = {
-            pos_pulses: pos, pos_mm: mm(pos),
-            power_dbm: null, current_a: null,
-            r_ohm: null, x_ohm: null, s11_db: null,
-            error: null,
-          }
-          try {
-            // 1. trombone -> position
-            await motor.move(pos, true)
-            await waitForMotorIdle()
-            if (abortRef.stop) break
-
-            // 2. switch -> VNA, measure marker
-            await servo.goto('VNA')
-            await sleep(settleMs)
-            const m = await vna.measure([freqHz])
-            const mk = m.markers?.[0]
-            if (mk) {
-              row.r_ohm = mk.r_ohm
-              row.x_ohm = mk.x_ohm
-              row.s11_db = mk.s11_mag_db
-            } else if (m.error) {
-              row.error = `vna: ${m.error}`
-            }
-
-            // 3. switch -> PCB
-            await servo.goto('PCB')
-            await sleep(settleMs)
-
-            // 4. TX on
-            const tx = await device.loraPower({
-              freq_hz: freqHz, power_dbm: powerDbm, pa_mode: paMode,
-            })
-            if (!tx.ok) {
-              row.error = (row.error ? row.error + '; ' : '') + `tx status=${tx.status}`
-            } else {
-              await sleep(settleMs)
-              // 5. measure power + CC; apply path loss correction
-              const meas = await instrumentsApi.measure(freqHz)
-              row.power_dbm = meas.power_dbm == null ? null : meas.power_dbm + pathLossDb
-              row.current_a = meas.current_a
-              if (meas.error) row.error = (row.error ? row.error + '; ' : '') + meas.error
-            }
-            // 6. TX off
-            try { await device.stop() } catch { /* ignore */ }
-          } catch (e) {
-            row.error = (e as Error).message
-            try { await device.stop() } catch { /* ignore */ }
-          }
-          collected.push(row)
-          setResults([...collected])
-        }
-
-        if (abortRef.stop) {
-          notify.complete({
-            severity: 'warning',
-            title: 'Load Pull cancelled',
-            message: `Stopped at ${collected.length}/${positions.length} points`,
-          })
-        } else {
-          const errCount = collected.filter((r) => r.error).length
-          if (errCount > 0) {
-            notify.complete({
-              severity: 'warning',
-              title: 'Load Pull done',
-              message: `Finished with ${errCount} error${errCount === 1 ? '' : 's'} (${collected.length} points)`,
-            })
-          } else {
-            notify.complete({ severity: 'success', title: 'Load Pull done', message: `${collected.length} points measured` })
-          }
-        }
+        await runSequence<number, LoadPullResultRow>({
+          items: positions,
+          abortRef,
+          before: async () => {
+            try { await vna.setMarkers([freqHz]) }
+            catch (e) { log('LoadPull', `setMarkers failed: ${(e as Error).message}`, 'warn') }
+          },
+          measure: (pos) => measureAt(pos, freqHz),
+          after: async () => { try { await device.stop() } catch { /* ignore */ } },
+          rowHasError: (r) => !!r.error,
+          onRows: setResults,
+          onProgress: setProgressIdx,
+          name: 'Load Pull', unit: 'points',
+          log: (m, l) => log('LoadPull', m, l),
+          notify,
+        })
       } finally {
         setRunning(false)
       }
@@ -351,29 +257,6 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
     void device.stop().catch(() => { /* ignore */ })
     void motor.stop().catch(() => { /* ignore */ })
   }
-
-  const motorJogBusy = goMinM.isPending || goMaxM.isPending
-
-  // Keyboard jog: hold ← / → to run the motor while the jog pad is focused;
-  // release (or blur) stops it. Key auto-repeat is ignored so the jog isn't
-  // restarted on every repeat tick.
-  const [jogFocused, setJogFocused] = useState(false)
-  const onJogKeyDown = (e: ReactKeyboardEvent) => {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-    e.preventDefault()
-    if (e.repeat) return
-    if (!motorConnected || running || motorJogBusy) return
-    startJog(e.key === 'ArrowRight')
-  }
-  const onJogKeyUp = (e: ReactKeyboardEvent) => {
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      e.preventDefault()
-      stopJog()
-    }
-  }
-
-  // Safety: stop any running jog when the component unmounts.
-  useEffect(() => () => { if (jogDirRef.current !== 0) void motor.jogStop().catch(() => {}) }, [])
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>

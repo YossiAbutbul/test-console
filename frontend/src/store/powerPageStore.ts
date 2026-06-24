@@ -39,36 +39,11 @@ export interface PowerPageSnapshot {
   }
 }
 
-import { storage } from './persistent'
+import { makePageStore } from './makePageStore'
 import { STORAGE_KEYS } from './keys'
 
-// Loaded once at module init from localStorage so the data survives a hard
-// refresh. Components keep mutating this same object directly; after each
-// change they must call `persistPowerPage()` to push the snapshot back to
-// storage. Cleared automatically when the user hits Run again or Clear.
-export const powerPageSnapshot: PowerPageSnapshot =
-  storage.get<PowerPageSnapshot>(STORAGE_KEYS.powerPage, {})
+const store = makePageStore<PowerPageSnapshot>(STORAGE_KEYS.powerPage, {})
 
-// `JSON.stringify(localStorage.setItem)` on every keystroke / measurement
-// stalls the main thread. Coalesce writes into a single timer.
-const FLUSH_MS = 300
-let flushTimer: ReturnType<typeof setTimeout> | null = null
-
-function flushNow(): void {
-  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null }
-  storage.set(STORAGE_KEYS.powerPage, powerPageSnapshot)
-}
-
-export function persistPowerPage(): void {
-  if (flushTimer) return // already scheduled
-  flushTimer = setTimeout(flushNow, FLUSH_MS)
-}
-
-export function flushPowerPage(): void {
-  flushNow()
-}
-
-if (typeof window !== 'undefined') {
-  // Guarantee the latest snapshot makes it to disk on tab close / reload.
-  window.addEventListener('beforeunload', flushNow)
-}
+export const powerPageSnapshot = store.snapshot
+export const persistPowerPage = store.persist
+export const flushPowerPage = store.flush

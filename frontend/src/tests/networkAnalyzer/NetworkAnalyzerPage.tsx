@@ -9,6 +9,7 @@ import PowerIcon from '@mui/icons-material/Power'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
+import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { vna, type VnaMeasureResponse } from '../../api/networkAnalyzer'
 import { useLog } from '../../context/LogContext'
 import type { TestPageProps } from '../types'
@@ -81,6 +82,11 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
   const startHz = Number(startMHz) * MHZ
   const stopHz = Number(stopMHz) * MHZ
   const freqValid = Number.isFinite(startHz) && Number.isFinite(stopHz) && stopHz > startHz && startHz > 0
+  const [freqFocus, setFreqFocus] = useState<string | null>(null)
+  const freqFocusBind = (key: string) => ({
+    onFocus: (e: React.FocusEvent<HTMLInputElement>) => { (e.target as HTMLInputElement).select(); setFreqFocus(key) },
+    onBlur: () => setFreqFocus((k) => (k === key ? null : k)),
+  })
 
   const setFreqM = useMutation({
     mutationFn: () => vna.setFreq(startHz, stopHz),
@@ -200,10 +206,12 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
               type="number"
               value={startMHz}
               onChange={(e) => setStartMHz(e.target.value)}
-              onFocus={(e) => (e.target as HTMLInputElement).select()}
+              {...freqFocusBind('start')}
               inputProps={{ step: 1, min: 0 }}
               sx={{ width: 160 }}
               disabled={!connected || busy}
+              error={startMHz.trim() !== '' && !freqValid}
+              InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(startMHz, freqValid, freqFocus === 'start')} message={startMHz.trim() === '' ? 'Enter a value' : 'Stop must be greater than Start, both > 0'} /> }}
             />
             <TextField
               size="small"
@@ -211,10 +219,12 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
               type="number"
               value={stopMHz}
               onChange={(e) => setStopMHz(e.target.value)}
-              onFocus={(e) => (e.target as HTMLInputElement).select()}
+              {...freqFocusBind('stop')}
               inputProps={{ step: 1, min: 0 }}
               sx={{ width: 160 }}
               disabled={!connected || busy}
+              error={stopMHz.trim() !== '' && !freqValid}
+              InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(stopMHz, freqValid, freqFocus === 'stop')} message={stopMHz.trim() === '' ? 'Enter a value' : 'Stop must be greater than Start, both > 0'} /> }}
             />
             <Button
               variant="contained"

@@ -11,6 +11,8 @@ export type LogSource =
   | 'Sweep'
   | 'System'
   | 'Automation'
+  | 'LoadPull'
+  | 'Switch'
   | 'Servo'
   | 'VNA'
 

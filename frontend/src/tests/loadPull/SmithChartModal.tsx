@@ -5,9 +5,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close'
 import { useThemeMode } from '../../context/ThemeModeContext'
 import type { LoadPullResultRow } from '../../store/loadPullPageStore'
-
-const Z0 = 50
-const VCC = 3.6 // supply voltage used for the efficiency denominator
+import { Z0, VCC, RAMP, reflection, dbmToW, efficiency, rampColor } from './smith'
 
 interface Pt {
   x: number; y: number
@@ -15,41 +13,6 @@ interface Pt {
   idx: number
   row: LoadPullResultRow
   eff: number | null // drain efficiency (fraction), null if not computable
-}
-
-/** z = (R + jX)/Z0  →  Γ = (z - 1)/(z + 1) in chart coords (unit circle r=1). */
-function reflection(rOhm: number, xOhm: number): { gr: number; gi: number } {
-  const zr = rOhm / Z0
-  const zi = xOhm / Z0
-  const ar = zr - 1, ai = zi
-  const br = zr + 1, bi = zi
-  const den = br * br + bi * bi || 1e-12
-  return { gr: (ar * br + ai * bi) / den, gi: (ai * br - ar * bi) / den }
-}
-
-/** dBm → Watts. */
-const dbmToW = (dbm: number) => Math.pow(10, (dbm - 30) / 10)
-
-/** Efficiency = P_out(W) / (Vcc * Icc). null if current/power missing. */
-function efficiency(row: LoadPullResultRow): number | null {
-  if (row.power_dbm == null || row.current_a == null || row.current_a <= 0) return null
-  const e = dbmToW(row.power_dbm) / (VCC * row.current_a)
-  return Number.isFinite(e) ? e : null
-}
-
-// Turbo-ish blue→cyan→green→yellow→red ramp (low → high).
-const RAMP = ['#2563eb', '#06b6d4', '#22c55e', '#eab308', '#dc2626']
-function hexLerp(a: string, b: string, t: number): string {
-  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16))
-  const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16))
-  const c = pa.map((v, i) => Math.round(v + (pb[i] - v) * t))
-  return `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`
-}
-function rampColor(t: number): string {
-  const x = Math.max(0, Math.min(1, t)) * (RAMP.length - 1)
-  const i = Math.floor(x)
-  if (i >= RAMP.length - 1) return RAMP[RAMP.length - 1]
-  return hexLerp(RAMP[i], RAMP[i + 1], x - i)
 }
 
 export function SmithChartModal({
@@ -234,16 +197,18 @@ export function SmithChartModal({
   )
 }
 
+const FORMULA_SERIF = '"Cambria Math", "Latin Modern Math", Cambria, Georgia, "Times New Roman", serif'
+
+const Sub = ({ children }: { children: string }) => (
+  <Box component="span" sx={{ fontSize: '0.62em', verticalAlign: 'sub', fontStyle: 'normal' }}>{children}</Box>
+)
+
 /** η = P_out / (V_cc · I_cc), rendered as a stacked fraction like a math editor. */
 function EfficiencyFormula({ vcc }: { vcc: number }) {
-  const serif = '"Cambria Math", "Latin Modern Math", Cambria, Georgia, "Times New Roman", serif'
-  const Sub = ({ children }: { children: string }) => (
-    <Box component="span" sx={{ fontSize: '0.62em', verticalAlign: 'sub', fontStyle: 'normal' }}>{children}</Box>
-  )
   return (
     <Box sx={{
       display: 'flex', alignItems: 'center', gap: 1,
-      fontFamily: serif, fontStyle: 'italic',
+      fontFamily: FORMULA_SERIF, fontStyle: 'italic',
       fontSize: 22, color: 'text.primary',
       px: 1, py: 0.5,
     }}>

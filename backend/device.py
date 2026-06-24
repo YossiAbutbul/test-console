@@ -1,5 +1,4 @@
-"""High-level CATM2 device commands.
-
+"""
 Frame layout (both directions):
     [opcode:2][len:2 LE][payload:len]
 Reply payload byte 0 = status (0 = OK).

@@ -10,6 +10,7 @@ import PowerIcon from '@mui/icons-material/Power'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
+import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { motor } from '../../api/motor'
 import { useLog } from '../../context/LogContext'
 import type { TestPageProps } from '../types'
@@ -20,6 +21,7 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
   const [targetStr, setTargetStr] = useState<string>('0')
+  const [targetFocused, setTargetFocused] = useState(false)
   const targetNum = Number(targetStr)
   const targetValid = targetStr.trim() !== '' && Number.isFinite(targetNum)
   const [deviceIndex, setDeviceIndex] = useState<number>(0)
@@ -188,12 +190,23 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
               value={targetStr}
               inputProps={{ min: softMin, max: softMax, step: 100 }}
               onChange={(e) => setTargetStr(e.target.value)}
+              onFocus={() => setTargetFocused(true)}
+              onBlur={() => setTargetFocused(false)}
               error={targetOutOfRange || (!targetValid && targetStr.trim() !== '')}
-              helperText={
-                targetOutOfRange
-                  ? `Out of range — must be ${softMin.toLocaleString()} … ${softMax.toLocaleString()}`
-                  : (!targetValid && targetStr.trim() !== '') ? 'Invalid number' : ' '
-              }
+              InputProps={{
+                endAdornment: (
+                  <ValidationAdornment
+                    show={shouldShowValidation(targetStr, targetValid && targetInRange, targetFocused)}
+                    message={
+                      targetStr.trim() === ''
+                        ? 'Enter a value'
+                        : targetOutOfRange
+                          ? `Out of range — must be ${softMin.toLocaleString()} … ${softMax.toLocaleString()}`
+                          : 'Invalid number'
+                    }
+                  />
+                ),
+              }}
               sx={{ maxWidth: 280 }}
             />
             <Button

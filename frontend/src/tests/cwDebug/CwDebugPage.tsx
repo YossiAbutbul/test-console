@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
 import { PageHeader } from '../../components/PageHeader'
+import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { useMutation } from '@tanstack/react-query'
@@ -14,11 +15,24 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
   const hasBackend = protocol === 'LoRa'
   const [freqMhz, setFreqMhz] = useState(902.3)
   const [power, setPower] = useState(14)
-  const [duty, setDuty] = useState(0)
-  const [hp, setHp] = useState(7)
+  // Kept as strings so clearing the field shows empty (not auto-0).
+  const [duty, setDuty] = useState('1')
+  const [hp, setHp] = useState('7')
   const [paMode, setPaMode] = useState(0)
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
+
+  // PA Duty Cycle and HP Max are valid only in 1..7 (0 doesn't work on the DUT).
+  const inRange = (v: number) => Number.isInteger(v) && v >= 1 && v <= 7
+  const inRangeStr = (s: string) => s.trim() !== '' && inRange(Number(s))
+  const dutyValid = inRangeStr(duty)
+  const hpValid = inRangeStr(hp)
+  // Track which field is focused so an empty field doesn't nag while editing.
+  const [focusKey, setFocusKey] = useState<string | null>(null)
+  const focusBind = (key: string) => ({
+    onFocus: () => setFocusKey(key),
+    onBlur: () => setFocusKey((k) => (k === key ? null : k)),
+  })
 
   const send = useMutation({
     mutationFn: () => {
@@ -26,7 +40,7 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
         log('DUT', `${protocol} Debug: no backend wired yet`, 'warn')
         return Promise.resolve(null)
       }
-      return device.loraCw({ freq_hz: Math.round(freqMhz * 1_000_000), power_dbm: power, pa_duty_cycle: duty, hp_max: hp, pa_mode: paMode })
+      return device.loraCw({ freq_hz: Math.round(freqMhz * 1_000_000), power_dbm: power, pa_duty_cycle: Number(duty), hp_max: Number(hp), pa_mode: paMode })
     },
     onSuccess: (r) => {
       if (!r) return
@@ -70,7 +84,7 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
             </Button>
             <Button
               variant="contained"
-              disabled={busy}
+              disabled={busy || !dutyValid || !hpValid}
               onClick={() => send.mutate()}
               sx={{ minWidth: 96, height: 36 }}
             >
@@ -95,10 +109,20 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
               onChange={(e) => setPower(Number(e.target.value))} />
             <LabeledField label="PA Duty Cycle" type="number" value={duty}
               historyKey={`${protocol}.debug.duty`}
-              onChange={(e) => setDuty(Number(e.target.value))} />
+              inputProps={{ min: 1, max: 7 }}
+              error={!dutyValid}
+              validate={inRangeStr}
+              {...focusBind('duty')}
+              InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(duty, dutyValid, focusKey === 'duty')} message={duty.trim() === '' ? 'Enter a value' : 'Allowed range: 1–7'} /> }}
+              onChange={(e) => setDuty(e.target.value)} />
             <LabeledField label="HP Max" type="number" value={hp}
               historyKey={`${protocol}.debug.hp`}
-              onChange={(e) => setHp(Number(e.target.value))} />
+              inputProps={{ min: 1, max: 7 }}
+              error={!hpValid}
+              validate={inRangeStr}
+              {...focusBind('hp')}
+              InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(hp, hpValid, focusKey === 'hp')} message={hp.trim() === '' ? 'Enter a value' : 'Allowed range: 1–7'} /> }}
+              onChange={(e) => setHp(e.target.value)} />
             <LabeledField
               label="PA Mode"
               select

@@ -3,7 +3,7 @@
  * Mirrors `powerPageStore.ts` — see it for the full pattern rationale.
  */
 
-import { storage } from './persistent'
+import { makePageStore } from './makePageStore'
 import { STORAGE_KEYS } from './keys'
 
 export interface LoadPullResultRow {
@@ -30,22 +30,8 @@ export interface LoadPullPageSnapshot {
   results?: LoadPullResultRow[]
 }
 
-export const loadPullPageSnapshot: LoadPullPageSnapshot =
-  storage.get<LoadPullPageSnapshot>(STORAGE_KEYS.loadPullPage, {})
+const store = makePageStore<LoadPullPageSnapshot>(STORAGE_KEYS.loadPullPage, {})
 
-const FLUSH_MS = 300
-let flushTimer: ReturnType<typeof setTimeout> | null = null
-
-function flushNow(): void {
-  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null }
-  storage.set(STORAGE_KEYS.loadPullPage, loadPullPageSnapshot)
-}
-
-export function persistLoadPullPage(): void {
-  if (flushTimer) return
-  flushTimer = setTimeout(flushNow, FLUSH_MS)
-}
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', flushNow)
-}
+export const loadPullPageSnapshot = store.snapshot
+export const persistLoadPullPage = store.persist
+export const flushLoadPullPage = store.flush

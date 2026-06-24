@@ -19,6 +19,8 @@ import { useLog } from '../../context/LogContext'
 import { useConnection } from '../../context/ConnectionContext'
 import { useNotify } from '../../context/NotifyContext'
 import { ResultsGraphModal } from './ResultsGraphModal'
+import { runSequence } from '../engine/runSequence'
+import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import {
   powerPageSnapshot,
   persistPowerPage,
@@ -162,6 +164,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   useEffect(() => { snap().results = results; persistPowerPage() }, [results])
   const [running, setRunning] = useState(false)
   const [progressIdx, setProgressIdx] = useState(0)
+  const [focusKey, setFocusKey] = useState<string | null>(null)
   const abortRef = useState<{ stop: boolean }>({ stop: false })[0]
   // Scroll the rows container + focus the freshly-added freq input after add.
   const bodyRef = useRef<HTMLDivElement | null>(null)
@@ -192,6 +195,45 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   }
   const totalPoints = plan.length
 
+  // Measure one (freq, power) point: TX on → settle → power/CC measure. Never
+  // throws — failures are recorded in the returned row.
+  const measurePoint = async (item: { freq: number; pow: number }): Promise<ResultRow> => {
+    const fHz = Math.round(item.freq * 1_000_000)
+    const row: ResultRow = {
+      freq_mhz: item.freq,
+      set_power_dbm: item.pow,
+      pa_mode: paMode,
+      measured_dbm: null,
+      measured_dbm_raw: null,
+      current_a: null,
+      voltage_v: null,
+      ok: false,
+      status: null,
+      error: null,
+    }
+    if (abortRef.stop) return row
+    try {
+      const tx = await device.loraPower({ freq_hz: fHz, power_dbm: item.pow, pa_mode: paMode })
+      row.ok = tx.ok
+      row.status = tx.status
+      if (!tx.ok) {
+        row.error = `tx status=${tx.status}`
+      } else {
+        await sleep(settleMs)
+        if (abortRef.stop) { try { await device.stop() } catch { /* ignore */ } ; return row }
+        const m = await instrumentsApi.measure(fHz)
+        row.measured_dbm_raw = m.power_dbm
+        row.measured_dbm = m.power_dbm == null ? null : m.power_dbm + pathLossDb
+        row.current_a = m.current_a
+        row.voltage_v = m.voltage_v
+        if (m.error) row.error = m.error
+      }
+    } catch (e) {
+      row.error = (e as Error).message
+    }
+    return row
+  }
+
   const runM = useMutation({
     mutationFn: async () => {
       if (!hasBackend) {
@@ -203,75 +245,18 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
       setResults([])
       setProgressIdx(0)
       try {
-        const collected: ResultRow[] = []
-        for (let i = 0; i < plan.length; i++) {
-          if (abortRef.stop) {
-            log('Automation', 'stopped by user', 'warn')
-            break
-          }
-          setProgressIdx(i + 1)
-          const { freq: fMhz, pow } = plan[i]
-          const fHz = Math.round(fMhz * 1_000_000)
-          const row: ResultRow = {
-            freq_mhz: fMhz,
-            set_power_dbm: pow,
-            pa_mode: paMode,
-            measured_dbm: null,
-            measured_dbm_raw: null,
-            current_a: null,
-            voltage_v: null,
-            ok: false,
-            status: null,
-            error: null,
-          }
-          try {
-            const tx = await device.loraPower({
-              freq_hz: fHz,
-              power_dbm: pow,
-              pa_mode: paMode,
-            })
-            row.ok = tx.ok
-            row.status = tx.status
-            if (!tx.ok) {
-              row.error = `tx status=${tx.status}`
-            } else {
-              await sleep(settleMs)
-              const m = await instrumentsApi.measure(fHz)
-              row.measured_dbm_raw = m.power_dbm
-              row.measured_dbm = m.power_dbm == null ? null : m.power_dbm + pathLossDb
-              row.current_a = m.current_a
-              row.voltage_v = m.voltage_v
-              if (m.error) row.error = m.error
-            }
-          } catch (e) {
-            row.error = (e as Error).message
-          }
-          collected.push(row)
-          setResults([...collected])
-        }
-        // Best-effort stop after sweep.
-        try { await device.stop() } catch { /* ignore */ }
-        log('Automation', `done — ${collected.length}/${plan.length} points`)
-        const errCount = collected.filter((r) => r.error).length
-        if (abortRef.stop) {
-          notify.complete({
-            severity: 'warning',
-            title: 'Automation cancelled',
-            message: `Stopped at ${collected.length}/${plan.length} points`,
-          })
-        } else if (errCount > 0) {
-          notify.complete({
-            severity: 'warning',
-            title: 'Automation done',
-            message: `Finished with ${errCount} error${errCount === 1 ? '' : 's'} (${collected.length}/${plan.length} points)`,
-          })
-        } else {
-          notify.complete({
-            severity: 'success',
-            title: 'Automation done',
-            message: `${collected.length} point${collected.length === 1 ? '' : 's'} measured`,
-          })
-        }
+        await runSequence<{ freq: number; pow: number }, ResultRow>({
+          items: plan,
+          abortRef,
+          measure: measurePoint,
+          after: async () => { try { await device.stop() } catch { /* ignore */ } },
+          rowHasError: (r) => !!r.error,
+          onRows: setResults,
+          onProgress: setProgressIdx,
+          name: 'Automation', unit: 'points',
+          log: (m, l) => log('Automation', m, l),
+          notify,
+        })
       } finally {
         setRunning(false)
       }
@@ -387,11 +372,13 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
                       size="small"
                       value={r.freq}
                       onChange={(e) => updateRow(i, { freq: e.target.value })}
-                      onFocus={(e) => (e.target as HTMLInputElement).select()}
                       inputRef={(el: HTMLInputElement | null) => { freqRefs.current[i] = el }}
                       placeholder="e.g. 915 or 900-930"
                       disabled={running}
                       error={badFreq}
+                      onFocus={(e) => { (e.target as HTMLInputElement).select(); setFocusKey(`${i}-freq`) }}
+                      onBlur={() => setFocusKey((k) => (k === `${i}-freq` ? null : k))}
+                      InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(r.freq, !badFreq, focusKey === `${i}-freq`)} message={r.freq.trim() === '' ? 'Enter a value' : 'Invalid — e.g. 915 or 900-930'} /> }}
                     />
                   </Stack>
                   <Stack spacing={0.5} sx={{ width: 220 }}>
@@ -406,9 +393,11 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
                       placeholder="14"
                       value={r.power}
                       onChange={(e) => updateRow(i, { power: e.target.value })}
-                      onFocus={(e) => (e.target as HTMLInputElement).select()}
+                      onFocus={(e) => { (e.target as HTMLInputElement).select(); setFocusKey(`${i}-power`) }}
+                      onBlur={() => setFocusKey((k) => (k === `${i}-power` ? null : k))}
                       disabled={running}
                       error={bad}
+                      InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(r.power, !bad, focusKey === `${i}-power`)} message="Invalid — e.g. 14 or 10-20" /> }}
                     />
                   </Stack>
                   <Stack spacing={0.5}>

@@ -89,7 +89,7 @@ function RangeRow({
 export function PowerSweepPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
-  const { notifyMissing, instruments } = useInstruments()
+  const { instruments } = useInstruments()
   const missing = REQUIRED_INSTRUMENTS.filter((id) => instruments[id].status !== 'connected')
   const hasBackend = protocol === 'LoRa'
 
