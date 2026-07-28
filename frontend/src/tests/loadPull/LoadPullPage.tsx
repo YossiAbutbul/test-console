@@ -36,11 +36,32 @@ import {
 } from '../../store/loadPullPageStore'
 import { SmithChartModal } from './SmithChartModal'
 import { runSequence } from '../engine/runSequence'
+import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'
+import type { InstrumentId } from '../../context/InstrumentsContext'
 import { planPositions } from './plan'
 import { useTromboneJog } from './useTromboneJog'
 
 const PULSES_PER_MM = 400
+
+/** Every stage of a point touches one of these. */
+const REQUIRED_INSTRUMENTS: InstrumentId[] = [
+  'power-sensor', 'dc-analyzer', 'network-analyzer', 'rf-switch', 'rf-trombone',
+]
+
+/** Budget for the motor travel, switching and measuring around the delays. */
+const STEP_OVERHEAD_TIMEOUT_MS = 90_000
+
+const blankRow = (pos: number): LoadPullResultRow => ({
+  pos_pulses: pos,
+  pos_mm: mm(pos),
+  power_dbm: null,
+  current_a: null,
+  r_ohm: null,
+  x_ohm: null,
+  s11_db: null,
+  error: null,
+})
 
 const mm = (p: number) => p / PULSES_PER_MM
 
@@ -79,6 +100,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
   const notify = useNotify()
   const reporter = useRunReporter('Load Pull', 'LoadPull')
+  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
   const { pathLossDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
   const hasBackend = protocol === 'LoRa'
@@ -119,7 +141,9 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
 
   const [running, setRunning] = useState(false)
   const [progressIdx, setProgressIdx] = useState(0)
-  const abortRef = useState<{ stop: boolean }>({ stop: false })[0]
+  // Replaced per run. Stop aborts it, which cancels in-flight requests and
+  // wakes every settle delay immediately.
+  const abortRef = useRef(new AbortController())
   const resultsScrollRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -153,26 +177,26 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const positions = deltaXmm <= 0 ? [] : planPositions(zeroPulses, endPulses, deltaPulses)
   const totalPoints = positions.length
 
-  const canRun = hasBackend && allReady && pathAck && totalPoints > 0 && !running
+  // Instruments are deliberately not gated here — the preflight connects them
+  // on Run, and gating would make an unconnected rig look like a broken page.
+  // The DUT link is different: nothing can connect it on the operator's behalf.
+  const canRun = hasBackend && dutConnected && pathAck && totalPoints > 0 && !running
 
   // Measure one trombone position: move → VNA marker (R/J/S11) → PCB → TX →
   // power+CC. Never throws — failures are recorded in the returned row.
   const measureAt = async (pos: number, freqHz: number): Promise<LoadPullResultRow> => {
-    const row: LoadPullResultRow = {
-      pos_pulses: pos, pos_mm: mm(pos),
-      power_dbm: null, current_a: null,
-      r_ohm: null, x_ohm: null, s11_db: null,
-      error: null,
-    }
+    const { signal } = abortRef.current
+    const row = blankRow(pos)
     try {
       // 1. trombone -> position
       await motor.move(pos, true)
       await waitForMotorIdle()
-      if (abortRef.stop) return row
+      if (signal.aborted) return row
 
       // 2. switch -> VNA, measure marker
       await servo.goto('VNA')
-      await sleep(settleMs)
+      await sleep(settleMs, signal)
+      if (signal.aborted) return row
       const m = await vna.measure([freqHz])
       const mk = m.markers?.[0]
       if (mk) {
@@ -187,16 +211,20 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
 
       // 3. switch -> PCB
       await servo.goto('PCB')
-      await sleep(settleMs)
+      await sleep(settleMs, signal)
+      if (signal.aborted) return row
 
       // 4. TX on
-      const tx = await device.loraPower({ freq_hz: freqHz, power_dbm: powerDbm, pa_mode: paMode })
+      const tx = await device.loraPower(
+        { freq_hz: freqHz, power_dbm: powerDbm, pa_mode: paMode },
+        { signal },
+      )
       if (!tx.ok) {
         row.error = (row.error ? row.error + '; ' : '') + `tx status=${tx.status}`
       } else {
-        await sleep(settleMs)
+        await sleep(settleMs, signal)
         // 5. measure power + CC; apply path loss correction
-        const meas = await instrumentsApi.measure(freqHz)
+        const meas = await instrumentsApi.measure(freqHz, { signal })
         row.power_dbm = meas.power_dbm == null ? null : meas.power_dbm + pathLossDb
         row.current_a = meas.current_a
         if (meas.error) row.error = (row.error ? row.error + '; ' : '') + meas.error
@@ -204,7 +232,8 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
       // 6. TX off
       try { await device.stop() } catch { /* ignore */ }
     } catch (e) {
-      row.error = (e as Error).message
+      // A cancelled request is the operator stopping, not a measurement fault.
+      if (!signal.aborted) row.error = (e as Error).message
       try { await device.stop() } catch { /* ignore */ }
     }
     return row
@@ -212,7 +241,12 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
 
   const runM = useMutation({
     mutationFn: async () => {
-      abortRef.stop = false
+      if (!(await preflight.run())) {
+        reporter.note('cancelled — instruments not ready', 'warn')
+        return
+      }
+      const abort = new AbortController()
+      abortRef.current = abort
       setRunning(true)
       setResults([])
       setProgressIdx(0)
@@ -220,7 +254,11 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
       try {
         await runSequence<number, LoadPullResultRow>({
           items: positions,
-          abortRef,
+          abort,
+          markRowError: (pos, _i, message) => ({ ...blankRow(pos), error: message }),
+          // A point moves the trombone and settles three times, so its budget
+          // has to cover the motor travel as well as the delays.
+          stepTimeoutMs: settleMs * 3 + STEP_OVERHEAD_TIMEOUT_MS,
           before: async () => {
             try { await vna.setMarkers([freqHz]) }
             catch (e) { reporter.note(`setMarkers failed: ${(e as Error).message}`, 'warn') }
@@ -240,7 +278,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   })
 
   const onStop = () => {
-    abortRef.stop = true
+    abortRef.current.abort()
     void device.stop().catch(() => { /* ignore */ })
     void motor.stop().catch(() => { /* ignore */ })
   }
@@ -634,6 +672,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
         results={results}
         freqMhz={freqMhz}
       />
+      {preflight.dialog}
     </Box>
   )
 }

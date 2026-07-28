@@ -5,22 +5,26 @@
  *
  * Kept out of the page component so LoadPullPage stays layout-focused.
  */
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import {
+  useEffect, useRef, useState,
+  type KeyboardEvent as ReactKeyboardEvent, type RefObject,
+} from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motor } from '../../api/motor'
 import { useLog } from '../../context/LogContext'
 import { useNotify } from '../../context/NotifyContext'
+import { sleep } from '../../lib/async'
 
 const POLL_MS = 500
 const MOTOR_WAIT_TIMEOUT_MS = 60_000
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export interface TromboneJogArgs {
   running: boolean
   zeroPulses: number | null
   endPulses: number | null
   jogSpeed: number
-  abortRef: { stop: boolean }
+  /** Holds the current run's controller; Stop aborts it. */
+  abortRef: RefObject<AbortController>
 }
 
 export function useTromboneJog({ running, zeroPulses, endPulses, jogSpeed, abortRef }: TromboneJogArgs) {
@@ -116,13 +120,14 @@ export function useTromboneJog({ running, zeroPulses, endPulses, jogSpeed, abort
 
   // Used by the sweep loop: block until the motor reports idle (or abort).
   const waitForMotorIdle = async (): Promise<void> => {
+    const { signal } = abortRef.current
     const t0 = Date.now()
-    await sleep(120)
+    await sleep(120, signal)
     while (Date.now() - t0 < MOTOR_WAIT_TIMEOUT_MS) {
-      if (abortRef.stop) return
+      if (signal.aborted) return
       const s = await motor.status()
       if (!s.moving) return
-      await sleep(150)
+      await sleep(150, signal)
     }
     throw new Error('motor move timed out')
   }

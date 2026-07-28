@@ -16,13 +16,16 @@ import { device } from '../../api/device'
 import { instrumentsApi } from '../../api/instruments'
 import { usePathLoss } from '../../context/PathLossContext'
 import { useConnection } from '../../context/ConnectionContext'
-import { sleep } from '../../lib/async'
+import { formatDuration, sleep } from '../../lib/async'
 import { downloadCsv as saveCsv, exportName } from '../../lib/download'
 import { fmt, num } from '../../lib/format'
 import { parseRangeSpec } from '../../lib/numericList'
+import { TEXT } from '../../ui'
 import { ResultsGraphModal } from './ResultsGraphModal'
 import { runSequence } from '../engine/runSequence'
+import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'
+import type { InstrumentId } from '../../context/InstrumentsContext'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import {
   powerPageSnapshot,
@@ -54,6 +57,15 @@ const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i:
 })
 
 const PA_MODE_LABEL = ['Off', 'On', 'Auto']
+
+/** Instruments every measured point depends on. */
+const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
+
+/** Budget for the command + measurement either side of the settle delay. */
+const STEP_OVERHEAD_TIMEOUT_MS = 30_000
+
+/** A settle above this is almost always a typo (500 → 50000). */
+const LONG_SETTLE_MS = 10_000
 
 /** Export the results table. Values are rounded for Excel readability. */
 function downloadCsv(rows: ResultRow[], pathLossDb: number, mac: string | null): void {
@@ -89,6 +101,9 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   const { pathLossDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
   const reporter = useRunReporter('TX Power automation', 'Automation')
+  // Every point reads power and current; without these the run completes with
+  // a table of blanks.
+  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
   const hasBackend = protocol === 'LoRa'
   const DEFAULT_POWER = '14'
   const [rows, setRows] = useState<FreqRow[]>(() => snap().rows ?? [
@@ -110,7 +125,9 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   const [running, setRunning] = useState(false)
   const [progressIdx, setProgressIdx] = useState(0)
   const [focusKey, setFocusKey] = useState<string | null>(null)
-  const abortRef = useState<{ stop: boolean }>({ stop: false })[0]
+  // Replaced per run. Stop aborts it, which cancels the in-flight request and
+  // wakes the settle delay immediately.
+  const abortRef = useRef(new AbortController())
   // Scroll the rows container + focus the freshly-added freq input after add.
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const freqRefs = useRef<Array<HTMLInputElement | null>>([])
@@ -139,34 +156,42 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
     for (const f of freqs) for (const p of powers) plan.push({ freq: f, pow: p })
   }
   const totalPoints = plan.length
+  // Settle dominates; the command + measure round trips add roughly 300 ms.
+  const estimatedRunMs = totalPoints * (settleMs + 300)
 
   // Measure one (freq, power) point: TX on → settle → power/CC measure. Never
   // throws — failures are recorded in the returned row.
+  const blankRow = (item: { freq: number; pow: number }): ResultRow => ({
+    freq_mhz: item.freq,
+    set_power_dbm: item.pow,
+    pa_mode: paMode,
+    measured_dbm: null,
+    measured_dbm_raw: null,
+    current_a: null,
+    voltage_v: null,
+    ok: false,
+    status: null,
+    error: null,
+  })
+
   const measurePoint = async (item: { freq: number; pow: number }): Promise<ResultRow> => {
     const fHz = Math.round(item.freq * 1_000_000)
-    const row: ResultRow = {
-      freq_mhz: item.freq,
-      set_power_dbm: item.pow,
-      pa_mode: paMode,
-      measured_dbm: null,
-      measured_dbm_raw: null,
-      current_a: null,
-      voltage_v: null,
-      ok: false,
-      status: null,
-      error: null,
-    }
-    if (abortRef.stop) return row
+    const { signal } = abortRef.current
+    const row = blankRow(item)
+    if (signal.aborted) return row
     try {
-      const tx = await device.loraPower({ freq_hz: fHz, power_dbm: item.pow, pa_mode: paMode })
+      const tx = await device.loraPower(
+        { freq_hz: fHz, power_dbm: item.pow, pa_mode: paMode },
+        { signal },
+      )
       row.ok = tx.ok
       row.status = tx.status
       if (!tx.ok) {
         row.error = `tx status=${tx.status}`
       } else {
-        await sleep(settleMs)
-        if (abortRef.stop) { try { await device.stop() } catch { /* ignore */ } ; return row }
-        const m = await instrumentsApi.measure(fHz)
+        await sleep(settleMs, signal)
+        if (signal.aborted) { try { await device.stop() } catch { /* ignore */ } ; return row }
+        const m = await instrumentsApi.measure(fHz, { signal })
         row.measured_dbm_raw = m.power_dbm
         row.measured_dbm = m.power_dbm == null ? null : m.power_dbm + pathLossDb
         row.current_a = m.current_a
@@ -174,7 +199,8 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
         if (m.error) row.error = m.error
       }
     } catch (e) {
-      row.error = (e as Error).message
+      // A cancelled request is the operator stopping, not a measurement fault.
+      row.error = signal.aborted ? null : (e as Error).message
     }
     return row
   }
@@ -185,19 +211,28 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
         reporter.note('no backend for this protocol', 'warn')
         return
       }
-      abortRef.stop = false
+      if (!(await preflight.run())) {
+        reporter.note('cancelled — instruments not ready', 'warn')
+        return
+      }
+      const abort = new AbortController()
+      abortRef.current = abort
       setRunning(true)
       setResults([])
       setProgressIdx(0)
       try {
         await runSequence<{ freq: number; pow: number }, ResultRow>({
           items: plan,
-          abortRef,
+          abort,
           measure: measurePoint,
+          markRowError: (item, _i, message) => ({ ...blankRow(item), error: message }),
           after: async () => { try { await device.stop() } catch { /* ignore */ } },
           rowHasError: (r) => !!r.error,
           onRows: setResults,
           onProgress: setProgressIdx,
+          // The settle delay is operator-set and can be long; the guard has to
+          // sit above it or it would fire on every point.
+          stepTimeoutMs: settleMs + STEP_OVERHEAD_TIMEOUT_MS,
           reporter,
         })
       } finally {
@@ -208,10 +243,11 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   })
 
   const onStop = () => {
-    abortRef.stop = true
-    // Also send a real stop to the DUT immediately so it doesn't keep
-    // transmitting between the current point and where the loop notices
-    // the abort flag.
+    // Aborting cancels the in-flight request and wakes the settle delay, so
+    // the loop notices immediately rather than at the end of the point.
+    abortRef.current.abort()
+    // Independently tell the DUT to stop transmitting — the abort only ends
+    // our side of the conversation.
     if (hasBackend) {
       void device.stop().catch((e: Error) => reporter.note(`stop failed: ${e.message}`, 'error'))
     }
@@ -377,11 +413,28 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
                 <MenuItem value={1}>On</MenuItem>
                 <MenuItem value={0}>Off</MenuItem>
               </LabeledField>
-              <LabeledField
-                label="Settle" hint="ms" type="number" value={settleMs}
-                historyKey={`${protocol}.automation.settle_ms`}
-                onChange={(e) => setSettleMs(Math.max(0, Number(e.target.value) || 0))}
-              />
+              <Box>
+                <LabeledField
+                  label="Settle" hint="ms" type="number" value={settleMs}
+                  historyKey={`${protocol}.automation.settle_ms`}
+                  onChange={(e) => setSettleMs(Math.max(0, Number(e.target.value) || 0))}
+                />
+                {/* A long settle looks identical to a hung run, so state the
+                    cost up front rather than letting the operator guess. */}
+                {totalPoints > 0 && (
+                  <Typography
+                    sx={{
+                      ...TEXT.micro,
+                      mt: 0.5,
+                      color: settleMs >= LONG_SETTLE_MS ? 'warning.main' : 'text.secondary',
+                    }}
+                  >
+                    {settleMs >= LONG_SETTLE_MS && '⚠ '}
+                    ≈ {formatDuration(estimatedRunMs)} for {totalPoints} point
+                    {totalPoints === 1 ? '' : 's'}
+                  </Typography>
+                )}
+              </Box>
             </Stack>
           </Box>
         </Box>
@@ -482,6 +535,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
         onClose={() => setGraphOpen(false)}
         results={results}
       />
+      {preflight.dialog}
     </Stack>
   )
 }

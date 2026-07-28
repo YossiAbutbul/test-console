@@ -13,6 +13,8 @@ import {
 import type { DiscoverCandidate } from '../api/instruments'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
+import { MONO } from '../ui'
+import { FailureNote } from './FailureNote'
 
 interface CategoryGroup {
   label: string
@@ -290,19 +292,29 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
         </Stack>
       </Box>
 
-      {/* Footer line: IDN / error — always reserved height so row doesn't jump on connect */}
-      <Typography
-        sx={{
-          mt: 0.75, pl: 2.5,
-          minHeight: 14,
-          fontSize: 10.5,
-          fontFamily: inst.error ? 'inherit' : 'ui-monospace, monospace',
-          color: inst.error ? 'error.main' : 'text.secondary',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}
-      >
-        {inst.error ?? (connected ? inst.idn ?? ' ' : ' ')}
-      </Typography>
+      {/* Footer line: IDN, or the explained failure. Height is reserved either
+          way so the row doesn't jump when a connect resolves. */}
+      {inst.failure ? (
+        <Box sx={{ mt: 0.75, pl: 2.5 }}>
+          <Typography sx={{ fontSize: 10.5, fontWeight: 700, color: 'error.main' }}>
+            {inst.failure.title}
+          </Typography>
+          <FailureNote failure={inst.failure} />
+        </Box>
+      ) : (
+        <Typography
+          sx={{
+            mt: 0.75, pl: 2.5,
+            minHeight: 14,
+            fontSize: 10.5,
+            fontFamily: MONO,
+            color: 'text.secondary',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}
+        >
+          {connected ? inst.idn ?? ' ' : ' '}
+        </Typography>
+      )}
 
       {/* Subtle scanning indicator — thin bar at the bottom edge of the row */}
       {scanning && (

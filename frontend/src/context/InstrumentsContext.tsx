@@ -2,6 +2,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { instrumentsApi, type DiscoverCandidate, type InstrumentKind } from '../api/instruments'
 import { servo } from '../api/servo'
 import { motor } from '../api/motor'
+import {
+  ConnectTimeout, describeConnectError, type ConnectFailure,
+} from '../lib/instrumentError'
 
 export type InstrumentId =
   | 'power-sensor'
@@ -23,7 +26,8 @@ export interface InstrumentState {
   channel?: number
   status: InstrumentStatus
   idn?: string
-  error?: string
+  /** Set when `status === 'error'`. Classified, not raw driver text. */
+  failure?: ConnectFailure
   /** Not yet wired to backend — UI placeholder. */
   placeholder?: boolean
 }
@@ -34,12 +38,32 @@ interface State {
   instruments: Record<InstrumentId, InstrumentState>
 }
 
+/** How a connect attempt ended. */
+export interface ConnectOutcome {
+  ok: boolean
+  /** Classified failure, ready to show. Absent when `ok`. */
+  failure?: ConnectFailure
+}
+
+/**
+ * How long to wait for one instrument before giving up on it.
+ *
+ * A dead VISA/serial resource can otherwise block for the OS-level timeout —
+ * tens of seconds — with no feedback at all.
+ */
+export const CONNECT_TIMEOUT_MS = 7000
+
 interface Actions {
   setOpen: (b: boolean) => void
   notifyMissing: (ids: InstrumentId[]) => void
   setAddress: (id: InstrumentId, address: string) => void
   setChannel: (id: InstrumentId, channel: number) => void
-  connect: (id: InstrumentId) => Promise<void>
+  /**
+   * Connect one instrument, bounded by `timeoutMs`. Used by the Instruments
+   * panel and by the pre-run preflight, so both behave the same and both get
+   * the same classified failure back.
+   */
+  connect: (id: InstrumentId, timeoutMs?: number) => Promise<ConnectOutcome>
   disconnect: (id: InstrumentId) => Promise<void>
   discover: (id: InstrumentId) => Promise<DiscoverCandidate[]>
 }
@@ -189,39 +213,68 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
     patch(id, { channel })
   }, [patch])
 
-  const connect = useCallback(async (id: InstrumentId) => {
+  /** The connect itself. Throws on failure; `connect` classifies it. */
+  const openSession = useCallback(async (id: InstrumentId) => {
     const cur = instrumentsRef.current[id]
-    patch(id, { status: 'connecting', error: undefined })
-    try {
-      if (id === 'rf-switch') {
-        const r = await servo.connect(cur.address.trim())
-        patch(id, { status: 'connected', idn: r.idn ?? undefined })
-        // Park the switch on the VNA path right after connect so the user
-        // doesn't have to send a goto manually. Failure is non-fatal.
-        try { await servo.goto('VNA') } catch { /* ignore — connection ok */ }
-        return
-      }
-      if (id === 'rf-trombone') {
-        // address stores the device name (e.g. "jsa00"). Resolve its index by
-        // re-listing devices so motor.connect(idx) targets the right one.
-        const name = cur.address.trim()
-        const list = await motor.discover()
-        const idx = Math.max(0, list.candidates.indexOf(name))
-        const r = await motor.connect(idx)
-        const idn = `${name || `device #${idx}`}${r.position != null ? ` · pos=${r.position}` : ''}`
-        patch(id, { status: 'connected', idn })
-        return
-      }
-      if (cur.placeholder) {
-        patch(id, { status: 'error', error: 'not wired yet' })
-        return
-      }
-      const res = await instrumentsApi.connect(id as InstrumentKind, cur.address.trim(), cur.channel)
-      patch(id, { status: 'connected', idn: res.idn ?? undefined })
-    } catch (e) {
-      patch(id, { status: 'error', error: (e as Error).message })
+    if (cur.placeholder) throw new Error('not wired yet')
+    if (!cur.address.trim() && id !== 'rf-trombone') {
+      throw new Error('no address selected')
     }
+
+    if (id === 'rf-switch') {
+      const r = await servo.connect(cur.address.trim())
+      patch(id, { status: 'connected', idn: r.idn ?? undefined })
+      // Park the switch on the VNA path right after connect so the user
+      // doesn't have to send a goto manually. Failure is non-fatal.
+      try { await servo.goto('VNA') } catch { /* ignore — connection ok */ }
+      return
+    }
+    if (id === 'rf-trombone') {
+      // address stores the device name (e.g. "jsa00"). Resolve its index by
+      // re-listing devices so motor.connect(idx) targets the right one.
+      const name = cur.address.trim()
+      const list = await motor.discover()
+      const idx = Math.max(0, list.candidates.indexOf(name))
+      const r = await motor.connect(idx)
+      const idn = `${name || `device #${idx}`}${r.position != null ? ` · pos=${r.position}` : ''}`
+      patch(id, { status: 'connected', idn })
+      return
+    }
+    const res = await instrumentsApi.connect(id as InstrumentKind, cur.address.trim(), cur.channel)
+    patch(id, { status: 'connected', idn: res.idn ?? undefined })
   }, [patch])
+
+  const connect = useCallback(async (
+    id: InstrumentId,
+    timeoutMs = CONNECT_TIMEOUT_MS,
+  ): Promise<ConnectOutcome> => {
+    const cur = instrumentsRef.current[id]
+    if (cur.status === 'connected') return { ok: true }
+
+    patch(id, { status: 'connecting', failure: undefined })
+    let timer: number | undefined
+    try {
+      // The request keeps running after we stop waiting — there is no cancel on
+      // the backend side. If it lands late, the status poll picks the
+      // connection up, so a merely slow instrument recovers on its own.
+      await Promise.race([
+        openSession(id),
+        new Promise<never>((_, reject) => {
+          timer = window.setTimeout(
+            () => reject(new ConnectTimeout(Math.round(timeoutMs / 1000))),
+            timeoutMs,
+          )
+        }),
+      ])
+      return { ok: true }
+    } catch (e) {
+      const failure = describeConnectError(e, cur.address)
+      patch(id, { status: 'error', failure })
+      return { ok: false, failure }
+    } finally {
+      if (timer != null) window.clearTimeout(timer)
+    }
+  }, [patch, openSession])
 
   const disconnect = useCallback(async (id: InstrumentId) => {
     try {
@@ -235,7 +288,7 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
     } catch {
       /* still flip local state */
     }
-    patch(id, { status: 'disconnected', idn: undefined, error: undefined })
+    patch(id, { status: 'disconnected', idn: undefined, failure: undefined })
   }, [patch])
 
   const discover = useCallback(async (id: InstrumentId): Promise<DiscoverCandidate[]> => {
@@ -271,7 +324,10 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
     [openState, required, instruments],
   )
   const actions = useMemo<Actions>(
-    () => ({ setOpen, notifyMissing, setAddress, setChannel, connect, disconnect, discover }),
+    () => ({
+      setOpen, notifyMissing, setAddress, setChannel,
+      connect, disconnect, discover,
+    }),
     [setOpen, notifyMissing, setAddress, setChannel, connect, disconnect, discover],
   )
 

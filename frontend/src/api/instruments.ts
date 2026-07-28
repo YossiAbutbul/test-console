@@ -53,10 +53,10 @@ export const instrumentsApi = {
     http<ConnectResponse>(`/instruments/${kind}/disconnect`, {
       method: 'POST',
     }),
-  measure: (freqHz?: number) =>
+  measure: (freqHz?: number, opts?: { signal?: AbortSignal }) =>
     http<MeasureResponse>(
       `/instruments/measure${freqHz ? `?freq_hz=${Math.round(freqHz)}` : ''}`,
-      { method: 'POST' },
+      { method: 'POST', signal: opts?.signal },
     ),
   getDcSupply: () => http<SupplyResponse>('/instruments/dc-analyzer/supply'),
   setDcSupply: (enabled: boolean, voltage_v: number, channel?: number) =>

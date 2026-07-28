@@ -11,13 +11,13 @@ endpoints (`/instruments/status`, `/instruments/measure`).
 """
 from __future__ import annotations
 
-import asyncio
 import time
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from . import dc_analyzer, network_analyzer, power_sensor, spectrum
+from ._bus import bus
 from ._state import state
 
 router = APIRouter()
@@ -137,13 +137,20 @@ async def measure(freq_hz: int | None = None) -> MeasureResponse:
     # This route reports failures in the `error` field rather than as an HTTP
     # status, so it deliberately keeps its own catch instead of using
     # `handle_driver_errors` — a partial reading is still useful to the client.
+    # Reads go through the per-instrument bus so a wedged sensor times out here
+    # instead of consuming a shared worker thread and eventually stalling the
+    # whole API — see _bus.py.
     try:
         if ps_connected:
-            p_dbm = await asyncio.to_thread(_read_power_dbm, freq_hz)
-        if dc_connected:
-            cur, volt = await asyncio.to_thread(_read_dc)
+            p_dbm = await bus("power-sensor").call(_read_power_dbm, freq_hz)
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
+    try:
+        if dc_connected:
+            cur, volt = await bus("dc-analyzer").call(_read_dc)
+    except Exception as e:
+        # Keep a power reading that already succeeded rather than dropping both.
+        err = f"{err}; {type(e).__name__}: {e}" if err else f"{type(e).__name__}: {e}"
     return MeasureResponse(
         power_dbm=p_dbm,
         current_a=cur,

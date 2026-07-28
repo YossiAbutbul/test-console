@@ -17,6 +17,7 @@ import {
 import type { StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
 import { useBackendRun } from '../engine/useBackendRun'
+import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'
 import { RangeRow } from './RangeRow'
 
@@ -40,6 +41,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
   const { instruments } = useInstruments()
   const { pathLossDb } = usePathLoss()
   const reporter = useRunReporter('Mode Sweep', 'Sweep', 'steps')
+  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
   const hasBackend = protocol === 'LoRa'
 
   const [freqMhz, setFreqMhz] = useState('902.3')
@@ -125,13 +127,10 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
   const total = status?.total ?? 0
   const completed = status?.completed ?? 0
 
-  const onRun = () => {
-    const missing = REQUIRED_INSTRUMENTS.filter((id) => instruments[id].status !== 'connected')
-    if (hasBackend && missing.length > 0) {
-      reporter.note(
-        `Instruments not connected in UI — ${missing.join(', ')}. Backend will try to init.`,
-        'warn',
-      )
+  const onRun = async () => {
+    if (hasBackend && !(await preflight.run())) {
+      reporter.note('cancelled — instruments not ready', 'warn')
+      return
     }
     run.mutate()
   }
@@ -157,7 +156,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
             canRun={totalSteps > 0}
             runLabel="Run sweep"
             progress={total > 0 ? `${completed}/${total}` : undefined}
-            onRun={onRun}
+            onRun={() => void onRun()}
             onStop={() => cancel.mutate()}
           >
             <Button
@@ -264,6 +263,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
           </Box>
         </Typography>
       </Box>
+      {preflight.dialog}
     </Box>
   )
 }

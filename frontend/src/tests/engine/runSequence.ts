@@ -10,23 +10,31 @@
  * returns a result row. `measure()` MUST NOT throw — it owns its own
  * try/catch and records failures in `row` (detected via `rowHasError`).
  *
+ * Cancellation is a real `AbortSignal`, not a polled flag: `measure()` is
+ * expected to pass `abort.signal` into its requests and its `sleep()` calls so
+ * that Stop takes effect immediately rather than after the current point.
+ *
  * Tests whose loop runs on the backend use `useBackendRun` instead; both
- * report through the same `RunReporter`, so the two kinds of test are
- * indistinguishable to the user.
+ * report through the same `RunReporter`, so the two kinds of test look the
+ * same to the operator.
  */
+import { TimeoutError, withTimeout } from '../../lib/async'
 import type { RunReporter } from './useRunReporter'
 
-export interface AbortRef { stop: boolean }
+/** Hard ceiling for one point, so a wedged instrument can't stall the run. */
+export const DEFAULT_STEP_TIMEOUT_MS = 120_000
 
 export interface RunSequenceArgs<Item, Row> {
   /** Ordered work list. */
   items: Item[]
-  /** Shared mutable abort flag — set `.stop = true` to cancel mid-sweep. */
-  abortRef: AbortRef
+  /** Cancels the run. Abort it from the Stop handler. */
+  abort: AbortController
   /** Build one row for one item. Must not throw; record errors in the row. */
   measure: (item: Item, index: number) => Promise<Row>
   /** True when a row failed — drives the completion summary. */
   rowHasError: (row: Row) => boolean
+  /** Record an error on a row the driver had to abandon (timeout). */
+  markRowError: (item: Item, index: number, message: string) => Row
   /** Push the accumulated rows after each point (for live table updates). */
   onRows: (rows: Row[]) => void
   /** 1-based index of the point currently being measured. */
@@ -35,6 +43,8 @@ export interface RunSequenceArgs<Item, Row> {
   before?: () => Promise<void>
   /** Runs once after the loop, always (best-effort cleanup, e.g. TX off). */
   after?: () => Promise<void>
+  /** Max wall time for one point. Should exceed the settle delay. */
+  stepTimeoutMs?: number
   /** Lifecycle announcer — see `useRunReporter`. */
   reporter: RunReporter
 }
@@ -43,8 +53,11 @@ export interface RunSequenceArgs<Item, Row> {
 export async function runSequence<Item, Row>(
   a: RunSequenceArgs<Item, Row>,
 ): Promise<Row[]> {
-  const { items, abortRef, measure, rowHasError, onRows, onProgress, reporter } = a
+  const {
+    items, abort, measure, rowHasError, markRowError, onRows, onProgress, reporter,
+  } = a
   const total = items.length
+  const stepTimeoutMs = a.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS
 
   reporter.started(total)
 
@@ -52,9 +65,21 @@ export async function runSequence<Item, Row>(
 
   const collected: Row[] = []
   for (let i = 0; i < total; i++) {
-    if (abortRef.stop) break
+    if (abort.signal.aborted) break
     onProgress?.(i + 1)
-    collected.push(await measure(items[i], i))
+
+    let row: Row
+    try {
+      row = await withTimeout(measure(items[i], i), stepTimeoutMs, `point ${i + 1}`)
+    } catch (e) {
+      // measure() is contracted not to throw, so this is the timeout guard
+      // firing. Record it and carry on to the next point.
+      const message = e instanceof TimeoutError ? e.message : (e as Error).message
+      reporter.note(`point ${i + 1}: ${message}`, 'error')
+      row = markRowError(items[i], i, message)
+    }
+
+    collected.push(row)
     onRows([...collected])
   }
 
@@ -67,7 +92,7 @@ export async function runSequence<Item, Row>(
     total,
     errors: collected.filter(rowHasError).length,
   }
-  if (abortRef.stop) reporter.stopped(summary)
+  if (abort.signal.aborted) reporter.stopped(summary)
   else reporter.finished(summary)
 
   return collected
