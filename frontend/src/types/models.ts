@@ -70,6 +70,7 @@ export interface SweepConfig {
   settle_ms: number
   cmd_timeout_s: number
   pa_mode?: number
+  path_loss_db?: number
 }
 
 export interface StartRequest {

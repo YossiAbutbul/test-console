@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
-  Box, Button, CircularProgress, MenuItem, Stack, Typography,
+  Box, Button, Chip, CircularProgress, MenuItem, Stack, Typography,
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tests } from '../../api/tests'
@@ -10,7 +10,9 @@ import { LabeledField } from '../../components/LabeledField'
 import { TopProgress } from '../../components/TopProgress'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { useInstruments, type InstrumentId } from '../../context/InstrumentsContext'
-import type { StartRequest } from '../../types/models'
+import { usePathLoss } from '../../context/PathLossContext'
+import { useNotify } from '../../context/NotifyContext'
+import type { RunState, StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
 
 const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
@@ -90,6 +92,8 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
   const { instruments } = useInstruments()
+  const { pathLossDb } = usePathLoss()
+  const notify = useNotify()
   const missing = REQUIRED_INSTRUMENTS.filter((id) => instruments[id].status !== 'connected')
   const hasBackend = protocol === 'LoRa'
 
@@ -132,6 +136,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
           settle_ms: settle,
           cmd_timeout_s: 5,
           pa_mode: paMode,
+          path_loss_db: pathLossDb,
         },
         power_sensor_serial: ps.address.trim() || null,
         dc_analyzer_resource: dc.address.trim() || null,
@@ -140,7 +145,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
       return tests.run(req)
     },
     onSuccess: () => {
-      log('Sweep', `Started (${totalSteps} steps)`)
+      log('Sweep', `Run requested (${totalSteps} steps)`)
       qc.invalidateQueries({ queryKey: ['test-status'] })
     },
     onError: (e: Error) => log('Sweep', `Run failed: ${e.message}`, 'error'),
@@ -152,11 +157,56 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
       return tests.cancel()
     },
     onSuccess: () => {
-      log('Sweep', 'Stopped')
+      log('Sweep', 'Stop requested')
       qc.invalidateQueries({ queryKey: ['test-status'] })
     },
     onError: (e: Error) => log('Sweep', `Stop failed: ${e.message}`, 'error'),
   })
+
+  // Watch backend run-state transitions: log start/stop and pop the
+  // completion modal when the sweep finishes, is interrupted, or errors.
+  const prevState = useRef<RunState | undefined>(undefined)
+  useEffect(() => {
+    const s = statusQ.data?.state
+    const prev = prevState.current
+    if (s === prev) return
+    prevState.current = s
+    if (!s) return
+
+    if (s === 'running') {
+      log('Sweep', 'Test started')
+      return
+    }
+    // Only fire terminal handling for a run we actually saw running — avoids
+    // popping a modal for a stale finished run when the page mounts.
+    if (prev !== 'running') return
+
+    const done = statusQ.data?.completed ?? 0
+    const total = statusQ.data?.total ?? 0
+    if (s === 'done') {
+      log('Sweep', `Test finished — ${done}/${total} steps`)
+      notify.complete({
+        severity: 'success',
+        title: 'Sweep complete',
+        message: `All ${done} steps measured.`,
+      })
+    } else if (s === 'cancelled') {
+      log('Sweep', `Test interrupted — ${done}/${total} steps`, 'warn')
+      notify.complete({
+        severity: 'warning',
+        title: 'Sweep interrupted',
+        message: `Stopped after ${done} of ${total} steps.`,
+      })
+    } else if (s === 'error') {
+      const err = statusQ.data?.error ?? 'Unknown error'
+      log('Sweep', `Test error: ${err}`, 'error')
+      notify.complete({
+        severity: 'error',
+        title: 'Sweep failed',
+        message: err,
+      })
+    }
+  }, [statusQ.data?.state, statusQ.data?.completed, statusQ.data?.total, statusQ.data?.error, log, notify])
 
   async function onExport() {
     try {
@@ -288,6 +338,16 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
               <MenuItem value={1}>On</MenuItem>
               <MenuItem value={2}>Auto</MenuItem>
             </LabeledField>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', gap: 1 }}>
+              <Chip
+                size="small"
+                label={`Path loss: ${pathLossDb} dB`}
+                sx={{ fontWeight: 600, fontSize: 12 }}
+              />
+              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                set globally in Connection panel · sensor reading + path loss = DUT power
+              </Typography>
+            </Stack>
           </Stack>
         </Box>
       </Box>
@@ -303,8 +363,8 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
                 voltage_v: r?.voltage_v ?? null,
                 label: 'Last measured row',
                 subLabel: r
-                  ? `#${r.idx + 1} · hp=${r.hp_max} duty=${r.pa_duty_cycle} pow=${r.power_dbm_setting}dBm`
-                  : 'waiting for first step…',
+                  ? `#${r.idx + 1} · hp=${r.hp_max} duty=${r.pa_duty_cycle} pow=${r.power_dbm_setting}dBm · incl. path-loss ${pathLossDb} dB`
+                  : `waiting for first step… · path-loss ${pathLossDb} dB`,
               }}
             />
           </Box>

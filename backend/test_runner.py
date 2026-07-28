@@ -43,6 +43,10 @@ class SweepConfig(BaseModel):
     settle_ms: int = Field(default=30, ge=0, le=10_000)
     cmd_timeout_s: float = Field(default=5.0, ge=0.1, le=60.0)
     pa_mode: int = Field(default=0, ge=0, le=2, description="0=OFF 1=ON 2=AUTO")
+    path_loss_db: float = Field(
+        default=0.0, ge=-200.0, le=200.0,
+        description="Added to raw sensor reading: DUT power = sensor + path_loss_db",
+    )
 
     def validate_ranges(self) -> None:
         for v in self.duty_values:
@@ -201,7 +205,8 @@ class TestRunner:
                             t_settle = time.perf_counter()
 
                             if pm is not None:
-                                tx_dbm = await asyncio.to_thread(pm.read_dbm)
+                                raw_dbm = await asyncio.to_thread(pm.read_dbm)
+                                tx_dbm = raw_dbm + ctx.config.path_loss_db
                             t_pm = time.perf_counter()
 
                             if cm is not None:
