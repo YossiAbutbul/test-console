@@ -1,20 +1,26 @@
 import { useEffect, useState } from 'react'
-import {
-  Autocomplete, Box, Button, Chip, Slider, Stack, TextField, Typography,
-} from '@mui/material'
-import PowerIcon from '@mui/icons-material/Power'
+import { Autocomplete, Box, Button, Slider, Stack, TextField, Typography } from '@mui/material'
 import SaveIcon from '@mui/icons-material/Save'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { servo, type ServoTarget } from '../../api/servo'
 import { useLog } from '../../context/LogContext'
+import { DASH } from '../../lib/format'
+import {
+  ACTION_W, CONTROL_H, Card, ConnectButton, MonoText, PageBody, Readout, Section,
+  StatusChip, TEXT,
+} from '../../ui'
+import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
 
+/** Slower than the trombone: the servo only reports its last commanded angle,
+ *  so there is nothing to track mid-move. */
 const POLL_MS = 1000
 
 export function SwitchPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
+  const reporter = useActionReporter('Switch move', 'Servo')
   const [port, setPort] = useState<string>('')
   const [ports, setPorts] = useState<string[]>([])
   const [angle, setAngle] = useState<number>(90)
@@ -38,6 +44,10 @@ export function SwitchPage({ protocol, group }: TestPageProps) {
   const onOk = (label: string) => () => { log('Servo', `${label} ok`); refresh() }
   const onErr = (label: string) => (e: Error) => log('Servo', `${label} failed: ${e.message}`, 'error')
 
+  // Repositioning is the one operation the user waits on, so it reports through
+  // the reporter; discovery, connect and save stay as plain log lines.
+  const onMoveErr = (e: Error) => reporter.failed(e.message)
+
   const discoverM = useMutation({
     mutationFn: servo.discover,
     onSuccess: (r) => {
@@ -59,12 +69,15 @@ export function SwitchPage({ protocol, group }: TestPageProps) {
   })
   const moveM = useMutation({
     mutationFn: () => servo.move(angle),
-    onSuccess: onOk(`move ${angle}`), onError: onErr('move'),
+    onMutate: () => reporter.started(`to ${angle}°`),
+    onSuccess: () => { reporter.succeeded(`to ${angle}°`); refresh() },
+    onError: onMoveErr,
   })
   const gotoM = useMutation({
     mutationFn: (t: ServoTarget) => servo.goto(t),
-    onSuccess: (_d, t) => { log('Servo', `goto ${t} ok`); refresh() },
-    onError: onErr('goto'),
+    onMutate: (t) => reporter.started(`to ${t} preset`),
+    onSuccess: (_d, t) => { reporter.succeeded(`to ${t} preset`); refresh() },
+    onError: onMoveErr,
   })
   const saveM = useMutation({
     mutationFn: (t: ServoTarget) => servo.save(t),
@@ -76,10 +89,7 @@ export function SwitchPage({ protocol, group }: TestPageProps) {
     connectM.isPending || disconnectM.isPending || moveM.isPending ||
     gotoM.isPending || saveM.isPending
 
-  const statusColor = connected ? 'success.main' : 'text.disabled'
-  const statusText = connected
-    ? `Connected · ${s?.port ?? ''}${s?.idn ? ` · ${s.idn}` : ''}`
-    : 'Disconnected'
+  const statusDetail = [s?.port, s?.idn].filter(Boolean).join(' · ')
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
@@ -88,41 +98,26 @@ export function SwitchPage({ protocol, group }: TestPageProps) {
         group={group}
         label="Switch"
         actions={
-          <Button
-            variant={connected ? 'outlined' : 'contained'}
-            startIcon={<PowerIcon sx={{ fontSize: 16 }} />}
-            onClick={() => (connected ? disconnectM.mutate() : connectM.mutate())}
+          <ConnectButton
+            connected={connected}
+            pending={connectM.isPending || disconnectM.isPending}
             disabled={busy || (!connected && !port)}
-            sx={{ height: 36, minWidth: 120 }}
-          >
-            {connectM.isPending || disconnectM.isPending ? '…' : connected ? 'Disconnect' : 'Connect'}
-          </Button>
+            onConnect={() => connectM.mutate()}
+            onDisconnect={() => disconnectM.mutate()}
+          />
         }
       />
 
-      <Stack spacing={2} sx={{ mt: 1, maxWidth: 720 }}>
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            Servo status
-            <Typography component="span" sx={{ fontSize: 12, ml: 1, color: 'text.secondary', fontFamily: 'ui-monospace, monospace' }}>
-              Arduino · 9600 8N1
-            </Typography>
-          </Typography>
-
-          <Box sx={{ p: 2, borderRadius: 1, border: 1, borderColor: 'divider' }}>
+      <PageBody width="panel">
+        <Section title="Servo status" action={<MonoText>Arduino · 9600 8N1</MonoText>}>
+          <Card>
             <Stack direction="row" alignItems="center" spacing={2}>
               <Box sx={{ flexGrow: 1 }}>
-                <Typography sx={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
-                  Last angle
-                </Typography>
-                <Typography sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 22, fontWeight: 600 }}>
-                  {lastAngle == null ? '—' : `${lastAngle}°`}
-                  {s?.last_command && (
-                    <Typography component="span" sx={{ fontSize: 12, color: 'text.secondary', ml: 1 }}>
-                      last cmd: {s.last_command}
-                    </Typography>
-                  )}
-                </Typography>
+                <Readout
+                  label="Last angle"
+                  value={lastAngle == null ? DASH : `${lastAngle}°`}
+                  note={s?.last_command ? `last cmd: ${s.last_command}` : undefined}
+                />
               </Box>
               {!connected && (
                 <Autocomplete
@@ -138,20 +133,16 @@ export function SwitchPage({ protocol, group }: TestPageProps) {
                   renderInput={(p) => <TextField {...p} label="Port" placeholder="COM3" />}
                 />
               )}
-              <Chip
-                size="small"
-                icon={<Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: statusColor, ml: 0.75 }} />}
-                label={statusText}
-                sx={{ fontSize: 11.5, fontWeight: 600, color: statusColor, maxWidth: 260 }}
+              <StatusChip
+                label={connected ? 'Connected' : 'Disconnected'}
+                tone={connected ? 'ok' : 'off'}
+                detail={connected ? statusDetail || undefined : undefined}
               />
             </Stack>
-          </Box>
-        </Box>
+          </Card>
+        </Section>
 
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            Angle
-          </Typography>
+        <Section title="Angle">
           <Stack direction="row" spacing={2} alignItems="center">
             <Slider
               value={angle}
@@ -185,23 +176,20 @@ export function SwitchPage({ protocol, group }: TestPageProps) {
               variant="contained"
               onClick={() => moveM.mutate()}
               disabled={!connected || busy}
-              sx={{ minWidth: 110, height: 40 }}
+              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.lg }}
             >
               Move
             </Button>
           </Stack>
-        </Box>
+        </Section>
 
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            Presets
-          </Typography>
+        <Section title="Presets">
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <Button
               variant="outlined"
               onClick={() => gotoM.mutate('VNA')}
               disabled={!connected || busy}
-              sx={{ minWidth: 120, height: 36 }}
+              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
             >
               Go VNA
             </Button>
@@ -209,7 +197,7 @@ export function SwitchPage({ protocol, group }: TestPageProps) {
               variant="outlined"
               onClick={() => gotoM.mutate('PCB')}
               disabled={!connected || busy}
-              sx={{ minWidth: 120, height: 36 }}
+              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
             >
               Go PCB
             </Button>
@@ -219,7 +207,7 @@ export function SwitchPage({ protocol, group }: TestPageProps) {
               startIcon={<SaveIcon sx={{ fontSize: 16 }} />}
               onClick={() => saveM.mutate('VNA')}
               disabled={!connected || busy}
-              sx={{ minWidth: 140, height: 36 }}
+              sx={{ minWidth: ACTION_W.wide, height: CONTROL_H.md }}
             >
               Save as VNA
             </Button>
@@ -228,22 +216,20 @@ export function SwitchPage({ protocol, group }: TestPageProps) {
               startIcon={<SaveIcon sx={{ fontSize: 16 }} />}
               onClick={() => saveM.mutate('PCB')}
               disabled={!connected || busy}
-              sx={{ minWidth: 140, height: 36 }}
+              sx={{ minWidth: ACTION_W.wide, height: CONTROL_H.md }}
             >
               Save as PCB
             </Button>
           </Stack>
-        </Box>
+        </Section>
 
         {s?.last_response && (
-          <Typography sx={{ fontSize: 12, color: 'text.secondary', fontFamily: 'ui-monospace, monospace' }}>
-            last response: {s.last_response}
-          </Typography>
+          <MonoText>last response: {s.last_response}</MonoText>
         )}
         {s?.error && (
-          <Typography sx={{ fontSize: 12, color: 'error.main' }}>{s.error}</Typography>
+          <Typography sx={{ ...TEXT.hint, color: 'error.main' }}>{s.error}</Typography>
         )}
-      </Stack>
+      </PageBody>
     </Box>
   )
 }

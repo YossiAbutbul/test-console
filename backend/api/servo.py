@@ -3,25 +3,25 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from .. import servo as svc
+from .errors import handle_driver_errors
 
 router = APIRouter(prefix="/servo", tags=["servo"])
 
 
 class ServoStatus(BaseModel):
     connected: bool
-    port: Optional[str] = None
-    idn: Optional[str] = None
-    last_angle: Optional[int] = None
-    last_command: Optional[str] = None
-    last_response: Optional[str] = None
+    port: str | None = None
+    idn: str | None = None
+    last_angle: int | None = None
+    last_command: str | None = None
+    last_response: str | None = None
     baud: int = 9600
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class ConnectRequest(BaseModel):
@@ -38,20 +38,17 @@ class TargetRequest(BaseModel):
 
 class DiscoverCandidate(BaseModel):
     port: str
-    idn: Optional[str] = None
+    idn: str | None = None
 
 
 class DiscoverResponse(BaseModel):
     candidates: list[str]
-    details: Optional[list[DiscoverCandidate]] = None
-
-
-def _to_thread(fn, *args, **kwargs):
-    return asyncio.to_thread(fn, *args, **kwargs)
+    details: list[DiscoverCandidate] | None = None
 
 
 async def _status() -> ServoStatus:
-    return ServoStatus(**await _to_thread(svc.read_status))
+    with handle_driver_errors("servo status"):
+        return ServoStatus(**await asyncio.to_thread(svc.read_status))
 
 
 @router.get("/status", response_model=ServoStatus)
@@ -64,12 +61,8 @@ async def discover() -> DiscoverResponse:
     # List ports only — never open/probe them here. Opening the Arduino during a
     # scan is what wedges the USB-serial driver (PermissionError 13). The IDN is
     # read once at connect and exposed via status afterwards.
-    try:
-        ports = await _to_thread(svc.discover)
-    except RuntimeError as e:
-        raise HTTPException(status_code=501, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"discover failed: {e}")
+    with handle_driver_errors("servo discover"):
+        ports = await asyncio.to_thread(svc.discover)
     return DiscoverResponse(
         candidates=ports,
         details=[DiscoverCandidate(port=p, idn=None) for p in ports],
@@ -78,55 +71,34 @@ async def discover() -> DiscoverResponse:
 
 @router.post("/connect", response_model=ServoStatus)
 async def connect(req: ConnectRequest) -> ServoStatus:
-    try:
-        await _to_thread(svc.connect, req.port)
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"connect failed: {e}")
+    with handle_driver_errors("servo connect"):
+        await asyncio.to_thread(svc.connect, req.port)
     return await _status()
 
 
 @router.post("/disconnect", response_model=ServoStatus)
 async def disconnect() -> ServoStatus:
-    await _to_thread(svc.disconnect)
+    with handle_driver_errors("servo disconnect"):
+        await asyncio.to_thread(svc.disconnect)
     return ServoStatus(connected=False)
 
 
 @router.post("/move", response_model=ServoStatus)
 async def move(req: MoveRequest) -> ServoStatus:
-    try:
-        await _to_thread(svc.move_angle, req.angle)
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"move failed: {e}")
+    with handle_driver_errors("servo move"):
+        await asyncio.to_thread(svc.move_angle, req.angle)
     return await _status()
 
 
 @router.post("/goto", response_model=ServoStatus)
 async def goto(req: TargetRequest) -> ServoStatus:
-    try:
-        await _to_thread(svc.goto, req.target)
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"goto failed: {e}")
+    with handle_driver_errors("servo goto"):
+        await asyncio.to_thread(svc.goto, req.target)
     return await _status()
 
 
 @router.post("/save", response_model=ServoStatus)
 async def save(req: TargetRequest) -> ServoStatus:
-    try:
-        await _to_thread(svc.save, req.target)
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"save failed: {e}")
+    with handle_driver_errors("servo save"):
+        await asyncio.to_thread(svc.save, req.target)
     return await _status()

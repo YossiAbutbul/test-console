@@ -1,3 +1,14 @@
+"""Routes for the parameter sweep: start, cancel, poll, export.
+
+The sweep owns its own power-sensor and DC-analyzer sessions rather than
+borrowing the ones held by `/instruments`. That keeps a sweep reproducible
+regardless of what the user connected by hand, and lets the runner close them
+when it finishes.
+"""
+
+from __future__ import annotations
+
+import asyncio
 import logging
 import time
 
@@ -6,17 +17,20 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from ..ble import manager
-from ..excel import build_workbook
-from ..hw.base import CurrentMeter, PowerMeter
 from ..hw.adapters import KeysightDCPowerAnalyzer, MiniCircuitsPowerMeter
-from ..test_runner import ResultRow, RunStatus, SweepConfig, runner
+from ..hw.base import CurrentMeter, PowerMeter
+from ..sweep import ResultRow, RunStatus, SweepConfig, build_workbook, runner
+from .errors import handle_driver_errors
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/test", tags=["test"])
 
-
 DEFAULT_DC_RESOURCE = "USB0::0x0957::0x0F07::MY50000200::INSTR"
+
+XLSX_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 
 
 class StartRequest(BaseModel):
@@ -31,37 +45,46 @@ def _build_power_meter(req: StartRequest) -> PowerMeter:
 
 
 def _build_current_meter(req: StartRequest) -> CurrentMeter:
-    resource = req.dc_analyzer_resource or DEFAULT_DC_RESOURCE
     return KeysightDCPowerAnalyzer(
-        resource=resource,
+        resource=req.dc_analyzer_resource or DEFAULT_DC_RESOURCE,
         channel=req.dc_analyzer_channel,
     )
 
 
+def _close_quietly(*instruments: PowerMeter | CurrentMeter | None) -> None:
+    for inst in instruments:
+        if inst is None:
+            continue
+        try:
+            inst.disconnect()
+        except Exception as e:
+            log.warning("Instrument disconnect failed: %s", e)
+
+
 @router.post("/run", response_model=RunStatus)
 async def start(req: StartRequest) -> RunStatus:
-    dev = manager.device
-    if dev is None:
-        raise HTTPException(
-            status_code=409, detail="Device not ready — connect first"
-        )
+    device = manager.device
+    if device is None:
+        raise HTTPException(status_code=409, detail="Device not ready — connect first")
 
+    pm: PowerMeter | None = None
+    cm: CurrentMeter | None = None
     try:
-        pm = _build_power_meter(req)
-        cm = _build_current_meter(req)
-        pm.connect()
-        cm.connect()
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Instrument init failed: {type(e).__name__}: {e}"
-        )
+        with handle_driver_errors("instrument init"):
+            pm = _build_power_meter(req)
+            cm = _build_current_meter(req)
+            # Opening a VISA/USB session blocks; keep it off the event loop.
+            await asyncio.to_thread(pm.connect)
+            await asyncio.to_thread(cm.connect)
 
-    try:
-        return await runner.start(req.config, dev, pm, cm)
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        with handle_driver_errors("sweep start"):
+            status = await runner.start(req.config, device, pm, cm)
+    except Exception:
+        # The runner never took ownership, so nothing else will close these.
+        _close_quietly(pm, cm)
+        raise
+
+    return status
 
 
 @router.post("/cancel", response_model=RunStatus)
@@ -84,10 +107,14 @@ async def export() -> Response:
     rows = runner.results()
     if not rows:
         raise HTTPException(status_code=404, detail="No results to export")
-    data = build_workbook(rows)
-    fname = time.strftime("pa_modes_%Y%m%d_%H%M%S.xlsx")
+
+    with handle_driver_errors("sweep export"):
+        # openpyxl rendering is CPU-bound and grows with the row count.
+        data = await asyncio.to_thread(build_workbook, rows)
+
+    filename = time.strftime("pa_modes_%Y%m%d_%H%M%S.xlsx")
     return Response(
         content=data,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

@@ -1,16 +1,16 @@
 """Mini-Circuits USB power sensor routes."""
 from __future__ import annotations
 
-from typing import Optional
+import asyncio
 
 from fastapi import APIRouter, HTTPException
 
+from ..errors import DriverUnavailable, handle_driver_errors
 from ._common import (
     ConnectRequest,
     ConnectResponse,
     DiscoverCandidate,
     DiscoverResponse,
-    to_thread,
 )
 from ._state import state
 
@@ -22,7 +22,9 @@ def _enumerate_serials() -> list[str]:
     try:
         from power_sensor import PowerSensor  # type: ignore
     except ImportError as e:
-        raise HTTPException(status_code=501, detail=f"power_sensor not installed: {e}")
+        # Runs in a worker thread — raise a plain driver error, not HTTPException.
+        # The route wraps this in `handle_driver_errors`, which maps it to 501.
+        raise DriverUnavailable(f"power_sensor not installed: {e}") from e
     for attr in ("list_available", "list_devices"):
         fn = getattr(PowerSensor, attr, None)
         if fn is not None:
@@ -53,7 +55,7 @@ def _format_idn(ps) -> str:
     return ",".join(p for p in parts if p)
 
 
-def _probe_idn(serial: str, count_hint: int) -> Optional[str]:
+def _probe_idn(serial: str, count_hint: int) -> str | None:
     """Open a sensor by serial, read identity, disconnect."""
     try:
         from power_sensor import PowerSensor  # type: ignore
@@ -134,7 +136,8 @@ def _disconnect() -> None:
 
 @router.get("/discover/power-sensor", response_model=DiscoverResponse)
 async def discover() -> DiscoverResponse:
-    details = await to_thread(_list_with_idn)
+    with handle_driver_errors("power sensor discover"):
+        details = await asyncio.to_thread(_list_with_idn)
     return DiscoverResponse(
         candidates=[d.resource for d in details],
         details=details,
@@ -143,16 +146,13 @@ async def discover() -> DiscoverResponse:
 
 @router.post("/power-sensor/connect", response_model=ConnectResponse)
 async def connect(req: ConnectRequest) -> ConnectResponse:
-    try:
-        idn = await to_thread(_connect, req.address)
-    except ImportError as e:
-        raise HTTPException(status_code=501, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"connect failed: {e}")
+    with handle_driver_errors("power sensor connect"):
+        idn = await asyncio.to_thread(_connect, req.address)
     return ConnectResponse(connected=True, idn=idn)
 
 
 @router.post("/power-sensor/disconnect", response_model=ConnectResponse)
 async def disconnect() -> ConnectResponse:
-    await to_thread(_disconnect)
+    with handle_driver_errors("power sensor disconnect"):
+        await asyncio.to_thread(_disconnect)
     return ConnectResponse(connected=False, idn=None)

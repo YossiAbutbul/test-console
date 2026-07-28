@@ -1,14 +1,16 @@
 """Spectrum analyzer routes (generic VISA)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+import asyncio
 
+from fastapi import APIRouter
+
+from ..errors import handle_driver_errors
 from ._common import (
     ConnectRequest,
     ConnectResponse,
     DiscoverResponse,
     list_visa_resources_idn,
-    to_thread,
 )
 from ._state import state
 
@@ -43,7 +45,8 @@ def _disconnect() -> None:
 
 @router.get("/discover/spectrum", response_model=DiscoverResponse)
 async def discover() -> DiscoverResponse:
-    details = await to_thread(list_visa_resources_idn)
+    with handle_driver_errors("spectrum discover"):
+        details = await asyncio.to_thread(list_visa_resources_idn)
     return DiscoverResponse(
         candidates=[d.resource for d in details],
         details=details,
@@ -52,16 +55,13 @@ async def discover() -> DiscoverResponse:
 
 @router.post("/spectrum/connect", response_model=ConnectResponse)
 async def connect(req: ConnectRequest) -> ConnectResponse:
-    try:
-        idn = await to_thread(_connect, req.address)
-    except ImportError as e:
-        raise HTTPException(status_code=501, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"connect failed: {e}")
+    with handle_driver_errors("spectrum connect"):
+        idn = await asyncio.to_thread(_connect, req.address)
     return ConnectResponse(connected=True, idn=idn)
 
 
 @router.post("/spectrum/disconnect", response_model=ConnectResponse)
 async def disconnect() -> ConnectResponse:
-    await to_thread(_disconnect)
+    with handle_driver_errors("spectrum disconnect"):
+        await asyncio.to_thread(_disconnect)
     return ConnectResponse(connected=False, idn=None)

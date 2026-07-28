@@ -18,6 +18,8 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+from ..errors import DriverUnavailable
+
 BAUD = 9600
 READ_TIMEOUT_S = 0.5
 WRITE_TIMEOUT_S = 1.0
@@ -71,7 +73,7 @@ def discover() -> list[str]:
     try:
         from serial.tools import list_ports  # type: ignore
     except ImportError as e:
-        raise RuntimeError(f"pyserial not installed: {e}")
+        raise DriverUnavailable(f"pyserial not installed: {e}") from e
     return [p.device for p in list_ports.comports()]
 
 
@@ -156,7 +158,7 @@ def connect(port: str) -> str:
         try:
             import serial  # type: ignore
         except ImportError as e:
-            raise RuntimeError(f"pyserial not installed: {e}")
+            raise DriverUnavailable(f"pyserial not installed: {e}") from e
         # Open with a few retries. A just-finished IDN probe (or the USB-serial
         # driver settling after a DTR reset) can briefly leave the port
         # un-openable — Windows raises PermissionError 13 / "device not

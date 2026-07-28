@@ -28,7 +28,6 @@ export interface VnaMeasureResponse {
   stop_hz: number | null
   points: number | null
   markers: VnaMarkerResult[]
-  error: string | null
 }
 
 export const vna = {

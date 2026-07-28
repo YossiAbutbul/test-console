@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { Box, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
+import { FrameDump, PageBody, Section, SendStopControls, TEXT } from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
 
@@ -82,32 +83,18 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
         group={group}
         label="Modulated"
         actions={
-          <Stack direction="row" spacing={1}>
-            <Button
-              variant="outlined"
-              disabled={busy}
-              onClick={() => stop.mutate()}
-              sx={{ minWidth: 96, height: 36 }}
-            >
-              {stop.isPending ? 'Stopping…' : 'Stop'}
-            </Button>
-            <Button
-              variant="contained"
-              disabled={busy}
-              onClick={() => send.mutate()}
-              sx={{ minWidth: 96, height: 36 }}
-            >
-              {send.isPending ? 'Sending…' : 'Send'}
-            </Button>
-          </Stack>
+          <SendStopControls
+            busy={busy}
+            sending={send.isPending}
+            stopping={stop.isPending}
+            onSend={() => send.mutate()}
+            onStop={() => stop.mutate()}
+          />
         }
       />
 
-      <Stack spacing={2} sx={{ mt: 1 }}>
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            RF setup
-          </Typography>
+      <PageBody width="form">
+        <Section title="RF setup">
           <Box
             sx={{
               display: 'grid',
@@ -116,7 +103,6 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
               gridTemplateRows: { md: 'repeat(3, auto)' },
               columnGap: 2,
               rowGap: 2,
-              maxWidth: 760,
             }}
           >
             <LabeledField
@@ -149,7 +135,7 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
             />
 
             <Stack spacing={0.5}>
-              <Typography component="span" sx={{ fontSize: 13, fontWeight: 500, color: 'text.primary' }}>
+              <Typography component="span" sx={{ ...TEXT.label, color: 'text.primary' }}>
                 Bandwidth
               </Typography>
               <TextField
@@ -177,22 +163,15 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
               onChange={(e) => setDatarate(Number(e.target.value))}
             />
           </Box>
-        </Box>
+        </Section>
 
         <MeasurementCard
           freqHz={Math.round(freqMhz * 1_000_000)}
           triggerId={measureTrigger}
         />
 
-        {last && (
-          <Box sx={{ fontFamily: 'monospace', fontSize: 12, p: 1.5, borderRadius: 1, border: 1, borderColor: 'divider' }}>
-            <div>tx: {last.tx_hex}</div>
-            <div>rx: {last.rx_hex}</div>
-            <div>opcode: {last.reply_opcode_hex} payload: {last.reply_payload_hex}</div>
-            <div>ok: {String(last.ok)} status: {last.status}</div>
-          </Box>
-        )}
-      </Stack>
+        {last && <FrameDump result={last} />}
+      </PageBody>
     </Box>
   )
 }

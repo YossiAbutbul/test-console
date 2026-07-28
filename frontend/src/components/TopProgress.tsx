@@ -1,4 +1,7 @@
 import { Box } from '@mui/material'
+import { useThemeMode } from '../context/ThemeModeContext'
+import { getAppPalette } from '../theme'
+import { TOP_BAR_H } from '../ui/tokens'
 
 interface Props {
   /** 0..100. Ignored when indeterminate. */
@@ -7,16 +10,22 @@ interface Props {
   indeterminate?: boolean
   /** When true, render hidden (preserves layout space). */
   hidden?: boolean
+  /** Override the accent. Defaults to the theme's action colour. */
   color?: string
 }
 
+/** Two-pixel run-progress bar pinned under the top bar. */
 export function TopProgress({ pct = 0, indeterminate = false, hidden = false, color }: Props) {
-  const bg = color ?? '#3D6BC4'
+  const { mode } = useThemeMode()
+  // Previously hardcoded to the light-mode blue, which sat off-palette in the
+  // mid and dark themes.
+  const bg = color ?? getAppPalette(mode).actions.scan.bg
+
   return (
     <Box
       sx={{
         position: 'fixed',
-        top: 56, // TOP_BAR_H
+        top: TOP_BAR_H,
         left: 0,
         right: 0,
         height: 2,

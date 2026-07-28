@@ -1,25 +1,31 @@
 import { useState } from 'react'
-import {
-  Box, Button, Chip, CircularProgress, Stack, TextField, Typography,
-} from '@mui/material'
+import { Box, Button, Stack, TextField, Typography } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import FirstPageIcon from '@mui/icons-material/FirstPage'
 import LastPageIcon from '@mui/icons-material/LastPage'
-import PowerIcon from '@mui/icons-material/Power'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { motor } from '../../api/motor'
 import { useLog } from '../../context/LogContext'
+import { DASH } from '../../lib/format'
+import {
+  ACTION_W, CONTROL_H, Card, ConnectButton, MONO, MonoText, PageBody, Readout,
+  Section, StatusChip, TEXT,
+} from '../../ui'
+import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
 
+/** Faster than the servo page: the position readout is the only feedback
+ *  during a move, so it has to track the motor. */
 const POLL_MS = 500
 
 export function TrombonePage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
+  const reporter = useActionReporter('Trombone move', 'Motor')
   const [targetStr, setTargetStr] = useState<string>('0')
   const [targetFocused, setTargetFocused] = useState(false)
   const targetNum = Number(targetStr)
@@ -53,20 +59,37 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
   const onOk = (label: string) => () => { log('Motor', `${label} ok`); refresh() }
   const onErr = (label: string) => (e: Error) => log('Motor', `${label} failed: ${e.message}`, 'error')
 
+  // Absolute moves can take seconds of travel, so they announce themselves
+  // through the reporter; jogs and connect stay as plain log lines.
+  const pulses = (n: number) => `to ${n.toLocaleString()} pulses`
+  const onMoveErr = (e: Error) => reporter.failed(e.message)
+  const onMoveOk = (n: number) => () => { reporter.succeeded(pulses(n)); refresh() }
+
   const connectM = useMutation({ mutationFn: () => motor.connect(deviceIndex), onSuccess: onOk('connect'), onError: onErr('connect') })
   const disconnectM = useMutation({ mutationFn: motor.disconnect, onSuccess: onOk('disconnect'), onError: onErr('disconnect') })
   const moveM = useMutation({
     mutationFn: () => motor.move(targetNum, true),
-    onSuccess: onOk('move'),
-    onError: onErr('move'),
+    onMutate: () => reporter.started(pulses(targetNum)),
+    onSuccess: onMoveOk(targetNum),
+    onError: onMoveErr,
   })
 
   const targetInRange = targetValid && targetNum >= softMin && targetNum <= softMax
   const targetOutOfRange = targetValid && !targetInRange
   const jogPosM = useMutation({ mutationFn: () => motor.move(clampInc(3200), false), onSuccess: onOk('move +'), onError: onErr('move +') })
   const jogNegM = useMutation({ mutationFn: () => motor.move(clampInc(-3200), false), onSuccess: onOk('move -'), onError: onErr('move -') })
-  const goMinM = useMutation({ mutationFn: () => motor.move(softMin, true), onSuccess: onOk('go min'), onError: onErr('go min') })
-  const goMaxM = useMutation({ mutationFn: () => motor.move(softMax, true), onSuccess: onOk('go max'), onError: onErr('go max') })
+  const goMinM = useMutation({
+    mutationFn: () => motor.move(softMin, true),
+    onMutate: () => reporter.started(pulses(softMin)),
+    onSuccess: onMoveOk(softMin),
+    onError: onMoveErr,
+  })
+  const goMaxM = useMutation({
+    mutationFn: () => motor.move(softMax, true),
+    onMutate: () => reporter.started(pulses(softMax)),
+    onSuccess: onMoveOk(softMax),
+    onError: onMoveErr,
+  })
   const stopM = useMutation({ mutationFn: motor.stop, onSuccess: onOk('stop'), onError: onErr('stop') })
 
   const busy =
@@ -74,7 +97,6 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
     jogPosM.isPending || jogNegM.isPending || goMinM.isPending ||
     goMaxM.isPending || stopM.isPending
 
-  const statusColor = connected ? (moving ? 'warning.main' : 'success.main') : 'text.disabled'
   const statusText = !connected ? 'Disconnected' : moving ? 'Moving' : 'Idle'
 
   return (
@@ -84,37 +106,26 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
         group={group}
         label="Trombone"
         actions={
-          <Button
-            variant={connected ? 'outlined' : 'contained'}
-            startIcon={<PowerIcon sx={{ fontSize: 16 }} />}
-            onClick={() => (connected ? disconnectM.mutate() : connectM.mutate())}
+          <ConnectButton
+            connected={connected}
+            pending={connectM.isPending || disconnectM.isPending}
             disabled={busy}
-            sx={{ height: 36, minWidth: 120 }}
-          >
-            {connectM.isPending || disconnectM.isPending ? '…' : connected ? 'Disconnect' : 'Connect'}
-          </Button>
+            onConnect={() => connectM.mutate()}
+            onDisconnect={() => disconnectM.mutate()}
+          />
         }
       />
 
-      <Stack spacing={2} sx={{ mt: 1, maxWidth: 720 }}>
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            Motor status
-            <Typography component="span" sx={{ fontSize: 12, ml: 1, color: 'text.secondary', fontFamily: 'ui-monospace, monospace' }}>
-              MT986A · Arcus DMX-J-SA
-            </Typography>
-          </Typography>
-
-          <Box sx={{ p: 2, borderRadius: 1, border: 1, borderColor: 'divider' }}>
+      <PageBody width="panel">
+        <Section title="Motor status" action={<MonoText>MT986A · Arcus DMX-J-SA</MonoText>}>
+          <Card>
             <Stack direction="row" alignItems="center" spacing={2}>
               <Box sx={{ flexGrow: 1 }}>
-                <Typography sx={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
-                  Position
-                </Typography>
-                <Typography sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 22, fontWeight: 600 }}>
-                  {pos == null ? '—' : pos.toLocaleString()}
-                  <Typography component="span" sx={{ fontSize: 12, color: 'text.secondary', ml: 0.75 }}>pulses</Typography>
-                </Typography>
+                <Readout
+                  label="Position"
+                  value={pos == null ? DASH : pos.toLocaleString()}
+                  unit="pulses"
+                />
               </Box>
               {!connected && (
                 <TextField
@@ -127,15 +138,10 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
                   sx={{ width: 84 }}
                 />
               )}
-              <Chip
-                size="small"
-                icon={
-                  moving
-                    ? <CircularProgress size={10} sx={{ color: 'warning.main !important', ml: 0.75 }} />
-                    : <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: statusColor, ml: 0.75 }} />
-                }
+              <StatusChip
                 label={statusText}
-                sx={{ fontSize: 11.5, fontWeight: 600, color: statusColor }}
+                tone={connected ? (moving ? 'busy' : 'ok') : 'off'}
+                spinning={connected && moving}
               />
             </Stack>
 
@@ -164,24 +170,21 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
                 )}
               </Box>
               <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
-                <Typography sx={{ fontSize: 10.5, color: 'text.secondary', fontFamily: 'ui-monospace, monospace' }}>
+                <Typography sx={{ fontSize: 10.5, color: 'text.secondary', fontFamily: MONO }}>
                   {softMin.toLocaleString()}
                 </Typography>
                 <Typography sx={{ fontSize: 10.5, color: 'text.secondary' }}>
                   range {(softMax - softMin).toLocaleString()} pulses
                 </Typography>
-                <Typography sx={{ fontSize: 10.5, color: 'text.secondary', fontFamily: 'ui-monospace, monospace' }}>
+                <Typography sx={{ fontSize: 10.5, color: 'text.secondary', fontFamily: MONO }}>
                   {softMax.toLocaleString()}
                 </Typography>
               </Stack>
             </Box>
-          </Box>
-        </Box>
+          </Card>
+        </Section>
 
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            Absolute move
-          </Typography>
+        <Section title="Absolute move">
           <Stack direction="row" spacing={1.5} alignItems="flex-start">
             <LabeledField
               label="Target"
@@ -213,7 +216,7 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
               variant="contained"
               onClick={() => moveM.mutate()}
               disabled={!connected || busy || !targetInRange}
-              sx={{ minWidth: 110, height: 40, mt: '22px' }}
+              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.lg, mt: '22px' }}
             >
               Move to
             </Button>
@@ -222,24 +225,21 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
               variant="outlined"
               onClick={() => stopM.mutate()}
               disabled={!connected || stopM.isPending}
-              sx={{ minWidth: 96, height: 40, mt: '22px' }}
+              sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.lg, mt: '22px' }}
             >
               {stopM.isPending ? 'Stopping…' : 'Stop'}
             </Button>
           </Stack>
-        </Box>
+        </Section>
 
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            Movement
-          </Typography>
+        <Section title="Movement">
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <Button
               variant="outlined"
               startIcon={<ArrowBackIcon />}
               onClick={() => jogNegM.mutate()}
               disabled={!connected || busy}
-              sx={{ minWidth: 120, height: 36 }}
+              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
             >
               Step Down
             </Button>
@@ -248,7 +248,7 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
               endIcon={<ArrowForwardIcon />}
               onClick={() => jogPosM.mutate()}
               disabled={!connected || busy}
-              sx={{ minWidth: 120, height: 36 }}
+              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
             >
               Step Up
             </Button>
@@ -258,7 +258,7 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
               startIcon={<FirstPageIcon />}
               onClick={() => goMinM.mutate()}
               disabled={!connected || busy}
-              sx={{ minWidth: 120, height: 36 }}
+              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
             >
               Go Min
             </Button>
@@ -267,17 +267,17 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
               endIcon={<LastPageIcon />}
               onClick={() => goMaxM.mutate()}
               disabled={!connected || busy}
-              sx={{ minWidth: 120, height: 36 }}
+              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
             >
               Go Max
             </Button>
           </Stack>
-        </Box>
+        </Section>
 
         {s?.error && (
-          <Typography sx={{ fontSize: 12, color: 'error.main' }}>{s.error}</Typography>
+          <Typography sx={{ ...TEXT.hint, color: 'error.main' }}>{s.error}</Typography>
         )}
-      </Stack>
+      </PageBody>
     </Box>
   )
 }

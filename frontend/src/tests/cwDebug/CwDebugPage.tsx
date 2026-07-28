@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
+import { Box, MenuItem } from '@mui/material'
 import { PageHeader } from '../../components/PageHeader'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { LabeledField } from '../../components/LabeledField'
@@ -9,6 +9,7 @@ import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
+import { FrameDump, PageBody, Section, SendStopControls } from '../../ui'
 
 export function CwDebugPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
@@ -73,33 +74,20 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
         group={group}
         label="Debug"
         actions={
-          <Stack direction="row" spacing={1}>
-            <Button
-              variant="outlined"
-              disabled={busy}
-              onClick={() => stop.mutate()}
-              sx={{ minWidth: 96, height: 36 }}
-            >
-              {stop.isPending ? 'Stopping…' : 'Stop'}
-            </Button>
-            <Button
-              variant="contained"
-              disabled={busy || !dutyValid || !hpValid}
-              onClick={() => send.mutate()}
-              sx={{ minWidth: 96, height: 36 }}
-            >
-              {send.isPending ? 'Sending…' : 'Send'}
-            </Button>
-          </Stack>
+          <SendStopControls
+            busy={busy}
+            sending={send.isPending}
+            stopping={stop.isPending}
+            canSend={dutyValid && hpValid}
+            onSend={() => send.mutate()}
+            onStop={() => stop.mutate()}
+          />
         }
       />
 
-      <Stack spacing={2} sx={{ mt: 1 }}>
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            RF setup
-          </Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, maxWidth: 760 }}>
+      <PageBody width="form">
+        <Section title="RF setup">
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
             <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
               historyKey={`${protocol}.debug.freqMhz`}
               onChange={(e) => setFreqMhz(Number(e.target.value))}
@@ -134,22 +122,15 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
               <MenuItem value={0}>Off</MenuItem>
             </LabeledField>
           </Box>
-        </Box>
+        </Section>
 
         <MeasurementCard
           freqHz={Math.round(freqMhz * 1_000_000)}
           triggerId={measureTrigger}
         />
 
-        {last && (
-          <Box sx={{ fontFamily: 'monospace', fontSize: 12, p: 1.5, borderRadius: 1, border: 1, borderColor: 'divider' }}>
-            <div>tx: {last.tx_hex}</div>
-            <div>rx: {last.rx_hex}</div>
-            <div>opcode: {last.reply_opcode_hex} payload: {last.reply_payload_hex}</div>
-            <div>ok: {String(last.ok)} status: {last.status}</div>
-          </Box>
-        )}
-      </Stack>
+        {last && <FrameDump result={last} />}
+      </PageBody>
     </Box>
   )
 }

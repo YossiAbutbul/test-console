@@ -15,11 +15,14 @@ import { LabeledField } from '../../components/LabeledField'
 import { device } from '../../api/device'
 import { instrumentsApi } from '../../api/instruments'
 import { usePathLoss } from '../../context/PathLossContext'
-import { useLog } from '../../context/LogContext'
 import { useConnection } from '../../context/ConnectionContext'
-import { useNotify } from '../../context/NotifyContext'
+import { sleep } from '../../lib/async'
+import { downloadCsv as saveCsv, exportName } from '../../lib/download'
+import { fmt, num } from '../../lib/format'
+import { parseRangeSpec } from '../../lib/numericList'
 import { ResultsGraphModal } from './ResultsGraphModal'
 import { runSequence } from '../engine/runSequence'
+import { useRunReporter } from '../engine/useRunReporter'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import {
   powerPageSnapshot,
@@ -52,83 +55,26 @@ const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i:
 
 const PA_MODE_LABEL = ['Off', 'On', 'Auto']
 
-function fmt(n: number | null | undefined, digits = 3): string {
-  if (n == null || !Number.isFinite(n)) return '—'
-  return n.toFixed(digits)
-}
-
+/** Export the results table. Values are rounded for Excel readability. */
 function downloadCsv(rows: ResultRow[], pathLossDb: number, mac: string | null): void {
-  // Excel-friendly numeric formatting: round to 2 decimals max, then drop
-  // trailing zeros so 902.30 → "902.3", 20.50 → "20.5", 20.00 → "20".
-  const n2 = (v: number | null | undefined): string => {
-    if (v == null || !Number.isFinite(v)) return ''
-    return String(parseFloat(v.toFixed(2)))
-  }
-  const head = [
+  const header = [
     'freq_mhz', 'set_power_dbm', 'pa_mode',
     'measured_dbm', 'current_ma',
     'path_loss_db', 'ok', 'status', 'error',
   ]
-  const lines = [head.join(',')]
-  for (const r of rows) {
-    const cols = [
-      n2(r.freq_mhz), r.set_power_dbm, PA_MODE_LABEL[r.pa_mode] ?? r.pa_mode,
-      n2(r.measured_dbm),
-      r.current_a == null ? '' : n2(r.current_a * 1000),
-      n2(pathLossDb), r.ok, r.status ?? '', r.error ?? '',
-    ]
-    lines.push(cols.map((v) => {
-      const s = String(v)
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-    }).join(','))
-  }
-  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-  // Excel uses the CSV file's base name as the sheet name. Strip colons from
-  // the DUT MAC so it becomes a valid (and tidy) sheet name.
-  const macSlug = (mac ?? '').replace(/:/g, '').toUpperCase()
-  const base = macSlug || 'tx-power-automation'
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${base}-${ts}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+  const body = rows.map((r) => [
+    num(r.freq_mhz, 2),
+    r.set_power_dbm,
+    PA_MODE_LABEL[r.pa_mode] ?? r.pa_mode,
+    num(r.measured_dbm, 2),
+    r.current_a == null ? '' : num(r.current_a * 1000, 2),
+    num(pathLossDb, 2),
+    r.ok,
+    r.status ?? '',
+    r.error ?? '',
+  ])
+  saveCsv(header, body, exportName('tx-power-automation', mac, 'csv'))
 }
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-/** Parse a list/range spec for either freq or power.
- *  Supported:
- *    ""          → fallback != null ? [fallback] : []
- *    "12"        → [12]
- *    "0-14"      → 0..14 step 1
- *    "0-14:2"    → 0,2,4,…,14
- *    "0,5,10,14" → [0,5,10,14]
- *  Returns [] on syntax error so the caller can flag the row.
- */
-function parseList(raw: string, fallback: number | null = null): number[] {
-  // Normalize various dash chars (en-dash, em-dash, minus sign, etc.) to a
-  // plain hyphen so the range syntax keeps working when the user pastes
-  // text that auto-corrected the dash.
-  const s = raw.trim().replace(/[‐-―−]/g, '-')
-  if (!s) return fallback == null ? [] : [fallback]
-  const m = s.match(/^(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)(?:\s*:\s*(-?\d+(?:\.\d+)?))?$/)
-  if (m) {
-    const a = Number(m[1]); const b = Number(m[2])
-    const step = Math.abs(Number(m[3] ?? 1))
-    if (!Number.isFinite(a) || !Number.isFinite(b) || step <= 0) return []
-    const out: number[] = []
-    if (a <= b) for (let v = a; v <= b + 1e-9; v += step) out.push(Number(v.toFixed(6)))
-    else for (let v = a; v >= b - 1e-9; v -= step) out.push(Number(v.toFixed(6)))
-    return out
-  }
-  const parts = s.split(/[,\s]+/).map(Number).filter((n) => Number.isFinite(n))
-  return parts
-}
-
-// Back-compat alias used elsewhere in the file.
-const parsePowers = parseList
 
 type FreqRow = AutomationFreqRow
 
@@ -140,10 +86,9 @@ function snap(): NonNullable<typeof powerPageSnapshot.automation> {
 }
 
 export function AutomationPanel({ protocol }: { protocol: string }) {
-  const { log } = useLog()
   const { pathLossDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
-  const notify = useNotify()
+  const reporter = useRunReporter('TX Power automation', 'Automation')
   const hasBackend = protocol === 'LoRa'
   const DEFAULT_POWER = '14'
   const [rows, setRows] = useState<FreqRow[]>(() => snap().rows ?? [
@@ -188,9 +133,9 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   // Build the run plan: cartesian product of freqs × powers per row.
   const plan: Array<{ freq: number; pow: number }> = []
   for (const r of rows) {
-    const freqs = parseList(r.freq).filter((f) => f > 0)
+    const freqs = parseRangeSpec(r.freq).filter((f) => f > 0)
     if (freqs.length === 0) continue
-    const powers = parseList(r.power, power)
+    const powers = parseRangeSpec(r.power, power)
     for (const f of freqs) for (const p of powers) plan.push({ freq: f, pow: p })
   }
   const totalPoints = plan.length
@@ -237,7 +182,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   const runM = useMutation({
     mutationFn: async () => {
       if (!hasBackend) {
-        log('Automation', 'no backend for this protocol', 'warn')
+        reporter.note('no backend for this protocol', 'warn')
         return
       }
       abortRef.stop = false
@@ -253,18 +198,13 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
           rowHasError: (r) => !!r.error,
           onRows: setResults,
           onProgress: setProgressIdx,
-          name: 'Automation', unit: 'points',
-          log: (m, l) => log('Automation', m, l),
-          notify,
+          reporter,
         })
       } finally {
         setRunning(false)
       }
     },
-    onError: (e: Error) => {
-      log('Automation', `failed: ${e.message}`, 'error')
-      notify.error(e.message, { title: 'Automation failed' })
-    },
+    onError: (e: Error) => reporter.failed(e.message),
   })
 
   const onStop = () => {
@@ -273,7 +213,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
     // transmitting between the current point and where the loop notices
     // the abort flag.
     if (hasBackend) {
-      void device.stop().catch((e: Error) => log('Automation', `stop failed: ${e.message}`, 'error'))
+      void device.stop().catch((e: Error) => reporter.note(`stop failed: ${e.message}`, 'error'))
     }
   }
 
@@ -345,9 +285,9 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
           <Box ref={bodyRef} sx={cardBodySx}>
           <Stack spacing={0.75}>
             {rows.map((r, i) => {
-              const freqs = parseList(r.freq).filter((f) => f > 0)
+              const freqs = parseRangeSpec(r.freq).filter((f) => f > 0)
               const badFreq = r.freq.trim() !== '' && freqs.length === 0
-              const powers = parsePowers(r.power, power)
+              const powers = parseRangeSpec(r.power, power)
               const bad = r.power.trim() !== '' && powers.length === 0
               const headerCss = { fontSize: 13, fontWeight: 500, color: 'text.primary' as const }
               const hasHeader = i === 0

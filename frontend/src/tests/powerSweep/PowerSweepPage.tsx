@@ -1,100 +1,45 @@
-import { useEffect, useRef, useState } from 'react'
-import {
-  Box, Button, Chip, CircularProgress, MenuItem, Stack, Typography,
-} from '@mui/material'
+import { useState } from 'react'
+import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
+import DownloadIcon from '@mui/icons-material/Download'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tests } from '../../api/tests'
-import { useLog } from '../../context/LogContext'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import { TopProgress } from '../../components/TopProgress'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { useInstruments, type InstrumentId } from '../../context/InstrumentsContext'
 import { usePathLoss } from '../../context/PathLossContext'
-import { useNotify } from '../../context/NotifyContext'
-import type { RunState, StartRequest } from '../../types/models'
+import { downloadBlob } from '../../lib/download'
+import { range } from '../../lib/numericList'
+import {
+  ACTION_W, CONTROL_H, PageBody, PathLossChip, RunControls, Section, TEXT,
+} from '../../ui'
+import type { StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
+import { useBackendRun } from '../engine/useBackendRun'
+import { useRunReporter } from '../engine/useRunReporter'
+import { RangeRow } from './RangeRow'
 
 const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
 
-// Backend validation ranges (must match backend/test_runner.py)
+/** Sweep bounds. Must match `SweepConfig` in backend/sweep/runner.py. */
 const RANGES = {
   power: { min: 1, max: 22 },
   duty: { min: 1, max: 4 },
   hp: { min: 1, max: 7 },
 }
 
-function range(lo: number, hi: number): number[] {
-  const [a, b] = lo <= hi ? [lo, hi] : [hi, lo]
-  const out: number[] = []
-  for (let i = a; i <= b; i++) out.push(i)
-  return out
-}
-
-function RangeRow({
-  label, lo, hi, setLo, setHi, min, max, unit, historyKey,
-}: {
-  label: string
-  lo: number
-  hi: number
-  setLo: (n: number) => void
-  setHi: (n: number) => void
-  min: number
-  max: number
-  unit?: string
-  historyKey?: string
-}) {
-  const count = Math.max(0, Math.abs(hi - lo) + 1)
-  return (
-    <Box>
-      <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 0.75 }}>
-        <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'text.primary' }}>{label}</Typography>
-        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-          {min}–{max}{unit ? ` ${unit}` : ''} · {count} step{count === 1 ? '' : 's'}
-        </Typography>
-      </Stack>
-      <Stack direction="row" spacing={1.5} alignItems="flex-end">
-        <LabeledField
-          label="From"
-          type="number"
-          value={lo}
-          historyKey={historyKey ? `${historyKey}.from` : undefined}
-          inputProps={{ min, max }}
-          onChange={(e) => setLo(Math.max(min, Math.min(max, Number(e.target.value) || min)))}
-          width={120}
-        />
-        <Box
-          sx={{
-            color: 'text.disabled',
-            fontSize: 16,
-            height: 40,
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
-          →
-        </Box>
-        <LabeledField
-          label="To"
-          type="number"
-          value={hi}
-          historyKey={historyKey ? `${historyKey}.to` : undefined}
-          inputProps={{ min, max }}
-          onChange={(e) => setHi(Math.max(min, Math.min(max, Number(e.target.value) || min)))}
-          width={120}
-        />
-      </Stack>
-    </Box>
-  )
-}
+const PA_MODES = [
+  { value: 0, label: 'Off' },
+  { value: 1, label: 'On' },
+  { value: 2, label: 'Auto' },
+]
 
 export function PowerSweepPage({ protocol, group }: TestPageProps) {
-  const { log } = useLog()
   const qc = useQueryClient()
   const { instruments } = useInstruments()
   const { pathLossDb } = usePathLoss()
-  const notify = useNotify()
-  const missing = REQUIRED_INSTRUMENTS.filter((id) => instruments[id].status !== 'connected')
+  const reporter = useRunReporter('Mode Sweep', 'Sweep', 'steps')
   const hasBackend = protocol === 'LoRa'
 
   const [freqMhz, setFreqMhz] = useState('902.3')
@@ -107,6 +52,8 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
   const [settle, setSettle] = useState(30)
   const [paMode, setPaMode] = useState(0)
 
+  // The sweep loop lives in the backend; the page starts it, polls it and
+  // reports its transitions. Polling stops as soon as the run leaves 'running'.
   const statusQ = useQuery({
     queryKey: ['test-status', protocol],
     queryFn: tests.status,
@@ -119,10 +66,18 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
     Math.max(0, Math.abs(dutyHi - dutyLo) + 1) *
     Math.max(0, Math.abs(hpHi - hpLo) + 1)
 
+  useBackendRun({
+    state: statusQ.data?.state,
+    completed: statusQ.data?.completed ?? 0,
+    total: statusQ.data?.total ?? 0,
+    error: statusQ.data?.error,
+    reporter,
+  })
+
   const run = useMutation({
     mutationFn: () => {
       if (!hasBackend) {
-        log('Sweep', `${protocol} Mode Sweep: no backend wired yet`, 'warn')
+        reporter.note(`${protocol} Mode Sweep: no backend wired yet`, 'warn')
         return Promise.resolve(null)
       }
       const ps = instruments['power-sensor']
@@ -144,247 +99,165 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
       }
       return tests.run(req)
     },
-    onSuccess: () => {
-      log('Sweep', `Run requested (${totalSteps} steps)`)
-      qc.invalidateQueries({ queryKey: ['test-status'] })
-    },
-    onError: (e: Error) => log('Sweep', `Run failed: ${e.message}`, 'error'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['test-status'] }),
+    onError: (e: Error) => reporter.failed(e.message),
   })
 
   const cancel = useMutation({
-    mutationFn: () => {
-      if (!hasBackend) return Promise.resolve(null)
-      return tests.cancel()
-    },
-    onSuccess: () => {
-      log('Sweep', 'Stop requested')
-      qc.invalidateQueries({ queryKey: ['test-status'] })
-    },
-    onError: (e: Error) => log('Sweep', `Stop failed: ${e.message}`, 'error'),
+    mutationFn: () => (hasBackend ? tests.cancel() : Promise.resolve(null)),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['test-status'] }),
+    onError: (e: Error) => reporter.note(`Stop failed: ${e.message}`, 'error'),
   })
 
-  // Watch backend run-state transitions: log start/stop and pop the
-  // completion modal when the sweep finishes, is interrupted, or errors.
-  const prevState = useRef<RunState | undefined>(undefined)
-  useEffect(() => {
-    const s = statusQ.data?.state
-    const prev = prevState.current
-    if (s === prev) return
-    prevState.current = s
-    if (!s) return
+  const exportXlsx = useMutation({
+    mutationFn: tests.exportXlsx,
+    onSuccess: ({ blob, filename }) => {
+      downloadBlob(blob, filename)
+      reporter.note(`Exported ${filename}`)
+    },
+    onError: (e: Error) => reporter.note(`Export failed: ${e.message}`, 'error'),
+  })
 
-    if (s === 'running') {
-      log('Sweep', 'Test started')
-      return
-    }
-    // Only fire terminal handling for a run we actually saw running — avoids
-    // popping a modal for a stale finished run when the page mounts.
-    if (prev !== 'running') return
-
-    const done = statusQ.data?.completed ?? 0
-    const total = statusQ.data?.total ?? 0
-    if (s === 'done') {
-      log('Sweep', `Test finished — ${done}/${total} steps`)
-      notify.complete({
-        severity: 'success',
-        title: 'Sweep complete',
-        message: `All ${done} steps measured.`,
-      })
-    } else if (s === 'cancelled') {
-      log('Sweep', `Test interrupted — ${done}/${total} steps`, 'warn')
-      notify.complete({
-        severity: 'warning',
-        title: 'Sweep interrupted',
-        message: `Stopped after ${done} of ${total} steps.`,
-      })
-    } else if (s === 'error') {
-      const err = statusQ.data?.error ?? 'Unknown error'
-      log('Sweep', `Test error: ${err}`, 'error')
-      notify.complete({
-        severity: 'error',
-        title: 'Sweep failed',
-        message: err,
-      })
-    }
-  }, [statusQ.data?.state, statusQ.data?.completed, statusQ.data?.total, statusQ.data?.error, log, notify])
-
-  async function onExport() {
-    try {
-      const { blob, filename } = await tests.exportXlsx()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      a.click()
-      URL.revokeObjectURL(url)
-      log('Sweep', `Exported ${filename}`)
-    } catch (e) {
-      log('Sweep', `Export failed: ${(e as Error).message}`, 'error')
-    }
-  }
-
-  const running = statusQ.data?.state === 'running'
-  const hasSweep = statusQ.data?.state != null && statusQ.data.state !== 'idle'
-  const cancelling = cancel.isPending || (running && cancel.isSuccess)
-  const total = statusQ.data?.total ?? 0
-  const completed = statusQ.data?.completed ?? 0
-  const pct = total > 0 ? (completed / total) * 100 : 0
-  const showProgress = running || cancelling
+  const status = statusQ.data
+  const running = status?.state === 'running'
+  const hasSweep = status?.state != null && status.state !== 'idle'
+  const stopping = cancel.isPending || (running && cancel.isSuccess)
+  const total = status?.total ?? 0
+  const completed = status?.completed ?? 0
 
   const onRun = () => {
+    const missing = REQUIRED_INSTRUMENTS.filter((id) => instruments[id].status !== 'connected')
     if (hasBackend && missing.length > 0) {
-      log('Sweep', `Warning: instruments not connected in UI — ${missing.join(', ')}. Backend will try to init.`, 'warn')
+      reporter.note(
+        `Instruments not connected in UI — ${missing.join(', ')}. Backend will try to init.`,
+        'warn',
+      )
     }
     run.mutate()
   }
 
+  const lastRow = status?.last_row
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
       <TopProgress
-        pct={pct}
-        indeterminate={cancelling}
-        hidden={!showProgress}
+        pct={total > 0 ? (completed / total) * 100 : 0}
+        indeterminate={stopping}
+        hidden={!running && !stopping}
       />
       <PageHeader
         protocol={protocol}
         group={group}
         label="Mode Sweep"
         actions={
-          <Stack direction="row" spacing={1}>
-            <Button variant="outlined" onClick={onExport} disabled={!hasSweep} sx={{ height: 36 }}>
-              Export Excel
-            </Button>
+          <RunControls
+            running={running}
+            starting={run.isPending}
+            stopping={stopping}
+            canRun={totalSteps > 0}
+            runLabel="Run sweep"
+            progress={total > 0 ? `${completed}/${total}` : undefined}
+            onRun={onRun}
+            onStop={() => cancel.mutate()}
+          >
             <Button
               variant="outlined"
-              disabled={!running || cancelling}
-              onClick={() => cancel.mutate()}
-              endIcon={cancelling ? <CircularProgress size={14} color="inherit" /> : undefined}
-              sx={{ minWidth: 96, height: 36 }}
+              startIcon={<DownloadIcon />}
+              onClick={() => exportXlsx.mutate()}
+              disabled={!hasSweep || exportXlsx.isPending}
+              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
             >
-              {cancelling ? 'Stopping…' : 'Stop'}
+              Export
             </Button>
-            <Button
-              variant="contained"
-              disabled={running || run.isPending}
-              onClick={onRun}
-              endIcon={run.isPending ? <CircularProgress size={14} color="inherit" /> : undefined}
-              sx={{ minWidth: 110, height: 36 }}
-            >
-              Run sweep
-            </Button>
-          </Stack>
+          </RunControls>
         }
       />
 
-      <Box
-        sx={{
-          mt: 1,
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-          columnGap: 4,
-          rowGap: 2,
-          alignItems: 'start',
-        }}
-      >
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            Sweep ranges
-          </Typography>
-          <Stack spacing={2}>
-            <RangeRow label="Power" lo={powerLo} hi={powerHi} setLo={setPowerLo} setHi={setPowerHi}
-              min={RANGES.power.min} max={RANGES.power.max} unit="dBm"
-              historyKey={`${protocol}.modeSweep.power`} />
-            <RangeRow label="PA Duty Cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
-              min={RANGES.duty.min} max={RANGES.duty.max}
-              historyKey={`${protocol}.modeSweep.duty`} />
-            <RangeRow label="HP Max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
-              min={RANGES.hp.min} max={RANGES.hp.max}
-              historyKey={`${protocol}.modeSweep.hp`} />
-          </Stack>
-        </Box>
-
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            RF setup
-          </Typography>
-          <Stack spacing={2}>
-            <LabeledField
-              label="Frequency"
-              hint="MHz"
-              type="number"
-              value={freqMhz}
-              historyKey={`${protocol}.modeSweep.freqMhz`}
-              onChange={(e) => setFreqMhz(e.target.value)}
-              inputProps={{ step: 0.1 }}
-              width={180}
-            />
-            <LabeledField
-              label="Settle"
-              hint="ms"
-              type="number"
-              value={settle}
-              historyKey={`${protocol}.modeSweep.settle`}
-              onChange={(e) => setSettle(Number(e.target.value))}
-              width={140}
-            />
-            <LabeledField
-              label="PA Mode"
-              select
-              value={paMode}
-              onChange={(e) => setPaMode(Number(e.target.value))}
-              sx={{ maxWidth: 180 }}
-            >
-              <MenuItem value={0}>Off</MenuItem>
-              <MenuItem value={1}>On</MenuItem>
-              <MenuItem value={2}>Auto</MenuItem>
-            </LabeledField>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', gap: 1 }}>
-              <Chip
-                size="small"
-                label={`Path loss: ${pathLossDb} dB`}
-                sx={{ fontWeight: 600, fontSize: 12 }}
-              />
-              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                set globally in Connection panel · sensor reading + path loss = DUT power
-              </Typography>
+      <PageBody width="full">
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+            columnGap: 4,
+            rowGap: 2,
+            alignItems: 'start',
+          }}
+        >
+          <Section title="Sweep ranges">
+            <Stack spacing={2}>
+              <RangeRow label="Power" lo={powerLo} hi={powerHi} setLo={setPowerLo} setHi={setPowerHi}
+                min={RANGES.power.min} max={RANGES.power.max} unit="dBm"
+                historyKey={`${protocol}.modeSweep.power`} />
+              <RangeRow label="PA Duty Cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
+                min={RANGES.duty.min} max={RANGES.duty.max}
+                historyKey={`${protocol}.modeSweep.duty`} />
+              <RangeRow label="HP Max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
+                min={RANGES.hp.min} max={RANGES.hp.max}
+                historyKey={`${protocol}.modeSweep.hp`} />
             </Stack>
-          </Stack>
-        </Box>
-      </Box>
+          </Section>
 
-      {(() => {
-        const r = statusQ.data?.last_row
-        return (
-          <Box sx={{ mt: 2 }}>
-            <MeasurementCard
-              staticData={{
-                power_dbm: r?.tx_power_dbm ?? null,
-                current_a: r?.current_a ?? null,
-                voltage_v: r?.voltage_v ?? null,
-                label: 'Last measured row',
-                subLabel: r
-                  ? `#${r.idx + 1} · hp=${r.hp_max} duty=${r.pa_duty_cycle} pow=${r.power_dbm_setting}dBm · incl. path-loss ${pathLossDb} dB`
-                  : `waiting for first step… · path-loss ${pathLossDb} dB`,
-              }}
-            />
-          </Box>
-        )
-      })()}
+          <Section title="RF setup">
+            <Stack spacing={2}>
+              <LabeledField
+                label="Frequency"
+                hint="MHz"
+                type="number"
+                value={freqMhz}
+                historyKey={`${protocol}.modeSweep.freqMhz`}
+                onChange={(e) => setFreqMhz(e.target.value)}
+                inputProps={{ step: 0.1 }}
+                width={180}
+              />
+              <LabeledField
+                label="Settle"
+                hint="ms"
+                type="number"
+                value={settle}
+                historyKey={`${protocol}.modeSweep.settle`}
+                onChange={(e) => setSettle(Number(e.target.value))}
+                width={140}
+              />
+              <LabeledField
+                label="PA Mode"
+                select
+                value={paMode}
+                onChange={(e) => setPaMode(Number(e.target.value))}
+                sx={{ maxWidth: 180 }}
+              >
+                {PA_MODES.map((m) => (
+                  <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
+                ))}
+              </LabeledField>
+              <PathLossChip pathLossDb={pathLossDb} />
+            </Stack>
+          </Section>
+        </Box>
+
+        <MeasurementCard
+          staticData={{
+            power_dbm: lastRow?.tx_power_dbm ?? null,
+            current_a: lastRow?.current_a ?? null,
+            voltage_v: lastRow?.voltage_v ?? null,
+            label: 'Last measured row',
+            subLabel: lastRow
+              ? `#${lastRow.idx + 1} · hp=${lastRow.hp_max} duty=${lastRow.pa_duty_cycle} pow=${lastRow.power_dbm_setting}dBm · incl. path loss ${pathLossDb} dB`
+              : `waiting for first step… · path loss ${pathLossDb} dB`,
+          }}
+        />
+      </PageBody>
 
       <Box sx={{ flexGrow: 1 }} />
 
       <Box
         sx={{
-          mt: 4,
-          mx: -4,
-          px: 4,
-          py: 1.25,
-          display: 'flex',
-          justifyContent: 'flex-end',
+          mt: 4, mx: -4, px: 4, py: 1.25,
+          display: 'flex', justifyContent: 'flex-end',
           bgcolor: 'background.default',
+          borderTop: 1, borderColor: 'divider',
         }}
       >
-        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+        <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
           Total steps:{' '}
           <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>
             {totalSteps}

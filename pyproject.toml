@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+# Only backend/tests holds tests. Without this, pytest's default `test_*.py`
+# glob would also try to collect production modules that happen to start with
+# "test", and would warn on classes named Test* that take __init__ args.
+testpaths = ["backend/tests"]
+addopts = "-q"

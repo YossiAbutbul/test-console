@@ -1,10 +1,13 @@
-import asyncio
+"""HTTP routes for device-under-test RF commands over the BLE transport."""
+
+from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..ble import manager
 from ..device import CommandResult, Modem, PaMode
+from .errors import handle_driver_errors
 
 router = APIRouter(prefix="/device", tags=["device"])
 
@@ -47,7 +50,7 @@ class CommandResponse(BaseModel):
     reply_payload_hex: str
 
     @classmethod
-    def from_result(cls, r: CommandResult) -> "CommandResponse":
+    def from_result(cls, r: CommandResult) -> CommandResponse:
         return cls(
             ok=r.ok,
             status=r.status,
@@ -71,7 +74,7 @@ def _device():
 @router.post("/lora-cw", response_model=CommandResponse)
 async def lora_cw(req: LoraCwRequest) -> CommandResponse:
     dev = _device()
-    try:
+    with handle_driver_errors("device lora cw"):
         result = await dev.lora_cw(
             freq_hz=req.freq_hz,
             power_dbm=req.power_dbm,
@@ -80,34 +83,26 @@ async def lora_cw(req: LoraCwRequest) -> CommandResponse:
             pa_mode=PaMode(req.pa_mode),
             timeout=req.timeout,
         )
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="No reply within timeout")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Send failed: {e}")
     return CommandResponse.from_result(result)
 
 
 @router.post("/lora-power", response_model=CommandResponse)
 async def lora_power(req: LoraPowerRequest) -> CommandResponse:
     dev = _device()
-    try:
+    with handle_driver_errors("device lora power"):
         result = await dev.lora_power(
             freq_hz=req.freq_hz,
             power_dbm=req.power_dbm,
             pa_mode=PaMode(req.pa_mode),
             timeout=req.timeout,
         )
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="No reply within timeout")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Send failed: {e}")
     return CommandResponse.from_result(result)
 
 
 @router.post("/lora-modulated", response_model=CommandResponse)
 async def lora_modulated(req: LoraModulatedRequest) -> CommandResponse:
     dev = _device()
-    try:
+    with handle_driver_errors("device lora modulated"):
         result = await dev.lora_modulated(
             bandwidth=req.bandwidth,
             freq_hz=req.freq_hz,
@@ -116,10 +111,6 @@ async def lora_modulated(req: LoraModulatedRequest) -> CommandResponse:
             datarate=req.datarate,
             timeout=req.timeout,
         )
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="No reply within timeout")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Send failed: {e}")
     return CommandResponse.from_result(result)
 
 
@@ -127,10 +118,6 @@ async def lora_modulated(req: LoraModulatedRequest) -> CommandResponse:
 async def stop(req: StopRequest | None = None) -> CommandResponse:
     dev = _device()
     timeout = req.timeout if req else 5.0
-    try:
+    with handle_driver_errors("device stop"):
         result = await dev.stop_test(timeout=timeout)
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="No reply within timeout")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Send failed: {e}")
     return CommandResponse.from_result(result)

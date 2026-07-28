@@ -105,7 +105,7 @@ class BLEManager:
 
         scanner = BleakScanner(detection_callback=cb)
         await scanner.start()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         deadline = loop.time() + duration
         try:
             while True:

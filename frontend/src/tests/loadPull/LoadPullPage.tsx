@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Box, Button, Chip, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
+  Box, Button, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, Typography,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import FirstPageIcon from '@mui/icons-material/FirstPage'
 import LastPageIcon from '@mui/icons-material/LastPage'
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'
-import StopIcon from '@mui/icons-material/Stop'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import DownloadIcon from '@mui/icons-material/Download'
 import ScatterPlotIcon from '@mui/icons-material/ScatterPlot'
@@ -25,70 +23,62 @@ import { useConnection } from '../../context/ConnectionContext'
 import { usePathLoss } from '../../context/PathLossContext'
 import { useLog } from '../../context/LogContext'
 import { useNotify } from '../../context/NotifyContext'
+import { sleep } from '../../lib/async'
+import { downloadBlob, exportName, toCsv } from '../../lib/download'
+import { fmt, num } from '../../lib/format'
+import {
+  ACTION_W, CONTROL_H, MONO, PageBody, PathLossChip, Readout, RunControls,
+  Section, StatusChip, TEXT,
+} from '../../ui'
 import type { TestPageProps } from '../types'
 import {
   loadPullPageSnapshot, persistLoadPullPage, type LoadPullResultRow,
 } from '../../store/loadPullPageStore'
 import { SmithChartModal } from './SmithChartModal'
 import { runSequence } from '../engine/runSequence'
+import { useRunReporter } from '../engine/useRunReporter'
 import { planPositions } from './plan'
 import { useTromboneJog } from './useTromboneJog'
 
 const PULSES_PER_MM = 400
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const mm = (p: number) => p / PULSES_PER_MM
-const fmt = (n: number | null | undefined, d = 2): string =>
-  n == null || !Number.isFinite(n) ? '—' : n.toFixed(d)
 
-type StatusChipProps = { label: string; ok: boolean; detail?: string }
-function StatusChip({ label, ok, detail }: StatusChipProps) {
-  return (
-    <Chip
-      size="small"
-      icon={<Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: ok ? 'success.main' : 'text.disabled', ml: 0.75 }} />}
-      label={detail ? `${label} · ${detail}` : label}
-      sx={{ fontSize: 11.5, fontWeight: 600, color: ok ? 'success.main' : 'text.disabled' }}
-    />
-  )
+interface CsvMeta {
+  freqMhz: number
+  powerDbm: number
+  pathLossDb: number
+  mac: string | null
 }
 
-function downloadCsv(rows: LoadPullResultRow[], meta: {
-  freqMhz: number; powerDbm: number; pathLossDb: number; mac: string | null
-}): void {
-  const n = (v: number | null | undefined): string =>
-    v == null || !Number.isFinite(v) ? '' : String(parseFloat(v.toFixed(3)))
-  const head = ['#', 'pos_mm', 'pos_pulses', 'power_dbm', 'cc_ma', 'r_ohm', 'x_ohm', 's11_db', 'error']
-  const lines = [
-    `# freq_mhz=${meta.freqMhz} power_dbm=${meta.powerDbm} path_loss_db=${meta.pathLossDb}`,
-    head.join(','),
+/** Export the sweep. The run's fixed parameters go in a leading comment line
+ *  so a stray CSV is still self-describing. */
+function downloadCsv(rows: LoadPullResultRow[], meta: CsvMeta): void {
+  const header = [
+    '#', 'pos_mm', 'pos_pulses', 'power_dbm', 'cc_ma',
+    'r_ohm', 'x_ohm', 's11_db', 'error',
   ]
-  rows.forEach((r, i) => {
-    const cols = [
-      i + 1, n(r.pos_mm), r.pos_pulses, n(r.power_dbm),
-      r.current_a == null ? '' : n(r.current_a * 1000),
-      n(r.r_ohm), n(r.x_ohm), n(r.s11_db), r.error ?? '',
-    ]
-    lines.push(cols.map((v) => {
-      const s = String(v)
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-    }).join(','))
-  })
-  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-  const macSlug = (meta.mac ?? '').replace(/:/g, '').toUpperCase()
-  const base = macSlug ? `${macSlug}-load-pull` : 'load-pull'
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${base}-${ts}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+  const body = rows.map((r, i) => [
+    i + 1,
+    num(r.pos_mm),
+    r.pos_pulses,
+    num(r.power_dbm),
+    r.current_a == null ? '' : num(r.current_a * 1000),
+    num(r.r_ohm),
+    num(r.x_ohm),
+    num(r.s11_db),
+    r.error ?? '',
+  ])
+  const preamble =
+    `# freq_mhz=${meta.freqMhz} power_dbm=${meta.powerDbm} path_loss_db=${meta.pathLossDb}\r\n`
+  const blob = new Blob([preamble + toCsv(header, body)], { type: 'text/csv;charset=utf-8' })
+  downloadBlob(blob, exportName('load-pull', meta.mac, 'csv', '-load-pull'))
 }
 
 export function LoadPullPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
   const notify = useNotify()
+  const reporter = useRunReporter('Load Pull', 'LoadPull')
   const { pathLossDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
   const hasBackend = protocol === 'LoRa'
@@ -189,8 +179,10 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
         row.r_ohm = mk.r_ohm
         row.x_ohm = mk.x_ohm
         row.s11_db = mk.s11_mag_db
-      } else if (m.error) {
-        row.error = `vna: ${m.error}`
+      } else {
+        // A measure that fails raises; an empty marker list means the sweep
+        // ran but the requested frequency fell outside it.
+        row.error = 'vna: no marker returned'
       }
 
       // 3. switch -> PCB
@@ -231,25 +223,20 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
           abortRef,
           before: async () => {
             try { await vna.setMarkers([freqHz]) }
-            catch (e) { log('LoadPull', `setMarkers failed: ${(e as Error).message}`, 'warn') }
+            catch (e) { reporter.note(`setMarkers failed: ${(e as Error).message}`, 'warn') }
           },
           measure: (pos) => measureAt(pos, freqHz),
           after: async () => { try { await device.stop() } catch { /* ignore */ } },
           rowHasError: (r) => !!r.error,
           onRows: setResults,
           onProgress: setProgressIdx,
-          name: 'Load Pull', unit: 'points',
-          log: (m, l) => log('LoadPull', m, l),
-          notify,
+          reporter,
         })
       } finally {
         setRunning(false)
       }
     },
-    onError: (e: Error) => {
-      log('LoadPull', `failed: ${e.message}`, 'error')
-      notify.error(e.message, { title: 'Load Pull failed' })
-    },
+    onError: (e: Error) => reporter.failed(e.message),
   })
 
   const onStop = () => {
@@ -265,69 +252,54 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
         group={group}
         label="Load Pull Test"
         actions={
-          <Stack direction="row" spacing={1}>
-            <Button
-              variant="contained"
-              startIcon={<PlayArrowIcon />}
-              onClick={() => runM.mutate()}
-              disabled={!canRun}
-              sx={{ minWidth: 140, height: 36 }}
-            >
-              {running ? `Running ${progressIdx}/${totalPoints}` : 'Run'}
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<StopIcon />}
-              onClick={onStop}
-              disabled={!running}
-              sx={{ height: 36 }}
-            >
-              Stop
-            </Button>
-          </Stack>
+          <RunControls
+            running={running}
+            canRun={canRun}
+            progress={`${progressIdx}/${totalPoints}`}
+            onRun={() => runM.mutate()}
+            onStop={onStop}
+          />
         }
       />
 
-      <Stack spacing={2} sx={{ mt: 1, flexGrow: 1, minHeight: 0, overflowY: 'auto', pr: 1, pb: 2 }}>
-        {/* ── 1. Instruments ─────────────────────────────── */}
-        <Box>
-          <Typography sx={sectionTitleSx}>
-            1. Instruments
-            <Typography component="span" sx={{ fontSize: 12, ml: 1, color: allReady ? 'success.main' : 'text.secondary', fontWeight: 600 }}>
+      <PageBody width="full" scroll>
+        <Section
+          title="Instruments"
+          step={1}
+          action={
+            <Typography
+              sx={{
+                ...TEXT.hint,
+                fontWeight: 600,
+                color: allReady ? 'success.main' : 'text.secondary',
+              }}
+            >
               {allReady ? 'all ready' : 'connect missing instruments in the Instruments modal'}
             </Typography>
-          </Typography>
+          }
+        >
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <StatusChip label="Power sensor" ok={ps.status === 'connected'} />
-            <StatusChip label="DC analyzer" ok={dc.status === 'connected'} />
-            <StatusChip label="VNA" ok={na.status === 'connected'} />
-            <StatusChip label="Switch" ok={sw.status === 'connected'} />
+            <StatusChip label="Power sensor" tone={ps.status === 'connected' ? 'ok' : 'off'} />
+            <StatusChip label="DC analyzer" tone={dc.status === 'connected' ? 'ok' : 'off'} />
+            <StatusChip label="VNA" tone={na.status === 'connected' ? 'ok' : 'off'} />
+            <StatusChip label="Switch" tone={sw.status === 'connected' ? 'ok' : 'off'} />
             <StatusChip
               label="Trombone"
-              ok={tr.status === 'connected'}
+              tone={tr.status === 'connected' ? 'ok' : 'off'}
               detail={motorPos == null ? undefined : `pos ${motorPos.toLocaleString()}`}
             />
             <StatusChip
               label="BLE DUT"
-              ok={dutConnected}
+              tone={dutConnected ? 'ok' : 'off'}
               detail={bleStatus?.address ?? undefined}
             />
           </Stack>
-        </Box>
+        </Section>
 
-        {/* ── 2. Path Loss ───────────────────────────────── */}
-        <Box>
-          <Typography sx={sectionTitleSx}>2. Path loss</Typography>
-          <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: 'wrap', gap: 1 }}>
-            <Chip
-              size="small"
-              label={`Path loss: ${pathLossDb} dB`}
-              sx={{ fontWeight: 600, fontSize: 12 }}
-            />
-            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-              set globally in Connection panel · sensor reading + path loss = DUT power
-            </Typography>
-            <Box sx={{ flexGrow: 1 }} />
+        <Section
+          title="Path loss"
+          step={2}
+          action={
             <Button
               size="small"
               variant={pathAck ? 'contained' : 'outlined'}
@@ -336,23 +308,23 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
             >
               {pathAck ? '✓ RF path verified' : 'Confirm RF path'}
             </Button>
-          </Stack>
+          }
+        >
+          <PathLossChip pathLossDb={pathLossDb} />
           {!pathAck && (
-            <Typography sx={{ fontSize: 12, color: 'warning.main', mt: 1 }}>
+            <Typography sx={{ ...TEXT.hint, color: 'warning.main', mt: 1 }}>
               Verify cabling: <b>DUT → switch → coupler → power sensor</b>. Click to confirm.
             </Typography>
           )}
-        </Box>
+        </Section>
 
-        {/* ── RF switch routing ──────────────────────────── */}
-        <Box>
-          <Typography sx={sectionTitleSx}>RF switch</Typography>
+        <Section title="RF switch">
           <Stack direction="row" spacing={1.5} alignItems="center">
             <Button
               variant="outlined"
               onClick={() => switchM.mutate('PCB')}
               disabled={!swConnected || switchM.isPending || running}
-              sx={{ minWidth: 130, height: 40 }}
+              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.lg }}
             >
               Go PCB
             </Button>
@@ -360,21 +332,19 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               variant="outlined"
               onClick={() => switchM.mutate('VNA')}
               disabled={!swConnected || switchM.isPending || running}
-              sx={{ minWidth: 130, height: 40 }}
+              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.lg }}
             >
               Go VNA
             </Button>
             {!swConnected && (
-              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+              <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
                 connect the switch in the Instruments modal
               </Typography>
             )}
           </Stack>
-        </Box>
+        </Section>
 
-        {/* ── 3. Test point ──────────────────────────────── */}
-        <Box>
-          <Typography sx={sectionTitleSx}>3. Test point</Typography>
+        <Section title="Test point" step={3}>
           <Stack direction="row" spacing={1.5} alignItems="flex-start">
             <LabeledField
               label="Frequency" hint="MHz" type="number" value={freqMhz}
@@ -405,33 +375,30 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               sx={{ width: 140 }}
             />
           </Stack>
-        </Box>
+        </Section>
 
-        {/* ── 4. Trombone calibration ────────────────────── */}
-        <Box>
-          <Typography sx={sectionTitleSx}>
-            4. Trombone calibration
-            <Typography component="span" sx={{ fontSize: 12, ml: 1, color: 'text.secondary' }}>
+        <Section
+          title="Trombone calibration"
+          step={4}
+          action={
+            <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
               {PULSES_PER_MM} pulses/mm
             </Typography>
-          </Typography>
+          }
+        >
           <Box>
             <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1.5 }}>
               <Box sx={{ flexGrow: 1 }}>
-                <Typography sx={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
-                  Live position
-                </Typography>
-                <Typography sx={{ fontFamily: 'ui-monospace, monospace', fontSize: 22, fontWeight: 600 }}>
-                  {motorPos == null ? 'NA' : `${mm(motorPos).toFixed(2)} mm`}
-                  <Typography component="span" sx={{ fontSize: 12, color: 'text.secondary', ml: 0.75 }}>
-                    {motorPos == null ? '' : `(${motorPos.toLocaleString()} pulses)`}
-                  </Typography>
-                </Typography>
+                <Readout
+                  label="Live position"
+                  value={motorPos == null ? 'NA' : `${mm(motorPos).toFixed(2)} mm`}
+                  note={motorPos == null ? undefined : `(${motorPos.toLocaleString()} pulses)`}
+                />
               </Box>
-              <Chip
-                size="small"
+              <StatusChip
                 label={motorConnected ? (motorMoving ? 'Moving' : 'Idle') : 'Disconnected'}
-                sx={{ fontSize: 11.5, fontWeight: 600, color: motorConnected ? (motorMoving ? 'warning.main' : 'success.main') : 'text.disabled' }}
+                tone={motorConnected ? (motorMoving ? 'busy' : 'ok') : 'off'}
+                spinning={motorConnected && motorMoving}
               />
             </Stack>
 
@@ -565,55 +532,51 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               />
             </Stack>
 
-            <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 1.5 }}>
+            <Typography sx={{ ...TEXT.hint, color: 'text.secondary', mt: 1.5 }}>
               {totalPoints > 0
                 ? <>Plan: <b>{totalPoints}</b> points · {fmt(zeroPulses == null ? null : mm(zeroPulses))} → {fmt(endPulses == null ? null : mm(endPulses))} mm · step {deltaXmm} mm ({deltaPulses} pulses)</>
                 : <>Capture zero + end positions and set Delta X to build the sweep plan.</>}
             </Typography>
           </Box>
-        </Box>
+        </Section>
 
-        {/* ── 5. Results ────────────────────────────────── */}
-        <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-          <Stack direction="row" alignItems="center" sx={{ mb: 1, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography sx={{ fontSize: 17, fontWeight: 700, flexGrow: 1 }}>
-              5. Results
-              <Typography component="span" sx={{ fontSize: 12, ml: 1, color: 'text.secondary' }}>
-                power = sensor + path-loss ({pathLossDb} dB)
-              </Typography>
-            </Typography>
-            <Button
-              size="small" variant="outlined" color="inherit"
-              startIcon={<DeleteSweepIcon />}
-              onClick={() => setResults([])}
-              disabled={results.length === 0 || running}
-              sx={{ mr: 1 }}
-            >
-              Clear
-            </Button>
-            <Button
-              size="small" variant="outlined"
-              startIcon={<ScatterPlotIcon />}
-              onClick={() => setSmithOpen(true)}
-              disabled={results.length === 0}
-              sx={{ mr: 1 }}
-            >
-              Smith chart
-            </Button>
-            <Button
-              size="small" variant="outlined"
-              startIcon={<DownloadIcon />}
-              onClick={() => downloadCsv(results, {
-                freqMhz, powerDbm, pathLossDb, mac: bleStatus?.address ?? null,
-              })}
-              disabled={results.length === 0}
-            >
-              Export
-            </Button>
-          </Stack>
-
+        <Section
+          title="Results"
+          step={5}
+          hint={`power = sensor + path loss (${pathLossDb} dB)`}
+          action={
+            <Stack direction="row" spacing={1}>
+              <Button
+                size="small" variant="outlined" color="inherit"
+                startIcon={<DeleteSweepIcon />}
+                onClick={() => setResults([])}
+                disabled={results.length === 0 || running}
+              >
+                Clear
+              </Button>
+              <Button
+                size="small" variant="outlined"
+                startIcon={<ScatterPlotIcon />}
+                onClick={() => setSmithOpen(true)}
+                disabled={results.length === 0}
+              >
+                Smith chart
+              </Button>
+              <Button
+                size="small" variant="outlined"
+                startIcon={<DownloadIcon />}
+                onClick={() => downloadCsv(results, {
+                  freqMhz, powerDbm, pathLossDb, mac: bleStatus?.address ?? null,
+                })}
+                disabled={results.length === 0}
+              >
+                Export
+              </Button>
+            </Stack>
+          }
+        >
           {results.length === 0 ? (
-            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+            <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
               No data yet. Press Run.
             </Typography>
           ) : (
@@ -651,7 +614,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
                       <TableCell sx={monoSx}>{fmt(r.r_ohm, 2)}</TableCell>
                       <TableCell sx={monoSx}>{fmt(r.x_ohm, 2)}</TableCell>
                       <TableCell sx={monoSx}>{fmt(r.s11_db, 2)}</TableCell>
-                      <TableCell sx={{ fontSize: 11 }}>
+                      <TableCell sx={TEXT.micro}>
                         {r.error
                           ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
                           : <Box component="span" sx={{ color: 'success.main' }}>ok</Box>}
@@ -662,8 +625,8 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               </Table>
             </Box>
           )}
-        </Box>
-      </Stack>
+        </Section>
+      </PageBody>
 
       <SmithChartModal
         open={smithOpen}
@@ -675,9 +638,4 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   )
 }
 
-const sectionTitleSx = {
-  fontSize: 17, fontWeight: 700, color: 'text.primary',
-  mb: 1.5, pb: 1, borderBottom: 1, borderColor: 'divider' as const,
-}
-
-const monoSx = { fontFamily: 'ui-monospace, monospace' as const }
+const monoSx = { fontFamily: MONO }

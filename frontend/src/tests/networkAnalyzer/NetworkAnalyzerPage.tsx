@@ -1,33 +1,34 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Autocomplete, Box, Button, Chip, IconButton, Stack, Table, TableBody,
+  Autocomplete, Box, Button, IconButton, Stack, Table, TableBody,
   TableCell, TableHead, TableRow, TextField, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
-import PowerIcon from '@mui/icons-material/Power'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { vna, type VnaMeasureResponse } from '../../api/networkAnalyzer'
 import { useLog } from '../../context/LogContext'
+import { fmt, fmtHz, fmtMhz } from '../../lib/format'
+import {
+  ACTION_W, Card, ConnectButton, CONTROL_H, Eyebrow, MONO, MonoText, PageBody,
+  Section, StatusChip, TEXT,
+} from '../../ui'
 import type { TestPageProps } from '../types'
+import { useActionReporter } from '../engine/useRunReporter'
 
 const MHZ = 1e6
 
-const fmtHz = (v: number | null | undefined): string => {
-  if (v == null || !Number.isFinite(v)) return '—'
-  return `${(v / MHZ).toFixed(3)} MHz`
-}
-const fmtNum = (v: number, digits = 3): string => {
-  if (!Number.isFinite(v)) return '—'
-  return v.toFixed(digits)
-}
+/** Frequency fields are retyped rather than edited, so focus selects the value. */
+const selectOnFocus = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+  e.target.select()
 
 export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
+  const reporter = useActionReporter('VNA sweep', 'VNA')
 
   const [resource, setResource] = useState<string>('')
   const [resources, setResources] = useState<string[]>([])
@@ -84,7 +85,7 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
   const freqValid = Number.isFinite(startHz) && Number.isFinite(stopHz) && stopHz > startHz && startHz > 0
   const [freqFocus, setFreqFocus] = useState<string | null>(null)
   const freqFocusBind = (key: string) => ({
-    onFocus: (e: React.FocusEvent<HTMLInputElement>) => { (e.target as HTMLInputElement).select(); setFreqFocus(key) },
+    onFocus: (e: React.FocusEvent<HTMLInputElement>) => { selectOnFocus(e); setFreqFocus(key) },
     onBlur: () => setFreqFocus((k) => (k === key ? null : k)),
   })
 
@@ -106,21 +107,23 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
     onError: onErr('set markers'),
   })
 
+  // The sweep is this page's test run, so it reports start/finish like the
+  // other test pages rather than writing a bare log line.
   const measureM = useMutation({
     mutationFn: () => vna.measure(markerHzList),
+    onMutate: () => reporter.started(),
     onSuccess: (r) => {
       setLastMeas(r)
-      log('VNA', `measure ok (${r.markers.length} markers)`)
+      reporter.succeeded(`${r.markers.length} markers read`)
       refresh()
     },
-    onError: onErr('measure'),
+    onError: (e: Error) => reporter.failed(e.message),
   })
 
   const busy =
     connectM.isPending || disconnectM.isPending || setFreqM.isPending ||
     setMarkersM.isPending || measureM.isPending
 
-  const statusColor = connected ? 'success.main' : 'text.disabled'
   const statusText = connected ? `Connected · ${cfg?.idn ?? ''}` : 'Disconnected'
 
   const addMarker = () => {
@@ -141,32 +144,25 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
         group={group}
         label="Network Analyzer"
         actions={
-          <Button
-            variant={connected ? 'outlined' : 'contained'}
-            startIcon={<PowerIcon sx={{ fontSize: 16 }} />}
-            onClick={() => (connected ? disconnectM.mutate() : connectM.mutate())}
+          <ConnectButton
+            connected={connected}
+            pending={connectM.isPending || disconnectM.isPending}
             disabled={busy || (!connected && !resource)}
-            sx={{ height: 36, minWidth: 120 }}
-          >
-            {connectM.isPending || disconnectM.isPending ? '…' : connected ? 'Disconnect' : 'Connect'}
-          </Button>
+            onConnect={() => connectM.mutate()}
+            onDisconnect={() => disconnectM.mutate()}
+          />
         }
       />
 
-      <Stack spacing={2} sx={{ mt: 1, maxWidth: 900 }}>
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            Instrument
-            <Typography component="span" sx={{ fontSize: 12, ml: 1, color: 'text.secondary', fontFamily: 'ui-monospace, monospace' }}>
-              Agilent E5061B · USBTMC / VISA
-            </Typography>
-          </Typography>
-          <Box sx={{ p: 2, borderRadius: 1, border: 1, borderColor: 'divider' }}>
+      <PageBody width="panel">
+        <Section
+          title="Instrument"
+          action={<MonoText>Agilent E5061B · USBTMC / VISA</MonoText>}
+        >
+          <Card>
             <Stack direction="row" alignItems="center" spacing={2}>
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                <Typography sx={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
-                  Status
-                </Typography>
+                <Eyebrow>Status</Eyebrow>
                 <Typography sx={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {statusText}
                 </Typography>
@@ -185,20 +181,15 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
                   renderInput={(p) => <TextField {...p} label="VISA resource" placeholder="USB0::0x0957::…" />}
                 />
               )}
-              <Chip
-                size="small"
-                icon={<Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: statusColor, ml: 0.75 }} />}
+              <StatusChip
                 label={connected ? 'Online' : 'Offline'}
-                sx={{ fontSize: 11.5, fontWeight: 600, color: statusColor }}
+                tone={connected ? 'ok' : 'off'}
               />
             </Stack>
-          </Box>
-        </Box>
+          </Card>
+        </Section>
 
-        <Box>
-          <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            Sweep range
-          </Typography>
+        <Section title="Sweep range">
           <Stack direction="row" spacing={1.5} alignItems="flex-start">
             <TextField
               size="small"
@@ -230,45 +221,45 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
               variant="contained"
               onClick={() => setFreqM.mutate()}
               disabled={!connected || busy || !freqValid}
-              sx={{ minWidth: 120, height: 40 }}
+              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.lg }}
             >
               Apply
             </Button>
             <Box sx={{ flexGrow: 1 }} />
             <Box sx={{ pt: 0.5 }}>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
+              <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
                 instrument: {fmtHz(cfg?.start_hz)} → {fmtHz(cfg?.stop_hz)}
               </Typography>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
-                {cfg?.points ?? '—'} points · IFBW {cfg?.if_bandwidth_hz ? `${(cfg.if_bandwidth_hz / 1e3).toFixed(1)} kHz` : '—'}
+              <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
+                {cfg?.points ?? '—'} points · IFBW {cfg?.if_bandwidth_hz ? `${fmt(cfg.if_bandwidth_hz / 1e3, 1)} kHz` : '—'}
               </Typography>
             </Box>
           </Stack>
-        </Box>
+        </Section>
 
-        <Box>
-          <Stack direction="row" alignItems="center" sx={{ mb: 1, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', flexGrow: 1 }}>
-              Markers (MHz)
-            </Typography>
-            <Button
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={addMarker}
-              disabled={markersMHz.length >= 9 || busy}
-            >
-              Add
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => setMarkersM.mutate()}
-              disabled={!connected || busy}
-              sx={{ ml: 1 }}
-            >
-              Apply markers
-            </Button>
-          </Stack>
+        <Section
+          title="Markers (MHz)"
+          action={
+            <Stack direction="row" spacing={1}>
+              <Button
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={addMarker}
+                disabled={markersMHz.length >= 9 || busy}
+              >
+                Add
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => setMarkersM.mutate()}
+                disabled={!connected || busy}
+              >
+                Apply markers
+              </Button>
+            </Stack>
+          }
+        >
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             {markersMHz.map((v, i) => (
               <Stack key={i} direction="row" spacing={0.5} alignItems="center">
@@ -278,7 +269,7 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
                   label={`M${i + 1}`}
                   value={v}
                   onChange={(e) => updateMarker(i, e.target.value)}
-                  onFocus={(e) => (e.target as HTMLInputElement).select()}
+                  onFocus={selectOnFocus}
                   inputProps={{ step: 1, min: 0 }}
                   sx={{ width: 130 }}
                   disabled={busy}
@@ -289,25 +280,24 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
               </Stack>
             ))}
           </Stack>
-        </Box>
+        </Section>
 
-        <Box>
-          <Stack direction="row" alignItems="center" sx={{ mb: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography sx={{ fontSize: 17, fontWeight: 700, color: 'text.primary', flexGrow: 1 }}>
-              Measurement (S11)
-            </Typography>
+        <Section
+          title="Measurement (S11)"
+          action={
             <Button
               variant="contained"
               startIcon={<PlayArrowIcon />}
               onClick={() => measureM.mutate()}
               disabled={!connected || busy || markerHzList.length === 0}
+              sx={{ minWidth: ACTION_W.wide, height: CONTROL_H.md }}
             >
               {measureM.isPending ? 'Sweeping…' : 'Sweep + Read'}
             </Button>
-          </Stack>
-
+          }
+        >
           {!lastMeas && (
-            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+            <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
               No measurement yet. Apply markers and click Sweep + Read.
             </Typography>
           )}
@@ -318,7 +308,7 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
                 <TableHead>
                   <TableRow>
                     <TableCell>Mk</TableCell>
-                    <TableCell>Freq</TableCell>
+                    <TableCell>Freq (MHz)</TableCell>
                     <TableCell align="right">R (Ω)</TableCell>
                     <TableCell align="right">jX (Ω)</TableCell>
                     <TableCell align="right">S11 real</TableCell>
@@ -330,23 +320,23 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
                   {lastMeas.markers.map((m) => (
                     <TableRow key={m.index}>
                       <TableCell>M{m.index}</TableCell>
-                      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmtHz(m.freq_hz)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmtNum(m.r_ohm, 2)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmtNum(m.x_ohm, 2)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmtNum(m.s11_real, 4)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmtNum(m.s11_imag, 4)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmtNum(m.s11_mag_db, 2)}</TableCell>
+                      <TableCell sx={{ fontFamily: MONO }}>{fmtMhz(m.freq_hz)}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.r_ohm, 2)}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.x_ohm, 2)}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.s11_real, 4)}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.s11_imag, 4)}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.s11_mag_db, 2)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 1 }}>
+              <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 1 }}>
                 sweep {fmtHz(lastMeas.start_hz)} → {fmtHz(lastMeas.stop_hz)} · {lastMeas.points} pts
               </Typography>
             </Box>
           )}
-        </Box>
-      </Stack>
+        </Section>
+      </PageBody>
     </Box>
   )
 }

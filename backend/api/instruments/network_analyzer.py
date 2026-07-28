@@ -8,17 +8,17 @@ per-marker S11 complex + impedance (R, jX).
 """
 from __future__ import annotations
 
-from typing import Optional
+import asyncio
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from ..errors import handle_driver_errors
 from ._common import (
     ConnectRequest,
     ConnectResponse,
     DiscoverResponse,
     list_visa_resources_idn,
-    to_thread,
 )
 from ._state import state
 
@@ -70,7 +70,8 @@ def _disconnect() -> None:
 
 @router.get("/discover/network-analyzer", response_model=DiscoverResponse)
 async def discover() -> DiscoverResponse:
-    details = await to_thread(list_visa_resources_idn)
+    with handle_driver_errors("vna discover"):
+        details = await asyncio.to_thread(list_visa_resources_idn)
     return DiscoverResponse(
         candidates=[d.resource for d in details],
         details=details,
@@ -79,18 +80,15 @@ async def discover() -> DiscoverResponse:
 
 @router.post("/network-analyzer/connect", response_model=ConnectResponse)
 async def connect(req: ConnectRequest) -> ConnectResponse:
-    try:
-        idn = await to_thread(_connect, req.address)
-    except ImportError as e:
-        raise HTTPException(status_code=501, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"connect failed: {e}")
+    with handle_driver_errors("vna connect"):
+        idn = await asyncio.to_thread(_connect, req.address)
     return ConnectResponse(connected=True, idn=idn)
 
 
 @router.post("/network-analyzer/disconnect", response_model=ConnectResponse)
 async def disconnect() -> ConnectResponse:
-    await to_thread(_disconnect)
+    with handle_driver_errors("vna disconnect"):
+        await asyncio.to_thread(_disconnect)
     return ConnectResponse(connected=False, idn=None)
 
 
@@ -98,19 +96,19 @@ async def disconnect() -> ConnectResponse:
 
 class ConfigResponse(BaseModel):
     connected: bool
-    idn: Optional[str] = None
-    start_hz: Optional[float] = None
-    stop_hz: Optional[float] = None
-    points: Optional[int] = None
-    if_bandwidth_hz: Optional[float] = None
-    source_power_dbm: Optional[float] = None
+    idn: str | None = None
+    start_hz: float | None = None
+    stop_hz: float | None = None
+    points: int | None = None
+    if_bandwidth_hz: float | None = None
+    source_power_dbm: float | None = None
     markers: list[float] = []
 
 
 class FreqRequest(BaseModel):
     start_hz: float = Field(..., gt=0)
     stop_hz: float = Field(..., gt=0)
-    points: Optional[int] = Field(default=None, ge=2, le=20001)
+    points: int | None = Field(default=None, ge=2, le=20001)
 
 
 class MarkersRequest(BaseModel):
@@ -155,10 +153,11 @@ def _read_config() -> ConfigResponse:
 
 @router.get("/network-analyzer/config", response_model=ConfigResponse)
 async def get_config() -> ConfigResponse:
-    return await to_thread(_read_config)
+    with handle_driver_errors("vna read config"):
+        return await asyncio.to_thread(_read_config)
 
 
-def _apply_freq(start_hz: float, stop_hz: float, points: Optional[int]) -> None:
+def _apply_freq(start_hz: float, stop_hz: float, points: int | None) -> None:
     a = state.network_analyzer
     if a is None:
         raise RuntimeError("network_analyzer not connected")
@@ -172,15 +171,9 @@ def _apply_freq(start_hz: float, stop_hz: float, points: Optional[int]) -> None:
 
 @router.post("/network-analyzer/freq", response_model=ConfigResponse)
 async def set_freq(req: FreqRequest) -> ConfigResponse:
-    try:
-        await to_thread(_apply_freq, req.start_hz, req.stop_hz, req.points)
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"set_freq failed: {e}")
-    return await to_thread(_read_config)
+    with handle_driver_errors("vna set freq"):
+        await asyncio.to_thread(_apply_freq, req.start_hz, req.stop_hz, req.points)
+        return await asyncio.to_thread(_read_config)
 
 
 def _apply_markers(markers: list[float]) -> None:
@@ -213,15 +206,9 @@ def _apply_markers(markers: list[float]) -> None:
 
 @router.post("/network-analyzer/markers", response_model=ConfigResponse)
 async def set_markers(req: MarkersRequest) -> ConfigResponse:
-    try:
-        await to_thread(_apply_markers, req.markers)
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"set_markers failed: {e}")
-    return await to_thread(_read_config)
+    with handle_driver_errors("vna set markers"):
+        await asyncio.to_thread(_apply_markers, req.markers)
+        return await asyncio.to_thread(_read_config)
 
 
 # ---------- Single-shot S11 measurement ----------
@@ -239,11 +226,10 @@ class MarkerResult(BaseModel):
 
 class MeasureResponse(BaseModel):
     connected: bool
-    start_hz: Optional[float] = None
-    stop_hz: Optional[float] = None
-    points: Optional[int] = None
+    start_hz: float | None = None
+    stop_hz: float | None = None
+    points: int | None = None
     markers: list[MarkerResult] = []
-    error: Optional[str] = None
 
 
 def _measure_s11() -> MeasureResponse:
@@ -288,18 +274,12 @@ def _measure_s11() -> MeasureResponse:
 
 
 class MeasureRequest(BaseModel):
-    markers: Optional[list[float]] = None
+    markers: list[float] | None = None
 
 
 @router.post("/network-analyzer/measure", response_model=MeasureResponse)
-async def measure(req: Optional[MeasureRequest] = None) -> MeasureResponse:
-    try:
+async def measure(req: MeasureRequest | None = None) -> MeasureResponse:
+    with handle_driver_errors("vna measure"):
         if req is not None and req.markers is not None:
-            await to_thread(_apply_markers, req.markers)
-        return await to_thread(_measure_s11)
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"measure failed: {e}")
+            await asyncio.to_thread(_apply_markers, req.markers)
+        return await asyncio.to_thread(_measure_s11)

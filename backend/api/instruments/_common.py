@@ -1,50 +1,29 @@
 """Shared schemas and helpers for instrument route modules."""
 from __future__ import annotations
 
-import asyncio
-from typing import Optional
-
-from fastapi import HTTPException
 from pydantic import BaseModel, Field
+
+from ..errors import DriverUnavailable
 
 
 class DiscoverCandidate(BaseModel):
     resource: str
-    idn: Optional[str] = None
+    idn: str | None = None
 
 
 class DiscoverResponse(BaseModel):
     candidates: list[str]
-    details: Optional[list[DiscoverCandidate]] = None
+    details: list[DiscoverCandidate] | None = None
 
 
 class ConnectRequest(BaseModel):
     address: str = Field(..., description="Serial (power-sensor) or VISA resource (others)")
-    channel: Optional[int] = Field(default=None, ge=1, le=4)
+    channel: int | None = Field(default=None, ge=1, le=4)
 
 
 class ConnectResponse(BaseModel):
     connected: bool
-    idn: Optional[str]
-
-
-def to_thread(fn, *args, **kwargs):
-    return asyncio.to_thread(fn, *args, **kwargs)
-
-
-def list_visa_resources() -> list[str]:
-    try:
-        import pyvisa  # type: ignore
-    except ImportError as e:
-        raise HTTPException(status_code=501, detail=f"pyvisa not installed: {e}")
-    rm = pyvisa.ResourceManager()
-    try:
-        return list(rm.list_resources())
-    finally:
-        try:
-            rm.close()
-        except Exception:
-            pass
+    idn: str | None
 
 
 def list_visa_resources_idn() -> list[DiscoverCandidate]:
@@ -57,7 +36,9 @@ def list_visa_resources_idn() -> list[DiscoverCandidate]:
     try:
         import pyvisa  # type: ignore
     except ImportError as e:
-        raise HTTPException(status_code=501, detail=f"pyvisa not installed: {e}")
+        # Runs in a worker thread — raise a plain driver error, not HTTPException.
+        # The route wraps this in `handle_driver_errors`, which maps it to 501.
+        raise DriverUnavailable(f"pyvisa not installed: {e}") from e
     # Skip resources we already have an open session for — re-opening a held
     # USBTMC/VISA resource invalidates the live handle (VI_ERROR_INV_JOB_ID).
     from ._state import state as _state
@@ -72,7 +53,7 @@ def list_visa_resources_idn() -> list[DiscoverCandidate]:
     out: list[DiscoverCandidate] = []
     try:
         for r in rm.list_resources():
-            idn: Optional[str] = None
+            idn: str | None = None
             # ASRL* = raw serial COM port. Opening it pulses DTR which resets
             # Arduino-class devices (2s boot) and collides with our pyserial
             # servo session. These aren't VISA test-instruments anyway; hide.

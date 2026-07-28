@@ -1,23 +1,23 @@
 """HTTP API for instrument discovery, connect/disconnect, status, and measurement.
 
 Per-device routes live in sibling modules:
-  - power_sensor.py — Mini-Circuits USB power sensors.
-  - dc_analyzer.py  — Keysight DC analyzer (also hosts /dc-analyzer/supply).
-  - spectrum.py     — Generic VISA spectrum analyzers.
+  - power_sensor.py     — Mini-Circuits USB power sensors.
+  - dc_analyzer.py      — Keysight DC analyzer (also hosts /dc-analyzer/supply).
+  - spectrum.py         — Generic VISA spectrum analyzers.
+  - network_analyzer.py — Agilent/Keysight E5061B network analyzer.
 
 This module aggregates them under a single `router` and adds cross-device
 endpoints (`/instruments/status`, `/instruments/measure`).
 """
 from __future__ import annotations
 
+import asyncio
 import time
-from typing import Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from . import dc_analyzer, network_analyzer, power_sensor, spectrum
-from ._common import to_thread
 from ._state import state
 
 router = APIRouter()
@@ -33,7 +33,7 @@ _aggregate = APIRouter(prefix="/instruments", tags=["instruments"])
 
 class InstrumentStatus(BaseModel):
     connected: bool
-    idn: Optional[str] = None
+    idn: str | None = None
 
 
 class StatusResponse(BaseModel):
@@ -68,16 +68,16 @@ async def status() -> StatusResponse:
 # ---------- Single-shot measurement ----------
 
 class MeasureResponse(BaseModel):
-    power_dbm: Optional[float] = None
-    current_a: Optional[float] = None
-    voltage_v: Optional[float] = None
+    power_dbm: float | None = None
+    current_a: float | None = None
+    voltage_v: float | None = None
     power_sensor_connected: bool = False
     dc_analyzer_connected: bool = False
     t_ms: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
 
-def _read_power_dbm(freq_hz: Optional[int]) -> Optional[float]:
+def _read_power_dbm(freq_hz: int | None) -> float | None:
     s = state.power_sensor
     if s is None:
         return None
@@ -103,7 +103,7 @@ def _read_power_dbm(freq_hz: Optional[int]) -> Optional[float]:
         raise RuntimeError(f"power read failed: {e}")
 
 
-def _read_dc() -> tuple[Optional[float], Optional[float]]:
+def _read_dc() -> tuple[float | None, float | None]:
     a = state.dc_analyzer
     if a is None:
         return None, None
@@ -120,7 +120,7 @@ def _read_dc() -> tuple[Optional[float], Optional[float]]:
 
 
 @_aggregate.post("/measure", response_model=MeasureResponse)
-async def measure(freq_hz: Optional[int] = None) -> MeasureResponse:
+async def measure(freq_hz: int | None = None) -> MeasureResponse:
     t0 = time.perf_counter()
     ps_connected = state.power_sensor is not None
     dc_connected = state.dc_analyzer is not None
@@ -130,15 +130,18 @@ async def measure(freq_hz: Optional[int] = None) -> MeasureResponse:
             dc_analyzer_connected=False,
             t_ms=0,
         )
-    err: Optional[str] = None
-    p_dbm: Optional[float] = None
-    cur: Optional[float] = None
-    volt: Optional[float] = None
+    err: str | None = None
+    p_dbm: float | None = None
+    cur: float | None = None
+    volt: float | None = None
+    # This route reports failures in the `error` field rather than as an HTTP
+    # status, so it deliberately keeps its own catch instead of using
+    # `handle_driver_errors` — a partial reading is still useful to the client.
     try:
         if ps_connected:
-            p_dbm = await to_thread(_read_power_dbm, freq_hz)
+            p_dbm = await asyncio.to_thread(_read_power_dbm, freq_hz)
         if dc_connected:
-            cur, volt = await to_thread(_read_dc)
+            cur, volt = await asyncio.to_thread(_read_dc)
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
     return MeasureResponse(

@@ -17,11 +17,13 @@ import { useConnection } from '../context/ConnectionContext'
 import { useInstrumentsActions, useInstrumentsState } from '../context/InstrumentsContext'
 import { useThemeMode, type ThemePreference } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
+import { SIDEBAR_W, TOP_BAR_H } from '../ui/tokens'
 import { testRegistry } from '../tests/registry'
 import type { TestModule } from '../tests/types'
 
-export const SIDEBAR_W = 300
-export const TOP_BAR_H = 56
+// Re-exported for the call sites that reach for them alongside Sidebar; the
+// values themselves live with the rest of the layout tokens.
+export { SIDEBAR_W, TOP_BAR_H }
 
 const PROTOCOLS: Array<'LoRa' | 'LTE' | 'BLE'> = ['LoRa', 'LTE', 'BLE']
 

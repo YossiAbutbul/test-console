@@ -1,7 +1,11 @@
+"""HTTP routes for BLE scan/connect/GATT discovery. Logic in `backend.ble`."""
+
+from __future__ import annotations
+
 import asyncio
 import json
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from ..ble import manager
@@ -12,25 +16,22 @@ from ..ble.models import (
     ScannedDevice,
     ScanRequest,
 )
+from .errors import handle_driver_errors
 
 router = APIRouter(prefix="/ble", tags=["ble"])
 
 
 @router.get("/scan", response_model=list[ScannedDevice])
 async def scan_get(duration: float = 5.0) -> list[ScannedDevice]:
-    try:
+    with handle_driver_errors("ble scan"):
         return await manager.scan(duration=duration)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/scan", response_model=list[ScannedDevice])
 async def scan_post(req: ScanRequest | None = None) -> list[ScannedDevice]:
     duration = req.duration if req else 5.0
-    try:
+    with handle_driver_errors("ble scan"):
         return await manager.scan(duration=duration)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/scan/stream")
@@ -71,25 +72,23 @@ async def scan_stream(request: Request, duration: float = 5.0) -> StreamingRespo
 
 @router.post("/connect", response_model=ConnectionStatus)
 async def connect(req: ConnectRequest) -> ConnectionStatus:
-    try:
+    with handle_driver_errors("ble connect"):
         return await manager.connect(req.address, timeout=req.timeout)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/disconnect", response_model=ConnectionStatus)
 async def disconnect() -> ConnectionStatus:
-    return await manager.disconnect()
+    with handle_driver_errors("ble disconnect"):
+        return await manager.disconnect()
 
 
 @router.get("/status", response_model=ConnectionStatus)
 async def status() -> ConnectionStatus:
-    return manager.status()
+    with handle_driver_errors("ble status"):
+        return manager.status()
 
 
 @router.get("/services", response_model=list[GattService])
 async def services() -> list[GattService]:
-    try:
+    with handle_driver_errors("ble services"):
         return await manager.services()
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))

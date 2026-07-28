@@ -1,17 +1,17 @@
 """Keysight DC Power Analyzer routes (connect/disconnect + supply control)."""
 from __future__ import annotations
 
-from typing import Optional
+import asyncio
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ..errors import handle_driver_errors
 from ._common import (
     ConnectRequest,
     ConnectResponse,
     DiscoverResponse,
     list_visa_resources_idn,
-    to_thread,
 )
 from ._state import DC_VOLTAGE_SCALE, state
 
@@ -46,7 +46,8 @@ def _disconnect() -> None:
 
 @router.get("/discover/dc-analyzer", response_model=DiscoverResponse)
 async def discover() -> DiscoverResponse:
-    details = await to_thread(list_visa_resources_idn)
+    with handle_driver_errors("dc analyzer discover"):
+        details = await asyncio.to_thread(list_visa_resources_idn)
     return DiscoverResponse(
         candidates=[d.resource for d in details],
         details=details,
@@ -55,18 +56,15 @@ async def discover() -> DiscoverResponse:
 
 @router.post("/dc-analyzer/connect", response_model=ConnectResponse)
 async def connect(req: ConnectRequest) -> ConnectResponse:
-    try:
-        idn = await to_thread(_connect, req.address, req.channel or 1)
-    except ImportError as e:
-        raise HTTPException(status_code=501, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"connect failed: {e}")
+    with handle_driver_errors("dc analyzer connect"):
+        idn = await asyncio.to_thread(_connect, req.address, req.channel or 1)
     return ConnectResponse(connected=True, idn=idn)
 
 
 @router.post("/dc-analyzer/disconnect", response_model=ConnectResponse)
 async def disconnect() -> ConnectResponse:
-    await to_thread(_disconnect)
+    with handle_driver_errors("dc analyzer disconnect"):
+        await asyncio.to_thread(_disconnect)
     return ConnectResponse(connected=False, idn=None)
 
 
@@ -75,16 +73,16 @@ async def disconnect() -> ConnectResponse:
 class SupplyRequest(BaseModel):
     enabled: bool
     voltage_v: float = Field(default=3.6, ge=0.0, le=60.0)
-    channel: Optional[int] = Field(default=None, ge=1, le=4)
+    channel: int | None = Field(default=None, ge=1, le=4)
 
 
 class SupplyResponse(BaseModel):
     enabled: bool
-    voltage_v: Optional[float] = None
+    voltage_v: float | None = None
     channel: int
 
 
-def _get_supply(channel: int) -> tuple[bool, Optional[float]]:
+def _get_supply(channel: int) -> tuple[bool, float | None]:
     a = state.dc_analyzer
     if a is None:
         return False, None
@@ -116,7 +114,8 @@ def _apply_supply(enabled: bool, volts: float, channel: int) -> None:
 @router.get("/dc-analyzer/supply", response_model=SupplyResponse)
 async def get_supply() -> SupplyResponse:
     ch = state.dc_analyzer_channel
-    en, v = await to_thread(_get_supply, ch)
+    with handle_driver_errors("dc analyzer get supply"):
+        en, v = await asyncio.to_thread(_get_supply, ch)
     return SupplyResponse(enabled=en, voltage_v=v, channel=ch)
 
 
@@ -125,9 +124,7 @@ async def set_supply(req: SupplyRequest) -> SupplyResponse:
     if state.dc_analyzer is None:
         raise HTTPException(status_code=409, detail="dc_analyzer not connected")
     ch = req.channel or state.dc_analyzer_channel
-    try:
-        await to_thread(_apply_supply, req.enabled, req.voltage_v, ch)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"supply apply failed: {e}")
+    with handle_driver_errors("dc analyzer set supply"):
+        await asyncio.to_thread(_apply_supply, req.enabled, req.voltage_v, ch)
     state.dc_analyzer_channel = ch
     return SupplyResponse(enabled=req.enabled, voltage_v=req.voltage_v, channel=ch)
