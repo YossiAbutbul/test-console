@@ -78,10 +78,14 @@ export function MeasurementCard({ freqHz, triggerId, settleMs = 250, onResult, s
   }, [triggerId, anyConnected, settleMs, fire, isStatic])
 
   const data = measure.data
-  const rawPower = isStatic ? staticData?.power_dbm : data?.power_dbm
-  const power = rawPower != null && Number.isFinite(rawPower)
-    ? rawPower + pathLossDb
-    : rawPower
+  // Path loss is applied to the *raw* sensor reading this card fetches itself.
+  // `staticData` is supplied by a caller that has already corrected it — the
+  // Mode Sweep row comes from the backend, which adds path loss server-side —
+  // so correcting again here counted it twice.
+  const live = data?.power_dbm
+  const power = isStatic
+    ? staticData?.power_dbm
+    : live != null && Number.isFinite(live) ? live + pathLossDb : live
   const cur = isStatic ? staticData?.current_a : data?.current_a
   const volt = isStatic ? staticData?.voltage_v : data?.voltage_v
   const power_mW = power != null && Number.isFinite(power) ? Math.pow(10, power / 10) : null
