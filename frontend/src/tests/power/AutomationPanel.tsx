@@ -64,6 +64,10 @@ const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
 /** Budget for the command + measurement either side of the settle delay. */
 const STEP_OVERHEAD_TIMEOUT_MS = 30_000
 
+/** Time for the PA to key and the reading to stabilise before measuring.
+ *  Long enough for the DUT at 20 dBm; short enough that a sweep stays quick. */
+const DEFAULT_SETTLE_MS = 500
+
 /** A settle above this is almost always a typo (500 → 50000). */
 const LONG_SETTLE_MS = 10_000
 
@@ -113,7 +117,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   ])
   const power = Number(DEFAULT_POWER)  // fallback if a row is left empty
   const [paMode, setPaMode] = useState<number>(() => snap().paMode ?? 2)
-  const [settleMs, setSettleMs] = useState<number>(() => snap().settleMs ?? 500)
+  const [settleMs, setSettleMs] = useState<number>(() => snap().settleMs ?? DEFAULT_SETTLE_MS)
   const [results, setResults] = useState<ResultRow[]>(() => snap().results ?? [])
   // Mirror state into the page-level snapshot + persist to localStorage so
   // tab switches, sidebar nav and hard refreshes all keep the data. Cleared
