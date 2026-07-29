@@ -8,5 +8,10 @@ pyvisa-py>=0.8
 pyserial>=3.5
 # RF instrument wrappers (not on PyPI; installed from GitHub)
 rf-instruments @ git+https://github.com/YossiAbutbul/rf-instrument-wrappers
+# rf-instruments declares no dependencies of its own, so its two hard imports
+# have to be pinned here: pythonnet loads the Mini-Circuits .NET power-sensor
+# DLL, numpy is imported at module level by network_analyzer.
+pythonnet>=3.0.3
+numpy>=1.26
 # Arcus DMX-J-SA motor (USB) wrapper
 dmx-j-sa @ git+https://github.com/YossiAbutbul/DMX-J-SA-Motor-python-interface
