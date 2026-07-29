@@ -49,7 +49,10 @@ class InstrumentBus:
         # max_workers=1 both serialises access (vendor layers are rarely
         # thread-safe) and caps the damage a wedged call can do to one thread.
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"instr-{name}")
-        self._in_flight = False
+        # The last dispatched call. "Busy" means this one is still unfinished —
+        # which is only possible after a timeout, since a completed await
+        # guarantees the future is done.
+        self._pending: asyncio.Future[Any] | None = None
 
     async def call(
         self,
@@ -62,28 +65,25 @@ class InstrumentBus:
         Raises `InstrumentBusy` if a previous call is still stuck, or
         `TimeoutError` if this one outlives `timeout`.
         """
-        if self._in_flight:
+        # Read the future's own state rather than a flag cleared by a done
+        # callback: those callbacks run on a later loop iteration, so back-to-back
+        # calls — exactly what a sweep does — saw a stale "busy" and failed a
+        # point for no reason.
+        pending = self._pending
+        if pending is not None and not pending.done():
             raise InstrumentBusy(
                 f"{self._name} is not responding to a previous command; "
                 "disconnect and reconnect it"
             )
 
-        self._in_flight = True
         loop = asyncio.get_running_loop()
         future = loop.run_in_executor(self._pool, lambda: fn(*args))
-
-        def _released(_: object) -> None:
-            self._in_flight = False
-
-        # Clear the flag whenever the call eventually finishes — including long
-        # after we stopped waiting for it, which is how the instrument recovers
-        # without a restart.
-        future.add_done_callback(_released)
+        self._pending = future
 
         try:
-            # shield: a timeout must not cancel the executor job, since the
-            # thread is uninterruptible anyway and the callback above is what
-            # lets the instrument become usable again.
+            # shield: a timeout must not cancel the executor job — the thread is
+            # uninterruptible anyway, and letting it finish is what allows the
+            # instrument to become usable again without a restart.
             return await asyncio.wait_for(asyncio.shield(future), timeout=timeout)
         except asyncio.TimeoutError:
             log.warning("%s: no response after %.0fs; call left running", self._name, timeout)

@@ -11,6 +11,7 @@ endpoints (`/instruments/status`, `/instruments/measure`).
 """
 from __future__ import annotations
 
+import logging
 import time
 
 from fastapi import APIRouter
@@ -19,6 +20,8 @@ from pydantic import BaseModel
 from . import dc_analyzer, network_analyzer, power_sensor, spectrum
 from ._bus import bus
 from ._state import state
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 router.include_router(power_sensor.router)
@@ -121,20 +124,35 @@ def _read_power_dbm(freq_hz: int | None) -> float | None:
     )
 
 
-def _read_dc() -> tuple[float | None, float | None]:
+def _read_dc() -> tuple[float | None, float | None, str | None]:
+    """Read current and voltage, reporting why either is missing.
+
+    These used to be swallowed per field, so a DC analyzer that was connected
+    but refusing reads showed an empty CC column with no explanation anywhere.
+    Each field is still independent — a working current reading is not thrown
+    away because the voltage failed — but the reason now travels with them.
+    """
     a = state.dc_analyzer
     if a is None:
-        return None, None
+        return None, None, None
+
     ch = state.dc_analyzer_channel
+    problems: list[str] = []
+
     try:
         cur = float(a.measure_current(ch))  # type: ignore[attr-defined]
-    except Exception:
+    except Exception as e:
         cur = None
+        problems.append(f"current: {type(e).__name__}: {e}")
     try:
         volt = float(a.measure_voltage(ch))  # type: ignore[attr-defined]
-    except Exception:
+    except Exception as e:
         volt = None
-    return cur, volt
+        problems.append(f"voltage: {type(e).__name__}: {e}")
+
+    if problems:
+        log.warning("DC read failed on channel %s — %s", ch, "; ".join(problems))
+    return cur, volt, "; ".join(problems) or None
 
 
 @_aggregate.post("/measure", response_model=MeasureResponse)
@@ -165,7 +183,9 @@ async def measure(freq_hz: int | None = None) -> MeasureResponse:
         err = f"{type(e).__name__}: {e}"
     try:
         if dc_connected:
-            cur, volt = await bus("dc-analyzer").call(_read_dc)
+            cur, volt, dc_err = await bus("dc-analyzer").call(_read_dc)
+            if dc_err:
+                err = f"{err}; {dc_err}" if err else dc_err
     except Exception as e:
         # Keep a power reading that already succeeded rather than dropping both.
         err = f"{err}; {type(e).__name__}: {e}" if err else f"{type(e).__name__}: {e}"
