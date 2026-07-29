@@ -77,6 +77,20 @@ class MeasureResponse(BaseModel):
     error: str | None = None
 
 
+#: Readings at or below this are the sensor reporting "nothing here", not a
+#: measurement. Recording one as a real value poisons the results table and any
+#: export built from it, so it is surfaced as an error instead.
+NO_SIGNAL_DBM = -100.0
+
+#: The sensor keeps reporting the sentinel for a short while after the PA keys,
+#: and how long varies per point. 250 ms of retries was not enough — points
+#: intermittently recorded "no signal" for a DUT that was transmitting fine —
+#: so the window is ~1.5 s. A path that is genuinely dead still fails, just a
+#: second later.
+_READ_RETRIES = 12
+_READ_RETRY_DELAY_S = 0.125
+
+
 def _read_power_dbm(freq_hz: int | None) -> float | None:
     s = state.power_sensor
     if s is None:
@@ -90,17 +104,21 @@ def _read_power_dbm(freq_hz: int | None) -> float | None:
         reader = getattr(s, "read_power", None)
         if reader is None:
             return None
-        # retry briefly on sentinel reading
         last = -999.0
-        for _ in range(5):
-            v = float(reader("dBm"))
-            last = v
-            if v > -100.0:
-                return v
-            time.sleep(0.05)
-        return last
+        for _ in range(_READ_RETRIES):
+            last = float(reader("dBm"))
+            if last > NO_SIGNAL_DBM:
+                return last
+            time.sleep(_READ_RETRY_DELAY_S)
     except Exception as e:
         raise RuntimeError(f"power read failed: {e}")
+
+    # Still nothing after the retries: the DUT is not transmitting yet, or the
+    # RF path is broken. Either way it is not a −997 dBm measurement.
+    raise RuntimeError(
+        f"no signal at power sensor ({last:.1f} dBm) — check the RF path, "
+        "or increase the settle time so the PA is keyed before the read"
+    )
 
 
 def _read_dc() -> tuple[float | None, float | None]:

@@ -66,6 +66,8 @@ interface Actions {
   connect: (id: InstrumentId, timeoutMs?: number) => Promise<ConnectOutcome>
   disconnect: (id: InstrumentId) => Promise<void>
   discover: (id: InstrumentId) => Promise<DiscoverCandidate[]>
+  /** Pull connection state from the backend now, instead of waiting for the poll. */
+  refreshStatus: () => Promise<void>
 }
 
 // Split state (changes on every poll) from actions (stable refs). Components
@@ -138,51 +140,62 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
   const instrumentsRef = useRef(instruments)
   useEffect(() => { instrumentsRef.current = instruments }, [instruments])
 
-  // Poll backend status so connections survive page reload AND backend restarts
-  // stay reflected in the UI (otherwise we keep a stale 'connected' badge).
-  useEffect(() => {
-    let cancelled = false
-    const sync = async () => {
-      try {
-        const s = await instrumentsApi.status()
-        if (cancelled) return
-        const apply = (id: InstrumentId, st: { connected: boolean; idn: string | null }) => {
-          setInstruments((prev) => {
-            const cur = prev[id]
-            if (cur.status === 'connecting') return prev
-            if (st.connected) {
-              if (cur.status === 'connected' && cur.idn === (st.idn ?? undefined)) return prev
-              return { ...prev, [id]: { ...cur, status: 'connected', idn: st.idn ?? undefined } }
-            }
-            if (cur.status === 'connected') {
-              return { ...prev, [id]: { ...cur, status: 'disconnected', idn: undefined } }
-            }
-            return prev
-          })
+  /**
+   * Pull instrument state from the backend into the UI.
+   *
+   * The backend is the authority on what is connected: sessions survive a page
+   * reload, and can be opened or dropped outside this tab. Callers that are
+   * about to act on a connection (the pre-run preflight) refresh first rather
+   * than trusting state that can be up to one poll interval stale.
+   */
+  const refreshStatus = useCallback(async (): Promise<void> => {
+    const apply = (id: InstrumentId, st: { connected: boolean; idn: string | null }) => {
+      setInstruments((prev) => {
+        const cur = prev[id]
+        // A connect in flight owns the row until it settles.
+        if (cur.status === 'connecting') return prev
+        if (st.connected) {
+          if (cur.status === 'connected' && cur.idn === (st.idn ?? undefined)) return prev
+          return {
+            ...prev,
+            [id]: { ...cur, status: 'connected', idn: st.idn ?? undefined, failure: undefined },
+          }
         }
-        apply('power-sensor', s.power_sensor)
-        apply('dc-analyzer', s.dc_analyzer)
-        apply('spectrum', s.spectrum)
-        apply('network-analyzer', s.network_analyzer)
-        // rf-switch backed by /servo (separate router).
-        try {
-          const sv = await servo.status()
-          apply('rf-switch', { connected: sv.connected, idn: sv.idn })
-        } catch { /* servo offline */ }
-        // rf-trombone backed by /motor (Arcus DMX-J-SA).
-        try {
-          const mo = await motor.status()
-          const idn = mo.connected
-            ? `device #${mo.device_index ?? 0}${mo.position != null ? ` · pos=${mo.position}` : ''}`
-            : null
-          apply('rf-trombone', { connected: mo.connected, idn })
-        } catch { /* motor offline */ }
-      } catch { /* offline */ }
+        if (cur.status === 'connected') {
+          return { ...prev, [id]: { ...cur, status: 'disconnected', idn: undefined } }
+        }
+        return prev
+      })
     }
-    void sync()
-    const id = window.setInterval(sync, 5000)
-    return () => { cancelled = true; window.clearInterval(id) }
+
+    try {
+      const s = await instrumentsApi.status()
+      apply('power-sensor', s.power_sensor)
+      apply('dc-analyzer', s.dc_analyzer)
+      apply('spectrum', s.spectrum)
+      apply('network-analyzer', s.network_analyzer)
+    } catch { /* backend offline — leave the last known state alone */ }
+
+    // rf-switch backed by /servo (separate router).
+    try {
+      const sv = await servo.status()
+      apply('rf-switch', { connected: sv.connected, idn: sv.idn })
+    } catch { /* servo offline */ }
+    // rf-trombone backed by /motor (Arcus DMX-J-SA).
+    try {
+      const mo = await motor.status()
+      const idn = mo.connected
+        ? `device #${mo.device_index ?? 0}${mo.position != null ? ` · pos=${mo.position}` : ''}`
+        : null
+      apply('rf-trombone', { connected: mo.connected, idn })
+    } catch { /* motor offline */ }
   }, [])
+
+  useEffect(() => {
+    void refreshStatus()
+    const id = window.setInterval(() => { void refreshStatus() }, 5000)
+    return () => window.clearInterval(id)
+  }, [refreshStatus])
 
   const setOpen = useCallback((b: boolean) => {
     if (b && typeof document !== 'undefined') {
@@ -326,9 +339,9 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
   const actions = useMemo<Actions>(
     () => ({
       setOpen, notifyMissing, setAddress, setChannel,
-      connect, disconnect, discover,
+      connect, disconnect, discover, refreshStatus,
     }),
-    [setOpen, notifyMissing, setAddress, setChannel, connect, disconnect, discover],
+    [setOpen, notifyMissing, setAddress, setChannel, connect, disconnect, discover, refreshStatus],
   )
 
   return (

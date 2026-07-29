@@ -17,6 +17,7 @@
  *   {preflight.dialog}
  */
 import { useCallback, useRef, useState, type ReactNode } from 'react'
+
 import {
   PreflightDialog, type PreflightStep,
 } from '../../components/PreflightDialog'
@@ -41,7 +42,11 @@ export function useInstrumentPreflight(
   timeoutMs = CONNECT_TIMEOUT_MS,
 ): Preflight {
   const { instruments } = useInstrumentsState()
-  const { connect, setOpen } = useInstrumentsActions()
+  const { connect, setOpen, refreshStatus } = useInstrumentsActions()
+  // Read through a ref: `run` must see state as it is when the operator presses
+  // Run, including the refresh it performs itself, not as of its own render.
+  const instrumentsRef = useRef(instruments)
+  instrumentsRef.current = instruments
 
   const [open, setOpenDialog] = useState(false)
   const [steps, setSteps] = useState<PreflightStep[]>([])
@@ -65,13 +70,20 @@ export function useInstrumentPreflight(
   const run = useCallback(async (): Promise<boolean> => {
     const ids = requiredKey ? (requiredKey.split(',') as InstrumentId[]) : []
     if (ids.length === 0) return true
-    // Everything is already up — don't flash a dialog at the operator.
-    if (ids.every((id) => instruments[id].status === 'connected')) return true
+
+    // The backend owns the truth about what is connected — a session opened in
+    // another tab, or before a reload, is real. Ask it before concluding that
+    // anything needs connecting, otherwise a run started within the poll
+    // interval reports instruments that are in fact already up.
+    await refreshStatus()
+    const current = () => instrumentsRef.current
+
+    if (ids.every((id) => current()[id].status === 'connected')) return true
 
     setSteps(ids.map((id) => ({
       id,
-      label: instruments[id].label,
-      state: instruments[id].status === 'connected' ? 'ok' : 'pending',
+      label: current()[id].label,
+      state: current()[id].status === 'connected' ? 'ok' : 'pending',
     })))
     setBusy(true)
     setOpenDialog(true)
@@ -83,7 +95,7 @@ export function useInstrumentPreflight(
     // vendor layers do not reliably tolerate concurrent opens.
     let failures = 0
     for (const id of ids) {
-      if (instruments[id].status === 'connected') continue
+      if (current()[id].status === 'connected') continue
 
       mark(id, { state: 'connecting', failure: undefined })
       setElapsed(0)
@@ -113,7 +125,7 @@ export function useInstrumentPreflight(
     }
     // Hand the decision to the operator; `settle` resolves this.
     return new Promise<boolean>((resolve) => { decide.current = resolve })
-  }, [requiredKey, instruments, connect, timeoutMs])
+  }, [requiredKey, connect, refreshStatus, timeoutMs])
 
   const dialog = (
     <PreflightDialog

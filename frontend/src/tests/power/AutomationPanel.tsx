@@ -159,8 +159,11 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   // Settle dominates; the command + measure round trips add roughly 300 ms.
   const estimatedRunMs = totalPoints * (settleMs + 300)
 
-  // Measure one (freq, power) point: TX on → settle → power/CC measure. Never
-  // throws — failures are recorded in the returned row.
+  // One point: TX on at this (freq, power) → settle → read power/CC → TX off.
+  //
+  // The DUT is switched off after every point rather than left transmitting
+  // into the next one, so each reading starts from the same state and the PA
+  // is never keyed between points. Never throws — failures land in the row.
   const blankRow = (item: { freq: number; pow: number }): ResultRow => ({
     freq_mhz: item.freq,
     set_power_dbm: item.pow,
@@ -190,7 +193,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
         row.error = `tx status=${tx.status}`
       } else {
         await sleep(settleMs, signal)
-        if (signal.aborted) { try { await device.stop() } catch { /* ignore */ } ; return row }
+        if (signal.aborted) return row
         const m = await instrumentsApi.measure(fHz, { signal })
         row.measured_dbm_raw = m.power_dbm
         row.measured_dbm = m.power_dbm == null ? null : m.power_dbm + pathLossDb
@@ -201,6 +204,10 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
     } catch (e) {
       // A cancelled request is the operator stopping, not a measurement fault.
       row.error = signal.aborted ? null : (e as Error).message
+    } finally {
+      // TX off before the next point — always, including on failure, so a bad
+      // point cannot leave the DUT keyed.
+      try { await device.stop() } catch { /* reported by the end-of-run stop */ }
     }
     return row
   }
