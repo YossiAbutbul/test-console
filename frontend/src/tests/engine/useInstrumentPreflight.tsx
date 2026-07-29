@@ -56,6 +56,10 @@ export function useInstrumentPreflight(
   const [elapsed, setElapsed] = useState(0)
   // Resolves the promise `run()` handed to the caller, once the operator picks.
   const decide = useRef<((proceed: boolean) => void) | null>(null)
+  // True from the moment Run is pressed until the preflight has an answer.
+  // Without it a second click would overwrite `decide`, leaving the first
+  // promise pending forever and wedging the page with Stop disabled.
+  const inFlight = useRef(false)
 
   // `required` is written as a literal at every call site, so a new array
   // arrives each render; key on contents to keep `run` stable.
@@ -63,6 +67,7 @@ export function useInstrumentPreflight(
 
   const settle = useCallback((proceed: boolean) => {
     setOpenDialog(false)
+    inFlight.current = false
     decide.current?.(proceed)
     decide.current = null
   }, [])
@@ -70,6 +75,9 @@ export function useInstrumentPreflight(
   const run = useCallback(async (): Promise<boolean> => {
     const ids = requiredKey ? (requiredKey.split(',') as InstrumentId[]) : []
     if (ids.length === 0) return true
+    // A preflight is already deciding; ignore the extra press.
+    if (inFlight.current) return false
+    inFlight.current = true
 
     // The backend owns the truth about what is connected — a session opened in
     // another tab, or before a reload, is real. Ask it before concluding that
@@ -78,7 +86,10 @@ export function useInstrumentPreflight(
     await refreshStatus()
     const current = () => instrumentsRef.current
 
-    if (ids.every((id) => current()[id].status === 'connected')) return true
+    if (ids.every((id) => current()[id].status === 'connected')) {
+      inFlight.current = false
+      return true
+    }
 
     setSteps(ids.map((id) => ({
       id,
@@ -121,6 +132,7 @@ export function useInstrumentPreflight(
 
     if (failures === 0) {
       setOpenDialog(false)
+      inFlight.current = false
       return true
     }
     // Hand the decision to the operator; `settle` resolves this.

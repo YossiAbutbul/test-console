@@ -51,7 +51,7 @@ export interface ConnectOutcome {
  * A dead VISA/serial resource can otherwise block for the OS-level timeout —
  * tens of seconds — with no feedback at all.
  */
-export const CONNECT_TIMEOUT_MS = 7000
+export const CONNECT_TIMEOUT_MS = 15000
 
 interface Actions {
   setOpen: (b: boolean) => void
@@ -230,9 +230,10 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
   const openSession = useCallback(async (id: InstrumentId) => {
     const cur = instrumentsRef.current[id]
     if (cur.placeholder) throw new Error('not wired yet')
-    if (!cur.address.trim() && id !== 'rf-trombone') {
-      throw new Error('no address selected')
-    }
+    // A blank address is legitimate and means "bind the first device found":
+    // the power-sensor driver falls back to a no-arg connect, and the DC
+    // analyzer to its default VISA resource. Addresses are not persisted, so
+    // rejecting a blank one here made every test unrunnable after a reload.
 
     if (id === 'rf-switch') {
       const r = await servo.connect(cur.address.trim())

@@ -18,14 +18,24 @@ class MiniCircuitsPowerMeter(PowerMeter):
         average_count: Optional[int] = 2,
         averaging_enabled: Optional[bool] = True,
         use_immediate: bool = False,
+        session: object | None = None,
     ) -> None:
+        """`session` borrows an already-open PowerSensor instead of opening one.
+
+        Re-opening a USB power sensor that another part of the process already
+        holds invalidates the live handle, so a sweep must reuse the session
+        from `/instruments` when one exists rather than opening a second.
+        """
         self._serial = serial
-        self._sensor = None
+        self._sensor = session
+        self._owned = session is None
         self._average_count = average_count
         self._averaging_enabled = averaging_enabled
         self._use_immediate = use_immediate
 
     def connect(self) -> None:
+        if self._sensor is not None:
+            return  # borrowed: already open, and not ours to configure
         try:
             from power_sensor import PowerSensor  # type: ignore
         except ImportError as e:
@@ -50,6 +60,9 @@ class MiniCircuitsPowerMeter(PowerMeter):
         self._sensor = s
 
     def disconnect(self) -> None:
+        if not self._owned:
+            self._sensor = None  # the owner closes it
+            return
         if self._sensor is not None:
             try:
                 self._sensor.disconnect()
@@ -91,12 +104,17 @@ class KeysightDCPowerAnalyzer(CurrentMeter):
         self,
         resource: Optional[str] = None,
         channel: int = 1,
+        session: object | None = None,
     ) -> None:
+        """`session` borrows an already-open analyzer — see MiniCircuitsPowerMeter."""
         self._resource = resource
         self._channel = channel
-        self._analyzer = None
+        self._analyzer = session
+        self._owned = session is None
 
     def connect(self) -> None:
+        if self._analyzer is not None:
+            return  # borrowed: already open
         try:
             from dc_power_analyzer import DCPowerAnalyzer  # type: ignore
         except ImportError as e:
@@ -108,6 +126,9 @@ class KeysightDCPowerAnalyzer(CurrentMeter):
         self._analyzer = a
 
     def disconnect(self) -> None:
+        if not self._owned:
+            self._analyzer = None  # the owner closes it
+            return
         if self._analyzer is not None:
             try:
                 self._analyzer.disconnect()

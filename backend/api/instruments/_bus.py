@@ -28,9 +28,13 @@ log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-#: Long enough for a slow sweep read, short enough that the UI is not left
-#: guessing whether the request is alive.
-DEFAULT_TIMEOUT_S = 10.0
+#: Long enough for the slowest legitimate read, short enough that the UI is not
+#: left guessing whether the request is alive.
+#:
+#: The power-sensor read alone can spend ~1.5 s retrying a sentinel plus a dozen
+#: averaged reads; at 10 s that sat right on the boundary, and tripping it left
+#: the instrument marked busy so every following point failed too.
+DEFAULT_TIMEOUT_S = 25.0
 
 
 class InstrumentBusy(RuntimeError):

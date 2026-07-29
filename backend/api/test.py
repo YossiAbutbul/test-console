@@ -21,6 +21,7 @@ from ..hw.adapters import KeysightDCPowerAnalyzer, MiniCircuitsPowerMeter
 from ..hw.base import CurrentMeter, PowerMeter
 from ..sweep import ResultRow, RunStatus, SweepConfig, build_workbook, runner
 from .errors import handle_driver_errors
+from .instruments._state import state
 
 log = logging.getLogger(__name__)
 
@@ -41,10 +42,20 @@ class StartRequest(BaseModel):
 
 
 def _build_power_meter(req: StartRequest) -> PowerMeter:
+    # Prefer the session `/instruments` already holds. Opening a second one to
+    # the same physical sensor invalidates the live handle, which is exactly
+    # what happens when the pre-run check connects it and then the sweep starts.
+    if state.power_sensor is not None:
+        return MiniCircuitsPowerMeter(session=state.power_sensor)
     return MiniCircuitsPowerMeter(serial=req.power_sensor_serial)
 
 
 def _build_current_meter(req: StartRequest) -> CurrentMeter:
+    if state.dc_analyzer is not None:
+        return KeysightDCPowerAnalyzer(
+            session=state.dc_analyzer,
+            channel=state.dc_analyzer_channel,
+        )
     return KeysightDCPowerAnalyzer(
         resource=req.dc_analyzer_resource or DEFAULT_DC_RESOURCE,
         channel=req.dc_analyzer_channel,

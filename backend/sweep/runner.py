@@ -80,6 +80,12 @@ class TestRunner:
                 raise RuntimeError("Test already running")
             config.validate_ranges()
             ctx = _RunCtx(config=config)
+            # Mark RUNNING here, not inside _run: the task does not begin
+            # executing until this coroutine yields, so a second /test/run
+            # arriving first would otherwise pass the guard above and drive a
+            # second sweep against the same DUT.
+            ctx.state = RunState.RUNNING
+            ctx.started_at = time.time()
             self._ctx = ctx
             ctx.task = asyncio.create_task(
                 self._run(ctx, device, power_meter, current_meter)
@@ -94,6 +100,7 @@ class TestRunner:
     async def _measure_step(
         self,
         ctx: _RunCtx,
+        device: Device,
         pm: Optional[PowerMeter],
         cm: Optional[CurrentMeter],
         idx: int,
@@ -131,6 +138,11 @@ class TestRunner:
             row.rx_hex = result.rx.hex(" ")
             row.ok = result.ok
             row.status = result.status
+            if not result.ok:
+                # A rejected command still measured cleanly as "no signal",
+                # so without this the row looked like a real reading of an
+                # unpowered DUT rather than a refusal.
+                row.error = f"DUT rejected the command (status={result.status})"
 
             await asyncio.sleep(ctx.config.settle_ms / 1000.0)
             t_settle = time.perf_counter()
@@ -143,7 +155,12 @@ class TestRunner:
 
             if cm is not None:
                 row.current_a = await asyncio.to_thread(cm.read_current_a)
-                row.voltage_v = await asyncio.to_thread(cm.read_voltage_v)
+                # Supply voltage is supplementary: a rig whose analyzer refuses
+                # it should still record power and current, not fail the row.
+                try:
+                    row.voltage_v = await asyncio.to_thread(cm.read_voltage_v)
+                except Exception as e:
+                    log.debug("voltage read failed: %s", e)
             t_cm = time.perf_counter()
 
             if idx < _LOG_HEAD_STEPS or idx % _LOG_EVERY == 0:
@@ -169,8 +186,7 @@ class TestRunner:
         pm: Optional[PowerMeter],
         cm: Optional[CurrentMeter],
     ) -> None:
-        ctx.state = RunState.RUNNING
-        ctx.started_at = time.time()
+        # state/started_at are set by start() so the guard there is race-free.
         t0 = time.perf_counter()
         log.info("Sweep started: %d steps", ctx.config.total_steps)
 
@@ -188,7 +204,7 @@ class TestRunner:
                             ctx.state = RunState.CANCELLED
                             return
                         ctx.results.append(
-                            await self._measure_step(ctx, pm, cm, idx, hp, duty, power, t0)
+                            await self._measure_step(ctx, device, pm, cm, idx, hp, duty, power, t0)
                         )
                         idx += 1
 

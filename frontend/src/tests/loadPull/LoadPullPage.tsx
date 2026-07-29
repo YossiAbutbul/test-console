@@ -204,9 +204,11 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
         row.x_ohm = mk.x_ohm
         row.s11_db = mk.s11_mag_db
       } else {
-        // A measure that fails raises; an empty marker list means the sweep
-        // ran but the requested frequency fell outside it.
-        row.error = 'vna: no marker returned'
+        // A measure that fails raises, so an empty marker list means the sweep
+        // ran but returned nothing at the requested frequency. Leave R/X/S11
+        // blank and note it — the power and current for this position are still
+        // valid, so it is not an error row.
+        reporter.note(`no VNA marker at ${mm(pos).toFixed(2)} mm`, 'warn')
       }
 
       // 3. switch -> PCB
