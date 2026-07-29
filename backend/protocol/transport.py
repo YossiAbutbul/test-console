@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import Optional
 
 from bleak import BleakClient
@@ -38,6 +39,12 @@ class Transport:
         self._write_no_response: bool = False
         self._reply_queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._started = False
+        # One GATT exchange at a time. Two overlapping sends would race for the
+        # same reply queue and could each take the other's reply — which is
+        # reachable in normal use, e.g. Stop firing while a sweep point's
+        # command is still in flight.
+        self._io_lock = asyncio.Lock()
+        self._last_io = time.monotonic()
 
     async def start(self) -> None:
         if self._started:
@@ -120,21 +127,43 @@ class Transport:
     async def send(self, frame_bytes: bytes, timeout: float = 5.0) -> Frame:
         if not self._started:
             await self.start()
-        while not self._reply_queue.empty():
-            self._reply_queue.get_nowait()
 
-        assert self._write_char is not None
+        write_char = self._write_char
+        if write_char is None:
+            raise RuntimeError("Transport has no write characteristic")
 
-        async def _do() -> bytes:
-            await self._client.write_gatt_char(
-                self._write_char,
-                frame_bytes,
-                response=not self._write_no_response,
-            )
-            return await self._reply_queue.get()
+        async with self._io_lock:
+            # Drop any late reply from a previous exchange that timed out.
+            while not self._reply_queue.empty():
+                self._reply_queue.get_nowait()
 
-        reply_raw = await asyncio.wait_for(_do(), timeout=timeout)
+            async def _do() -> bytes:
+                await self._client.write_gatt_char(
+                    write_char,
+                    frame_bytes,
+                    response=not self._write_no_response,
+                )
+                return await self._reply_queue.get()
+
+            try:
+                reply_raw = await asyncio.wait_for(_do(), timeout=timeout)
+            finally:
+                # Count the attempt either way: a command that timed out still
+                # exercised the link, so the heartbeat need not probe it.
+                self._last_io = time.monotonic()
+
         return parse_frame(reply_raw)
+
+    @property
+    def io_lock(self) -> asyncio.Lock:
+        """Held for the duration of one GATT exchange. The heartbeat takes it
+        too, so a keep-alive read can never interleave with a command."""
+        return self._io_lock
+
+    @property
+    def idle_seconds(self) -> float:
+        """Seconds since the last command exchange."""
+        return time.monotonic() - self._last_io
 
     @property
     def write_uuid(self) -> Optional[str]:

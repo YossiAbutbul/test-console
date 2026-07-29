@@ -21,6 +21,11 @@ HEARTBEAT_INTERVAL_S = 5.0
 # GAP Device Name — present on virtually every BLE peripheral and cheap to read.
 HEARTBEAT_CHAR_UUID = "00002a00-0000-1000-8000-00805f9b34fb"
 
+# An unexpected drop mid-test would otherwise fail every remaining point with
+# "Device not ready". Re-establish quietly instead; a run survives a brief drop.
+RECONNECT_ATTEMPTS = 3
+RECONNECT_BACKOFF_S = 2.0
+
 
 class BLEManager:
     def __init__(self) -> None:
@@ -31,13 +36,27 @@ class BLEManager:
         self._transport_error: Optional[str] = None
         self._lock = asyncio.Lock()
         self._heartbeat_task: Optional[asyncio.Task] = None
+        # Reconnect bookkeeping. `_intentional` distinguishes a drop from the
+        # user pressing Disconnect, which must not be undone.
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._reconnect_task: Optional[asyncio.Task] = None
+        self._intentional = False
+        self._last_address: Optional[str] = None
 
     async def _heartbeat_loop(self) -> None:
-        """Keep BLE link alive by reading a GATT char every few seconds.
+        """Keep the BLE link alive while nothing else is talking to the DUT.
 
-        Prevents supervision-timeout disconnects when no test is active.
-        Silent on failures — disconnect detection happens via the
-        disconnected_callback wired at connect time.
+        Prevents supervision-timeout disconnects when no test is active. It
+        deliberately does nothing while a test is running:
+
+        - A test already generates traffic, so the keep-alive is redundant.
+        - The read is a GATT operation on the same client as the command
+          exchange. Interleaving the two is what made the link drop part-way
+          through a sweep, so the heartbeat both skips when the transport has
+          been busy and takes the transport's IO lock when it does read.
+
+        Silent on failures — disconnect detection is the disconnected_callback
+        wired at connect time.
         """
         try:
             while self._client and self._client.is_connected:
@@ -45,8 +64,17 @@ class BLEManager:
                 c = self._client
                 if not (c and c.is_connected):
                     return
+
+                t = self._transport
+                if t is not None and t.idle_seconds < HEARTBEAT_INTERVAL_S:
+                    continue  # commands are keeping the link warm
+
                 try:
-                    await c.read_gatt_char(HEARTBEAT_CHAR_UUID)
+                    if t is not None:
+                        async with t.io_lock:
+                            await c.read_gatt_char(HEARTBEAT_CHAR_UUID)
+                    else:
+                        await c.read_gatt_char(HEARTBEAT_CHAR_UUID)
                 except Exception as e:
                     log.debug("BLE heartbeat read failed: %s", e)
         except asyncio.CancelledError:
@@ -139,7 +167,14 @@ class BLEManager:
                 self._transport = None
                 self._device = None
                 self._transport_error = None
+                # Bleak may invoke this off the event-loop thread.
+                loop = self._loop
+                if not self._intentional and loop is not None:
+                    loop.call_soon_threadsafe(self._schedule_reconnect)
 
+            self._loop = asyncio.get_running_loop()
+            self._last_address = address
+            self._intentional = False
             client = BleakClient(device, disconnected_callback=_on_disconnect)
             await client.connect(timeout=timeout)
             if not client.is_connected:
@@ -171,8 +206,39 @@ class BLEManager:
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
             return self._status()
 
+    def _schedule_reconnect(self) -> None:
+        """Start a reconnect attempt, unless one is already running."""
+        if self._reconnect_task is not None and not self._reconnect_task.done():
+            return
+        if self._intentional or not self._last_address:
+            return
+        self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+
+    async def _reconnect_loop(self) -> None:
+        address = self._last_address
+        if address is None:
+            return
+        for attempt in range(1, RECONNECT_ATTEMPTS + 1):
+            await asyncio.sleep(RECONNECT_BACKOFF_S)
+            # The user may have reconnected by hand, or asked to stay off.
+            if self._intentional:
+                return
+            if self._client is not None and self._client.is_connected:
+                return
+            try:
+                log.info("BLE reconnect attempt %d/%d to %s", attempt, RECONNECT_ATTEMPTS, address)
+                await self.connect(address)
+                log.info("BLE reconnected to %s", address)
+                return
+            except Exception as e:
+                log.warning("BLE reconnect attempt %d failed: %s", attempt, e)
+        log.error("BLE reconnect gave up after %d attempts", RECONNECT_ATTEMPTS)
+
     async def disconnect(self) -> ConnectionStatus:
         async with self._lock:
+            # Mark first: the callback fires during the disconnect below and
+            # must not queue a reconnect for a link the user just dropped.
+            self._intentional = True
             await self._disconnect_unlocked()
             return self._status()
 
