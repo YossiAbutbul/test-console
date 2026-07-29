@@ -4,10 +4,18 @@ Frame layout (both directions):
 Reply payload byte 0 = status (0 = OK).
 """
 
+import asyncio
+import time
 from dataclasses import dataclass
 from enum import IntEnum
 
 from .protocol import Frame, Transport, pack_frame
+
+# The DUT needs a moment after StopTest before it will accept another test
+# command. Without it, a sweep that switches TX off between points stops
+# answering after two or three points and then drops the BLE link entirely.
+# Measured: 0 s wedges reliably, 1.5 s runs clean.
+POST_STOP_RECOVERY_S = 1.5
 
 
 # --- Opcodes (raw 2-byte, as seen on wire) ---
@@ -110,6 +118,20 @@ class Device:
 
     def __init__(self, transport: Transport) -> None:
         self._t = transport
+        # Monotonic time before which the DUT should not be given another
+        # command. Set by stop_test; awaited by every command below.
+        self._ready_at = 0.0
+
+    async def _await_ready(self) -> None:
+        """Block until the DUT has finished recovering from a previous stop.
+
+        Kept here rather than in the callers so that every path — the TX power
+        automation, Load Pull, the backend sweep runner — gets it without
+        having to know about the constraint.
+        """
+        delay = self._ready_at - time.monotonic()
+        if delay > 0:
+            await asyncio.sleep(delay)
 
     async def lora_cw(
         self,
@@ -120,6 +142,7 @@ class Device:
         pa_mode: PaMode = PaMode.AUTO,
         timeout: float = 5.0,
     ) -> CommandResult:
+        await self._await_ready()
         params = LoraCwParams(
             freq_hz=freq_hz,
             power_dbm=power_dbm,
@@ -138,6 +161,7 @@ class Device:
         pa_mode: PaMode = PaMode.AUTO,
         timeout: float = 5.0,
     ) -> CommandResult:
+        await self._await_ready()
         params = LoraPowerParams(
             freq_hz=freq_hz, power_dbm=power_dbm, pa_mode=pa_mode,
         )
@@ -154,6 +178,7 @@ class Device:
         datarate: int,
         timeout: float = 5.0,
     ) -> CommandResult:
+        await self._await_ready()
         params = LoraModulatedParams(
             bandwidth=bandwidth,
             freq_hz=freq_hz,
@@ -166,8 +191,11 @@ class Device:
         return _make_result(tx, reply, expected_opcode=OPCODE_LORA_MODULATED)
 
     async def stop_test(self, timeout: float = 5.0) -> CommandResult:
+        # Deliberately does not wait for a previous recovery window: stopping
+        # an already-stopped DUT is harmless, and Stop must stay responsive.
         tx = pack_frame(OPCODE_STOP_TEST, b"")
         reply = await self._t.send(tx, timeout=timeout)
+        self._ready_at = time.monotonic() + POST_STOP_RECOVERY_S
         return _make_result(tx, reply, expected_opcode=OPCODE_STOP_TEST)
 
 
