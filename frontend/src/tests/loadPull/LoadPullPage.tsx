@@ -103,6 +103,23 @@ function downloadCsv(rows: LoadPullResultRow[], meta: CsvMeta): void {
 
 const RESULT_ACTION_SX = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
 
+/** One height for every control in the drive column. Four kinds of control —
+ *  buttons, a jog pad, a toggle group — at three different sizes read as
+ *  unrelated widgets rather than one panel for one motor. */
+const DRIVE_H = 32
+const DRIVE_BTN_SX = {
+  minWidth: 66, height: DRIVE_H, fontSize: 12.5, textTransform: 'none' as const,
+}
+
+/** Row label in the drive column, matching the bounds grid opposite it. */
+function DriveLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography sx={{ ...TEXT.label, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+      {children}
+    </Typography>
+  )
+}
+
 interface RigRowProps {
   name: string
   connected: boolean
@@ -264,16 +281,19 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const tr = useInstrumentValue('rf-trombone')
   const dutConnected = !!bleStatus?.connected
 
-  const rigUp = [
-    ps.status === 'connected',
-    dc.status === 'connected',
-    na.status === 'connected',
-    sw.status === 'connected',
-    tr.status === 'connected',
-    dutConnected,
+  // Named, because a missing one now stops the run and the operator needs to
+  // know which. Every stage of a point drives one of these, so "run anyway"
+  // would only produce a table of blanks.
+  const rig = [
+    { name: 'power sensor', up: ps.status === 'connected' },
+    { name: 'DC analyzer', up: dc.status === 'connected' },
+    { name: 'VNA', up: na.status === 'connected' },
+    { name: 'RF switch', up: sw.status === 'connected' },
+    { name: 'trombone', up: tr.status === 'connected' },
   ]
-  const allReady = rigUp.every(Boolean)
-  const missingCount = rigUp.filter((up) => !up).length
+  const missingRig = rig.filter((r) => !r.up).map((r) => r.name)
+  const allReady = missingRig.length === 0 && dutConnected
+  const missingCount = missingRig.length + (dutConnected ? 0 : 1)
 
   const [freqMhz, setFreqMhz] = useState<number>(() => loadPullPageSnapshot.freqMhz ?? 902.3)
   const [powerDbm, setPowerDbm] = useState<number>(() => loadPullPageSnapshot.powerDbm ?? 14)
@@ -347,6 +367,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const blockers: string[] = []
   if (!hasBackend) blockers.push(`${protocol} has no backend wired up`)
   if (!dutConnected) blockers.push('connect the DUT over BLE')
+  if (missingRig.length) blockers.push(`connect the ${missingRig.join(', ')}`)
   if (!pathAck) blockers.push('confirm the RF path')
   if (zeroPulses == null) blockers.push('capture the zero position')
   if (endPulses == null) blockers.push('capture the end position')
@@ -650,129 +671,139 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
           <TwoCol stretch minCol={280}>
             <Box>
               <SubHead>Drive the trombone</SubHead>
+              {/* Same label-and-control grid as the bounds on the right, so
+                  the two halves of the step read alike. Loose rows of mixed
+                  button sizes made four unrelated widgets out of what is one
+                  set of controls for one motor. */}
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'auto minmax(0, 1fr)',
+                  columnGap: 1.25,
+                  rowGap: 1,
+                  alignItems: 'center',
+                }}
+              >
+                <DriveLabel>RF path</DriveLabel>
+                <Stack direction="row" spacing={0.75} alignItems="center" useFlexGap flexWrap="wrap">
+                  {/* Parking on VNA is how the Smith chart is watched while
+                      jogging, which is why it lives in this step. */}
+                  <Button
+                    size="small" variant="outlined"
+                    onClick={() => switchM.mutate('VNA')}
+                    disabled={!swConnected || switchM.isPending || running}
+                    sx={DRIVE_BTN_SX}
+                  >
+                    VNA
+                  </Button>
+                  <Button
+                    size="small" variant="outlined"
+                    onClick={() => switchM.mutate('PCB')}
+                    disabled={!swConnected || switchM.isPending || running}
+                    sx={DRIVE_BTN_SX}
+                  >
+                    PCB
+                  </Button>
+                  {!swConnected && (
+                    <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>
+                      switch offline
+                    </Typography>
+                  )}
+                </Stack>
 
-              {/* Parking the switch on VNA is how you watch the Smith chart
-                  while jogging, so it belongs with the jog controls. */}
-              <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 1.5, flexWrap: 'wrap', gap: 0.75 }}>
-                <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>Route RF to</Typography>
-                <Button
-                  size="small" variant="outlined"
-                  onClick={() => switchM.mutate('VNA')}
-                  disabled={!swConnected || switchM.isPending || running}
-                  sx={{ minWidth: 66, height: 26 }}
+                <DriveLabel>Jog</DriveLabel>
+                {/* Press-and-hold — focus it, then hold the arrow keys to run
+                    the motor; release to stop. Mouse press-hold works too. */}
+                <Box
+                  tabIndex={motorConnected && !running ? 0 : -1}
+                  onKeyDown={onJogKeyDown}
+                  onKeyUp={onJogKeyUp}
+                  onFocus={() => setJogFocused(true)}
+                  onBlur={() => { setJogFocused(false); stopJog() }}
+                  sx={{
+                    height: DRIVE_H, px: 0.5, width: 'fit-content',
+                    display: 'flex', alignItems: 'center', gap: 0.25,
+                    border: 1, borderColor: jogFocused ? 'primary.main' : 'divider',
+                    borderRadius: 1,
+                    outline: 'none',
+                    bgcolor: jogFocused ? 'action.hover' : 'transparent',
+                    opacity: motorConnected && !running ? 1 : 0.5,
+                    userSelect: 'none',
+                    transition: 'border-color 0.15s, background-color 0.15s',
+                  }}
                 >
-                  VNA
-                </Button>
-                <Button
-                  size="small" variant="outlined"
-                  onClick={() => switchM.mutate('PCB')}
-                  disabled={!swConnected || switchM.isPending || running}
-                  sx={{ minWidth: 66, height: 26 }}
-                >
-                  PCB
-                </Button>
-                {!swConnected && (
-                  <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>
-                    switch offline
+                  <IconButton
+                    size="small"
+                    disabled={!motorConnected || running}
+                    onMouseDown={() => startJog(false)}
+                    onMouseUp={stopJog}
+                    onMouseLeave={stopJog}
+                    sx={{ p: 0.25, color: jogDir < 0 ? 'primary.main' : 'text.secondary' }}
+                  >
+                    <ArrowBackIcon sx={{ fontSize: 17 }} />
+                  </IconButton>
+                  <Typography
+                    sx={{
+                      fontSize: 11.5, fontWeight: 600,
+                      color: jogDir !== 0 ? 'warning.main' : (jogFocused ? 'primary.main' : 'text.secondary'),
+                      whiteSpace: 'nowrap', minWidth: 78, textAlign: 'center',
+                    }}
+                  >
+                    {jogDir !== 0 ? 'jogging' : jogFocused ? 'hold arrows' : 'click + hold'}
                   </Typography>
-                )}
-              </Stack>
+                  <IconButton
+                    size="small"
+                    disabled={!motorConnected || running}
+                    onMouseDown={() => startJog(true)}
+                    onMouseUp={stopJog}
+                    onMouseLeave={stopJog}
+                    sx={{ p: 0.25, color: jogDir > 0 ? 'primary.main' : 'text.secondary' }}
+                  >
+                    <ArrowForwardIcon sx={{ fontSize: 17 }} />
+                  </IconButton>
+                </Box>
 
-          {/* Motion on one line, speed on the next. All four controls will not
-              fit across half the panel, and left to wrap they broke wherever
-              the width ran out — Max landing under the jog pad. Two deliberate
-              rows say the same thing and hold their shape. */}
-          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ mb: 1.25 }}>
-            <Button
-              variant="outlined" startIcon={<FirstPageIcon />}
-              onClick={() => goMinM.mutate()}
-              disabled={!motorConnected || motorJogBusy || running || travelMin == null}
-              title={travelMin == null ? 'Capture zero first' : undefined}
-              sx={{ minWidth: 68, height: CONTROL_H.md }}
-            >
-              Min
-            </Button>
+                <DriveLabel>Go to</DriveLabel>
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                  <Button
+                    variant="outlined" size="small" startIcon={<FirstPageIcon sx={{ fontSize: 16 }} />}
+                    onClick={() => goMinM.mutate()}
+                    disabled={!motorConnected || motorJogBusy || running || travelMin == null}
+                    title={travelMin == null ? 'Capture zero first' : undefined}
+                    sx={DRIVE_BTN_SX}
+                  >
+                    Zero
+                  </Button>
+                  <Button
+                    variant="outlined" size="small" endIcon={<LastPageIcon sx={{ fontSize: 16 }} />}
+                    onClick={() => goMaxM.mutate()}
+                    disabled={!motorConnected || motorJogBusy || running || travelMax == null}
+                    title={travelMax == null ? 'Capture end first' : undefined}
+                    sx={DRIVE_BTN_SX}
+                  >
+                    End
+                  </Button>
+                </Stack>
 
-            {/* Press-and-hold jog pad — focus it, then hold the arrow keys to
-                run the motor; release to stop. Mouse press-hold works too. */}
-            <Box
-              tabIndex={motorConnected && !running ? 0 : -1}
-              onKeyDown={onJogKeyDown}
-              onKeyUp={onJogKeyUp}
-              onFocus={() => setJogFocused(true)}
-              onBlur={() => { setJogFocused(false); stopJog() }}
-              sx={{
-                height: CONTROL_H.md, px: 1,
-                display: 'flex', alignItems: 'center', gap: 0.5,
-                border: 1, borderColor: jogFocused ? 'primary.main' : 'divider',
-                borderRadius: 1,
-                outline: 'none',
-                bgcolor: jogFocused ? 'action.hover' : 'transparent',
-                opacity: motorConnected && !running ? 1 : 0.5,
-                userSelect: 'none',
-                transition: 'border-color 0.15s, background-color 0.15s',
-              }}
-            >
-              <IconButton
-                size="small"
-                disabled={!motorConnected || running}
-                onMouseDown={() => startJog(false)}
-                onMouseUp={stopJog}
-                onMouseLeave={stopJog}
-                sx={{ color: jogDir < 0 ? 'primary.main' : 'text.secondary' }}
-              >
-                <ArrowBackIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-              <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: jogDir !== 0 ? 'warning.main' : (jogFocused ? 'primary.main' : 'text.secondary'), whiteSpace: 'nowrap', minWidth: 62, textAlign: 'center' }}>
-                {jogDir !== 0 ? 'jogging' : jogFocused ? 'hold arrows' : 'click + hold'}
-              </Typography>
-              <IconButton
-                size="small"
-                disabled={!motorConnected || running}
-                onMouseDown={() => startJog(true)}
-                onMouseUp={stopJog}
-                onMouseLeave={stopJog}
-                sx={{ color: jogDir > 0 ? 'primary.main' : 'text.secondary' }}
-              >
-                <ArrowForwardIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </Box>
-
-            <Button
-              variant="outlined" endIcon={<LastPageIcon />}
-              onClick={() => goMaxM.mutate()}
-              disabled={!motorConnected || motorJogBusy || running || travelMax == null}
-              title={travelMax == null ? 'Capture end first' : undefined}
-              sx={{ minWidth: 68, height: CONTROL_H.md }}
-            >
-              Max
-            </Button>
-
-          </Stack>
-
-          {/* Three fixed speeds, so three buttons with the name beside them.
-              As a select it needed a label stacked above it, which made it half
-              again as tall as everything it sat next to. */}
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography sx={{ ...TEXT.label, color: 'text.secondary' }}>Speed</Typography>
-            <ToggleButtonGroup
-              size="small"
-              exclusive
-              value={jogSpeed}
-              onChange={(_e, v) => { if (v != null) setJogSpeed(Number(v)) }}
-              disabled={!motorConnected || running}
-              sx={{
-                height: 30,
-                '& .MuiToggleButton-root': {
-                  px: 1.5, fontSize: 12, textTransform: 'none', fontWeight: 500,
-                },
-              }}
-            >
-              <ToggleButton value={400}>Slow</ToggleButton>
-              <ToggleButton value={800}>Medium</ToggleButton>
-              <ToggleButton value={1500}>Fast</ToggleButton>
-            </ToggleButtonGroup>
-          </Stack>
+                <DriveLabel>Speed</DriveLabel>
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={jogSpeed}
+                  onChange={(_e, v) => { if (v != null) setJogSpeed(Number(v)) }}
+                  disabled={!motorConnected || running}
+                  sx={{
+                    height: DRIVE_H, width: 'fit-content',
+                    '& .MuiToggleButton-root': {
+                      px: 1.5, fontSize: 12, textTransform: 'none', fontWeight: 500,
+                    },
+                  }}
+                >
+                  <ToggleButton value={400}>Slow</ToggleButton>
+                  <ToggleButton value={800}>Medium</ToggleButton>
+                  <ToggleButton value={1500}>Fast</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
             </Box>
 
             <Box>
