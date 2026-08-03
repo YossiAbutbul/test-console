@@ -46,6 +46,12 @@ interface TwoColProps {
   right?: number
   /** Below this container width the columns stack to one. */
   minCol?: number
+  /**
+   * Match the columns' heights instead of letting each end where its content
+   * does. Use when both sides are bordered panels, where unequal heights read
+   * as a mistake rather than as a layout.
+   */
+  stretch?: boolean
 }
 
 /**
@@ -53,7 +59,9 @@ interface TwoColProps {
  * results on the right. Collapses to a single column when the content area is
  * narrow (log drawer open on a small window).
  */
-export function TwoCol({ children, left = 1, right = 1, minCol = 300 }: TwoColProps) {
+export function TwoCol({
+  children, left = 1, right = 1, minCol = 300, stretch,
+}: TwoColProps) {
   return (
     <Box
       sx={{
@@ -63,7 +71,7 @@ export function TwoCol({ children, left = 1, right = 1, minCol = 300 }: TwoColPr
           xs: '1fr',
           md: `minmax(${minCol}px, ${left}fr) minmax(${minCol}px, ${right}fr)`,
         },
-        alignItems: 'start',
+        alignItems: stretch ? 'stretch' : 'start',
       }}
     >
       {children}

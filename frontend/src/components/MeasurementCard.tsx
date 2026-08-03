@@ -196,13 +196,18 @@ export function MeasurementCard({
           value={ps ? num(power, 2) : '—'}
           unit={ps && power != null ? 'dBm' : undefined}
           sub={
-            !ps
-              ? 'sensor off'
-              : power_mW != null
-                ? `${power_mW.toFixed(2)} mW`
-                // "not read yet" after a failed read is a lie — the read
-                // happened, it just did not produce a number.
-                : isStatic ? undefined : failure ? 'read failed' : 'not read yet'
+            // Static rows are history: we are not reading anything now, so the
+            // live sensor's state says nothing about why a value is missing —
+            // "sensor off" under a sweep row that has not run yet is just wrong.
+            isStatic
+              ? (power_mW != null ? `${power_mW.toFixed(2)} mW` : undefined)
+              : !ps
+                ? 'sensor off'
+                : power_mW != null
+                  ? `${power_mW.toFixed(2)} mW`
+                  // "not read yet" after a failed read is a lie — the read
+                  // happened, it just did not produce a number.
+                  : failure ? 'read failed' : 'not read yet'
           }
           off={!ps}
         />
@@ -229,7 +234,11 @@ export function MeasurementCard({
           label="Current"
           value={dc ? num(cur_mA, 1) : '—'}
           unit={dc && cur_mA != null ? 'mA' : undefined}
-          sub={dc ? (showVolt && volt != null ? `at ${volt.toFixed(3)} V` : undefined) : 'DC off'}
+          sub={
+            showVolt && volt != null
+              ? `at ${volt.toFixed(3)} V`
+              : isStatic ? undefined : dc ? undefined : 'DC off'
+          }
           off={!dc}
         />
       </StatRow>

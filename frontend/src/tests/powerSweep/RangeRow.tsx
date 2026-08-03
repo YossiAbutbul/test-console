@@ -1,6 +1,5 @@
-import { Box, Stack, Typography } from '@mui/material'
-import { LabeledField } from '../../components/LabeledField'
-import { TEXT } from '../../ui'
+import { Box, Slider, Stack, TextField, Typography } from '@mui/material'
+import { MONO, TEXT } from '../../ui'
 
 interface RangeRowProps {
   label: string
@@ -12,48 +11,92 @@ interface RangeRowProps {
   min: number
   max: number
   unit?: string
-  historyKey?: string
 }
 
-const clamp = (v: string, min: number, max: number): number =>
-  Math.max(min, Math.min(max, Number(v) || min))
+const clamp = (v: number, min: number, max: number): number =>
+  Math.max(min, Math.min(max, Number.isFinite(v) ? v : min))
 
-/** From/To pair for one sweep axis, with a live step count. */
+/**
+ * One sweep axis: a span within fixed bounds.
+ *
+ * Was a From field, a "→" glyph and a To field — three controls to say one
+ * thing, and the arrow carried no information the labels did not. A track
+ * shows the span *within the range the backend allows*, which is the part that
+ * actually needs judging: 1–22 of 1–22 is a very different run from 14–15. The
+ * numbers stay editable for the cases where you know the value you want.
+ */
 export function RangeRow({
-  label, lo, hi, setLo, setHi, min, max, unit, historyKey,
+  label, lo, hi, setLo, setHi, min, max, unit,
 }: RangeRowProps) {
   const count = Math.max(0, Math.abs(hi - lo) + 1)
+
+  const numberSx = {
+    width: 62,
+    '& .MuiInputBase-root': { height: 30 },
+    '& input': {
+      fontFamily: MONO,
+      fontSize: 12.5,
+      textAlign: 'center' as const,
+      // The spinners eat half the box at this width and are unusable anyway.
+      '&::-webkit-outer-spin-button, &::-webkit-inner-spin-button': {
+        WebkitAppearance: 'none',
+        margin: 0,
+      },
+      MozAppearance: 'textfield' as const,
+    },
+  }
+
   return (
     <Box>
-      <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 0.75 }}>
-        <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'text.primary' }}>
+      <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 0.25 }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'text.primary', flexGrow: 1 }}>
           {label}
         </Typography>
-        <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-          {min}–{max}{unit ? ` ${unit}` : ''} · {count} step{count === 1 ? '' : 's'}
+        <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>
+          {min}–{max}{unit ? ` ${unit}` : ''}
+        </Typography>
+        <Typography sx={{ ...TEXT.micro, fontWeight: 600, color: 'text.secondary' }}>
+          {count} step{count === 1 ? '' : 's'}
         </Typography>
       </Stack>
-      <Stack direction="row" spacing={1.5} alignItems="flex-end">
-        <LabeledField
-          label="From"
+
+      <Stack direction="row" alignItems="center" spacing={1.25}>
+        <TextField
+          size="small"
           type="number"
           value={lo}
-          historyKey={historyKey ? `${historyKey}.from` : undefined}
-          inputProps={{ min, max }}
-          onChange={(e) => setLo(clamp(e.target.value, min, max))}
-          width={120}
+          inputProps={{ min, max, 'aria-label': `${label} from` }}
+          onChange={(e) => setLo(clamp(Number(e.target.value), min, max))}
+          sx={numberSx}
         />
-        <Box sx={{ color: 'text.disabled', fontSize: 16, height: 40, display: 'flex', alignItems: 'center' }}>
-          →
-        </Box>
-        <LabeledField
-          label="To"
+        <Slider
+          size="small"
+          value={[lo, hi]}
+          min={min}
+          max={max}
+          step={1}
+          // Without this a drag past the far handle silently inverts the range.
+          disableSwap
+          onChange={(_, v) => {
+            const [a, b] = v as number[]
+            setLo(a)
+            setHi(b)
+          }}
+          aria-label={label}
+          sx={{
+            flexGrow: 1,
+            mx: 0.5,
+            '& .MuiSlider-thumb': { width: 13, height: 13 },
+            '& .MuiSlider-rail': { opacity: 0.28 },
+          }}
+        />
+        <TextField
+          size="small"
           type="number"
           value={hi}
-          historyKey={historyKey ? `${historyKey}.to` : undefined}
-          inputProps={{ min, max }}
-          onChange={(e) => setHi(clamp(e.target.value, min, max))}
-          width={120}
+          inputProps={{ min, max, 'aria-label': `${label} to` }}
+          onChange={(e) => setHi(clamp(Number(e.target.value), min, max))}
+          sx={numberSx}
         />
       </Stack>
     </Box>

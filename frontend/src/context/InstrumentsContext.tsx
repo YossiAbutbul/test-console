@@ -406,7 +406,11 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
       if (timer != null) window.clearTimeout(timer)
     }
   }, [])
-  discoverRef.current = discover
+  // Assigned in an effect, not during render: a render may be thrown away or
+  // replayed, and writing through a ref there is a side effect React does not
+  // promise to keep. `openSession` only reads this from a click handler, which
+  // cannot run before effects have flushed.
+  useEffect(() => { discoverRef.current = discover }, [discover])
 
   const state = useMemo<State>(
     () => ({ open: openState, required, instruments }),

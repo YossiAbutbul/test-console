@@ -12,10 +12,12 @@ import { usePathLoss } from '../../context/PathLossContext'
 import { downloadBlob } from '../../lib/download'
 import { range } from '../../lib/numericList'
 import {
-  ACTION_W, CONTROL_H, PageBody, PathLossChip, RunControls, Section, TEXT,
+  ACTION_W, CONTROL_H, FieldGrid, GRID_GAP, PageBody, PathLossChip,
+  RunControls, Section, TwoCol,
 } from '../../ui'
-import type { StartRequest } from '../../types/models'
+import type { ResultRow, StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
+import { SweepChart } from './SweepChart'
 import { useBackendRun } from '../engine/useBackendRun'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'
@@ -137,6 +139,32 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
 
   const lastRow = status?.last_row
 
+  // The backend already keeps every measured row, so ask it for them rather
+  // than stitching the one-row-per-poll status into a local copy: no
+  // reconciling duplicates or steps missed between polls, and the chart is
+  // still right after a reload part-way through a run.
+  //
+  // The key carries the progress, so a new batch of rows is a new query. It
+  // advances in tens while running — a sweep is hundreds of steps and refetching
+  // the whole list for each one is a lot of traffic to redraw the same curve —
+  // then lands on the exact count once the run stops, which fetches the tail.
+  //
+  // `started_at` is in the key so a new run cannot read the previous one's
+  // cache: without it the next sweep starts at completed=0, hits the entry the
+  // last sweep left under that same key, and briefly charts the old run.
+  const rowsKey = running ? Math.floor(completed / 10) : completed
+  const resultsQ = useQuery({
+    queryKey: ['test-results', protocol, status?.started_at ?? 0, rowsKey],
+    queryFn: tests.results,
+    enabled: hasBackend && hasSweep,
+    // Hold the last rows while the next batch loads, so the chart does not
+    // blank out every ten steps — but only within one run. Carrying them
+    // across runs would show the previous sweep under the new one's header.
+    placeholderData: (prev, prevQuery) =>
+      prevQuery?.queryKey[2] === (status?.started_at ?? 0) ? prev : undefined,
+  })
+  const rows: ResultRow[] = resultsQ.data ?? []
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
       <TopProgress
@@ -172,32 +200,39 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
         }
       />
 
-      <PageBody width="full">
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-            columnGap: 4,
-            rowGap: 2,
-            alignItems: 'start',
-          }}
-        >
-          <Section title="Sweep ranges">
-            <Stack spacing={2}>
+      <PageBody width="fluid">
+        <TwoCol stretch>
+          <Section
+            title="Sweep ranges"
+            panel
+            // The step count belongs to the ranges that produce it. It used to
+            // sit in a bar pinned to the bottom of the page, far from the three
+            // fields that decide it and easy to miss before starting a run of
+            // several hundred steps.
+            action={
+              <Typography
+                sx={{
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  color: totalSteps === 0 ? 'error.main' : 'text.disabled',
+                }}
+              >
+                {totalSteps} step{totalSteps === 1 ? '' : 's'}
+              </Typography>
+            }
+          >
+            <Stack spacing={`${GRID_GAP}px`}>
               <RangeRow label="Power" lo={powerLo} hi={powerHi} setLo={setPowerLo} setHi={setPowerHi}
-                min={RANGES.power.min} max={RANGES.power.max} unit="dBm"
-                historyKey={`${protocol}.modeSweep.power`} />
+                min={RANGES.power.min} max={RANGES.power.max} unit="dBm" />
               <RangeRow label="PA Duty Cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
-                min={RANGES.duty.min} max={RANGES.duty.max}
-                historyKey={`${protocol}.modeSweep.duty`} />
+                min={RANGES.duty.min} max={RANGES.duty.max} />
               <RangeRow label="HP Max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
-                min={RANGES.hp.min} max={RANGES.hp.max}
-                historyKey={`${protocol}.modeSweep.hp`} />
+                min={RANGES.hp.min} max={RANGES.hp.max} />
             </Stack>
           </Section>
 
-          <Section title="RF setup">
-            <Stack spacing={2}>
+          <Section title="Common settings" panel>
+            <FieldGrid columns={2} wide>
               <LabeledField
                 label="Frequency"
                 hint="MHz"
@@ -206,7 +241,6 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
                 historyKey={`${protocol}.modeSweep.freqMhz`}
                 onChange={(e) => setFreqMhz(e.target.value)}
                 inputProps={{ step: 0.1 }}
-                width={180}
               />
               <LabeledField
                 label="Settle"
@@ -215,54 +249,58 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
                 value={settle}
                 historyKey={`${protocol}.modeSweep.settle`}
                 onChange={(e) => setSettle(Number(e.target.value))}
-                width={140}
               />
               <LabeledField
                 label="PA Mode"
                 select
                 value={paMode}
                 onChange={(e) => setPaMode(Number(e.target.value))}
-                sx={{ maxWidth: 180 }}
               >
                 {PA_MODES.map((m) => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
               </LabeledField>
+            </FieldGrid>
+            <Box sx={{ mt: 1.5 }}>
               <PathLossChip pathLossDb={pathLossDb} />
-            </Stack>
+            </Box>
           </Section>
-        </Box>
+        </TwoCol>
 
+        {/* The sweep's own readout. `power_dbm_setting` is what this row asked
+            the DUT for, so the strip can show the error the same way the manual
+            pages do rather than leaving the two numbers side by side. */}
         <MeasurementCard
+          targetDbm={lastRow?.power_dbm_setting}
           staticData={{
             power_dbm: lastRow?.tx_power_dbm ?? null,
             current_a: lastRow?.current_a ?? null,
             voltage_v: lastRow?.voltage_v ?? null,
             label: 'Last measured row',
             subLabel: lastRow
-              ? `#${lastRow.idx + 1} · hp=${lastRow.hp_max} duty=${lastRow.pa_duty_cycle} pow=${lastRow.power_dbm_setting}dBm · incl. path loss ${pathLossDb} dB`
+              ? `#${lastRow.idx + 1} · hp=${lastRow.hp_max} duty=${lastRow.pa_duty_cycle} · incl. path loss ${pathLossDb} dB`
               : `waiting for first step… · path loss ${pathLossDb} dB`,
           }}
         />
+
+        {/* An ideal PA tracks y = x, so a curve bending away from that line is
+            the compression this sweep is looking for — visible while it runs,
+            rather than after exporting the spreadsheet. */}
+        <Section
+          title="Measured vs set"
+          panel
+          action={
+            rows.length > 0 ? (
+              <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+                {rows.length} point{rows.length === 1 ? '' : 's'}
+              </Typography>
+            ) : null
+          }
+        >
+          <SweepChart rows={rows} />
+        </Section>
       </PageBody>
 
-      <Box sx={{ flexGrow: 1 }} />
-
-      <Box
-        sx={{
-          mt: 4, mx: -4, px: 4, py: 1.25,
-          display: 'flex', justifyContent: 'flex-end',
-          bgcolor: 'background.default',
-          borderTop: 1, borderColor: 'divider',
-        }}
-      >
-        <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-          Total steps:{' '}
-          <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>
-            {totalSteps}
-          </Box>
-        </Typography>
-      </Box>
       {preflight.dialog}
     </Box>
   )
