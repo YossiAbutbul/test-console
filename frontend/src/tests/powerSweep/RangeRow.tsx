@@ -85,9 +85,36 @@ export function RangeRow({
           aria-label={label}
           sx={{
             flexGrow: 1,
-            mx: 0.5,
-            '& .MuiSlider-thumb': { width: 13, height: 13 },
-            '& .MuiSlider-rail': { opacity: 0.28 },
+            mx: 0.75,
+            py: 1,
+            color: 'text.primary',
+            // Default MUI proportions — a 4px bar under 20px filled discs —
+            // read as a consumer volume control. A hairline track with hollow,
+            // ring-shaped handles matches the instrument panels around it.
+            '& .MuiSlider-rail': {
+              height: 2,
+              opacity: 1,
+              backgroundColor: 'divider',
+            },
+            '& .MuiSlider-track': {
+              height: 2,
+              border: 'none',
+            },
+            '& .MuiSlider-thumb': {
+              width: 11,
+              height: 11,
+              backgroundColor: 'background.paper',
+              border: '2px solid currentColor',
+              // The default lifts a shadow under the handle; flat keeps it
+              // sitting on the track rather than floating over it.
+              '&::before': { boxShadow: 'none' },
+              '&:hover, &.Mui-focusVisible': {
+                boxShadow: '0 0 0 5px rgba(128,128,128,0.16)',
+              },
+              '&.Mui-active': {
+                boxShadow: '0 0 0 7px rgba(128,128,128,0.2)',
+              },
+            },
           }}
         />
         <TextField

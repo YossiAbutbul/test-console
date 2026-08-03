@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
 import DownloadIcon from '@mui/icons-material/Download'
+import ShowChartIcon from '@mui/icons-material/ShowChart'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tests } from '../../api/tests'
 import { PageHeader } from '../../components/PageHeader'
@@ -17,7 +18,8 @@ import {
 } from '../../ui'
 import type { ResultRow, StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
-import { SweepChart } from './SweepChart'
+import { SweepResultsModal } from './SweepResultsModal'
+import { SweepResultsTable } from './SweepResultsTable'
 import { useBackendRun } from '../engine/useBackendRun'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'
@@ -55,6 +57,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
   const [hpHi, setHpHi] = useState(RANGES.hp.max)
   const [settle, setSettle] = useState(30)
   const [paMode, setPaMode] = useState(0)
+  const [graphOpen, setGraphOpen] = useState(false)
 
   // The sweep loop lives in the backend; the page starts it, polls it and
   // reports its transitions. Polling stops as soon as the run leaves 'running'.
@@ -189,10 +192,19 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
           >
             <Button
               variant="outlined"
+              startIcon={<ShowChartIcon />}
+              onClick={() => setGraphOpen(true)}
+              disabled={rows.length === 0}
+              sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+            >
+              Graph
+            </Button>
+            <Button
+              variant="outlined"
               startIcon={<DownloadIcon />}
               onClick={() => exportXlsx.mutate()}
               disabled={!hasSweep || exportXlsx.isPending}
-              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
+              sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
             >
               Export
             </Button>
@@ -283,23 +295,25 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
           }}
         />
 
-        {/* An ideal PA tracks y = x, so a curve bending away from that line is
-            the compression this sweep is looking for — visible while it runs,
-            rather than after exporting the spreadsheet. */}
         <Section
-          title="Measured vs set"
+          title="Results"
           panel
           action={
-            rows.length > 0 ? (
-              <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
-                {rows.length} point{rows.length === 1 ? '' : 's'}
-              </Typography>
-            ) : null
+            <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+              {rows.length} row{rows.length === 1 ? '' : 's'}
+              {rows.length > 0 ? ` · incl. path loss ${pathLossDb} dB` : ''}
+            </Typography>
           }
         >
-          <SweepChart rows={rows} />
+          <SweepResultsTable rows={rows} />
         </Section>
       </PageBody>
+
+      <SweepResultsModal
+        open={graphOpen}
+        onClose={() => setGraphOpen(false)}
+        rows={rows}
+      />
 
       {preflight.dialog}
     </Box>
