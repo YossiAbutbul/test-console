@@ -13,8 +13,7 @@ import { usePathLoss } from '../../context/PathLossContext'
 import { downloadBlob } from '../../lib/download'
 import { range } from '../../lib/numericList'
 import {
-  ACTION_W, CONTROL_H, FieldGrid, GRID_GAP, PageBody, PathLossChip,
-  RunControls, Section, TwoCol,
+  FieldGrid, GRID_GAP, PageBody, PathLossChip, RunControls, Section, TwoCol,
 } from '../../ui'
 import type { ResultRow, StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
@@ -26,6 +25,10 @@ import { useRunReporter } from '../engine/useRunReporter'
 import { RangeRow } from './RangeRow'
 
 const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
+
+/** Result actions are secondary to the run — quiet text buttons on the panel
+ *  heading, matching the automation tab. */
+const resultActionSx = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
 
 /** Sweep bounds. Must match `SweepConfig` in backend/sweep/runner.py. */
 const RANGES = {
@@ -189,30 +192,11 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
             progress={total > 0 ? `${completed}/${total}` : undefined}
             onRun={() => void onRun()}
             onStop={() => cancel.mutate()}
-          >
-            <Button
-              variant="outlined"
-              startIcon={<ShowChartIcon />}
-              onClick={() => setGraphOpen(true)}
-              disabled={rows.length === 0}
-              sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
-            >
-              Graph
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<DownloadIcon />}
-              onClick={() => exportXlsx.mutate()}
-              disabled={!hasSweep || exportXlsx.isPending}
-              sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
-            >
-              Export
-            </Button>
-          </RunControls>
+          />
         }
       />
 
-      <PageBody width="fluid">
+      <PageBody width="fluid" grow>
         <TwoCol stretch>
           <Section
             title="Sweep ranges"
@@ -295,14 +279,38 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
           }}
         />
 
+        {/* Actions sit on the panel they act on, as the automation tab does —
+            Run/Stop stay in the header, these belong to the results. */}
         <Section
           title="Results"
           panel
+          grow
           action={
-            <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
-              {rows.length} row{rows.length === 1 ? '' : 's'}
-              {rows.length > 0 ? ` · incl. path loss ${pathLossDb} dB` : ''}
-            </Typography>
+            <Stack direction="row" alignItems="center" spacing={0.75}>
+              <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
+                measured + path loss ({pathLossDb} dB)
+              </Typography>
+              <Button
+                size="small"
+                variant="text"
+                startIcon={<ShowChartIcon sx={{ fontSize: 15 }} />}
+                onClick={() => setGraphOpen(true)}
+                disabled={rows.length === 0}
+                sx={resultActionSx}
+              >
+                Graph
+              </Button>
+              <Button
+                size="small"
+                variant="text"
+                startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
+                onClick={() => exportXlsx.mutate()}
+                disabled={!hasSweep || exportXlsx.isPending}
+                sx={resultActionSx}
+              >
+                Export
+              </Button>
+            </Stack>
           }
         >
           <SweepResultsTable rows={rows} />

@@ -13,6 +13,12 @@ interface PageBodyProps {
   /** Let the body own the remaining height and scroll internally — for pages
    *  with a results table that should stay on screen. */
   scroll?: boolean
+  /**
+   * Own the remaining height without scrolling, so a `grow` Section inside can
+   * hand it to its own scroll area. Use when one panel on the page — a results
+   * table — should take the leftover space and scroll within itself.
+   */
+  grow?: boolean
 }
 
 /**
@@ -22,7 +28,7 @@ interface PageBodyProps {
  * (720 / 760 / 900 / none) and overflow behaviour, so switching pages moved
  * the first control. One container fixes the rhythm.
  */
-export function PageBody({ children, width = 'panel', scroll }: PageBodyProps) {
+export function PageBody({ children, width = 'panel', scroll, grow }: PageBodyProps) {
   return (
     <Stack
       spacing={`${GRID_GAP}px`}
@@ -32,6 +38,10 @@ export function PageBody({ children, width = 'panel', scroll }: PageBodyProps) {
         ...(scroll
           ? { flexGrow: 1, minHeight: 0, overflowY: 'auto', pr: 1, pb: 2 }
           : null),
+        // `minHeight: 0` is the load-bearing half: without it the flex item
+        // refuses to shrink below its content and the inner scroll never
+        // engages, pushing the table off the bottom of the page instead.
+        ...(grow && !scroll ? { flexGrow: 1, minHeight: 0, pb: 2 } : null),
       }}
     >
       {children}
