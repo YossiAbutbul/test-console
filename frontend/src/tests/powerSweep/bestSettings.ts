@@ -18,9 +18,15 @@ export const UNDER_RANGE_DBM = -50
 export const milliamps = (r: ResultRow): number | null =>
   r.current_a == null ? null : r.current_a * 1000
 
-/** The settings that produced a row, as one short label. */
+/**
+ * The settings that produced a row, as one short label.
+ *
+ * `power` is the value the PA was commanded with, not what came out of it —
+ * the measured figure sits beside this label wherever it is shown. The two
+ * differing is the reason the sweep exists.
+ */
 export const comboLabel = (r: ResultRow): string =>
-  `hp ${r.hp_max} · duty ${r.pa_duty_cycle} · set ${r.power_dbm_setting}`
+  `hp ${r.hp_max} · duty ${r.pa_duty_cycle} · power ${r.power_dbm_setting}`
 
 export interface Level {
   /** Rounded measured power, in dBm. */

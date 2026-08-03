@@ -63,7 +63,7 @@ export function SweepResultsTable({ rows }: { rows: ResultRow[] }) {
             <TableCell>#</TableCell>
             <TableCell>HP Max</TableCell>
             <TableCell>PA DC</TableCell>
-            <TableCell>Set (dBm)</TableCell>
+            <TableCell>Power (dBm)</TableCell>
             <TableCell>Measured (dBm)</TableCell>
             <TableCell>CC (mA)</TableCell>
             <TableCell>Status</TableCell>

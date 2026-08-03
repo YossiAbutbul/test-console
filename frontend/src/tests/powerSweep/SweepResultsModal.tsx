@@ -228,7 +228,9 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                     </Box>
                     <Typography
                       sx={{
-                        fontFamily: MONO, fontSize: 12.5, width: 190, flexShrink: 0,
+                        // Wide enough for the longest label the ranges allow
+                        // ("hp 7 · duty 4 · power 22") without truncating.
+                        fontFamily: MONO, fontSize: 12.5, width: 212, flexShrink: 0,
                         fontWeight: isBest ? 700 : 400,
                         color: isBest ? 'text.primary' : 'text.secondary',
                       }}
