@@ -102,6 +102,20 @@ function downloadCsv(rows: LoadPullResultRow[], meta: CsvMeta): void {
 
 const RESULT_ACTION_SX = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
 
+/** Quiet divider label inside a step, one level below its heading. */
+function SubHead({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography
+      sx={{
+        fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5,
+        textTransform: 'uppercase', color: 'text.disabled', mb: 1,
+      }}
+    >
+      {children}
+    </Typography>
+  )
+}
+
 /** Done / not-done marker for a step heading. */
 function StepMark({ done, label }: { done: boolean; label: string }) {
   const p = useAppPalette()
@@ -534,50 +548,57 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
           panel
           hint={`Jog to each end of the Smith chart cycle and capture it. ${PULSES_PER_MM} pulses/mm.`}
           action={
-            <StepMark
-              done={totalPoints > 0}
-              label={totalPoints > 0 ? `${totalPoints} points planned` : 'no plan yet'}
-            />
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <StatusChip
+                label={motorConnected ? (motorMoving ? 'Moving' : 'Idle') : 'Trombone offline'}
+                tone={motorConnected ? (motorMoving ? 'busy' : 'ok') : 'off'}
+                spinning={motorConnected && motorMoving}
+              />
+              <StepMark
+                done={totalPoints > 0}
+                label={totalPoints > 0 ? `${totalPoints} points planned` : 'no plan yet'}
+              />
+            </Stack>
           }
         >
-          {/* Parking the switch on VNA is how you watch the Smith chart while
-              jogging, so it belongs with the jog rather than in a step of its
-              own halfway up the page. */}
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
-            <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>Route RF to</Typography>
-            <Button
-              size="small" variant="outlined"
-              onClick={() => switchM.mutate('VNA')}
-              disabled={!swConnected || switchM.isPending || running}
-              sx={{ minWidth: 74, height: 28 }}
-            >
-              VNA
-            </Button>
-            <Button
-              size="small" variant="outlined"
-              onClick={() => switchM.mutate('PCB')}
-              disabled={!swConnected || switchM.isPending || running}
-              sx={{ minWidth: 74, height: 28 }}
-            >
-              PCB
-            </Button>
-            {!swConnected && (
-              <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>
-                switch offline
-              </Typography>
-            )}
-            <Box sx={{ flexGrow: 1 }} />
-            <StatusChip
-              label={motorConnected ? (motorMoving ? 'Moving' : 'Idle') : 'Trombone offline'}
-              tone={motorConnected ? (motorMoving ? 'busy' : 'ok') : 'off'}
-              spinning={motorConnected && motorMoving}
-            />
-          </Stack>
+          {/* The step does two separable things — drive the carriage, then mark
+              where the sweep starts and ends — so they sit side by side instead
+              of as three rows that read as one undifferentiated pile. */}
+          <TwoCol stretch minCol={280}>
+            <Box>
+              <SubHead>Drive the trombone</SubHead>
+
+              {/* Parking the switch on VNA is how you watch the Smith chart
+                  while jogging, so it belongs with the jog controls. */}
+              <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 1.5, flexWrap: 'wrap', gap: 0.75 }}>
+                <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>Route RF to</Typography>
+                <Button
+                  size="small" variant="outlined"
+                  onClick={() => switchM.mutate('VNA')}
+                  disabled={!swConnected || switchM.isPending || running}
+                  sx={{ minWidth: 66, height: 26 }}
+                >
+                  VNA
+                </Button>
+                <Button
+                  size="small" variant="outlined"
+                  onClick={() => switchM.mutate('PCB')}
+                  disabled={!swConnected || switchM.isPending || running}
+                  sx={{ minWidth: 66, height: 26 }}
+                >
+                  PCB
+                </Button>
+                {!swConnected && (
+                  <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>
+                    switch offline
+                  </Typography>
+                )}
+              </Stack>
 
           {/* flex-end, not center: Jog speed carries a label above its input,
               so centring sat the buttons halfway up it. Aligning the bottoms
               puts every control on one line. */}
-          <Stack direction="row" spacing={1} alignItems="flex-end" useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
+          <Stack direction="row" spacing={1} alignItems="flex-end" useFlexGap flexWrap="wrap">
             <Button
               variant="outlined" startIcon={<FirstPageIcon />}
               onClick={() => goMinM.mutate()}
@@ -653,33 +674,49 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               <MenuItem value={1500}>Fast</MenuItem>
             </LabeledField>
           </Stack>
+            </Box>
 
-          <Stack direction="row" spacing={1} alignItems="flex-end" useFlexGap flexWrap="wrap">
-            <CaptureField
-              label="Zero — sweep start"
-              value={zeroPulses}
-              onCapture={() => setZeroPulses(motorPos)}
-              onClear={() => setZeroPulses(null)}
-              captureDisabled={motorPos == null || running}
-              clearDisabled={running}
-            />
-            <CaptureField
-              label="End — sweep end"
-              value={endPulses}
-              onCapture={() => setEndPulses(motorPos)}
-              onClear={() => setEndPulses(null)}
-              captureDisabled={motorPos == null || running}
-              clearDisabled={running}
-            />
-            <LabeledField
-              label="Delta X" hint="mm"
-              type="number" value={deltaXmm}
-              historyKey="loadPull.deltaXmm"
-              onChange={(e) => setDeltaXmm(Math.max(0, Number(e.target.value) || 0))}
-              inputProps={{ step: 0.1, min: 0 }}
-              width={128}
-            />
-          </Stack>
+            <Box>
+              <SubHead>Mark the sweep</SubHead>
+              <Stack direction="row" spacing={1} alignItems="flex-end" useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
+                <CaptureField
+                  label="Zero — start"
+                  value={zeroPulses}
+                  onCapture={() => setZeroPulses(motorPos)}
+                  onClear={() => setZeroPulses(null)}
+                  captureDisabled={motorPos == null || running}
+                  clearDisabled={running}
+                />
+                <CaptureField
+                  label="End — finish"
+                  value={endPulses}
+                  onCapture={() => setEndPulses(motorPos)}
+                  onClear={() => setEndPulses(null)}
+                  captureDisabled={motorPos == null || running}
+                  clearDisabled={running}
+                />
+              </Stack>
+
+              <Stack direction="row" spacing={1.25} alignItems="flex-end" useFlexGap flexWrap="wrap">
+                <LabeledField
+                  label="Delta X" hint="mm"
+                  type="number" value={deltaXmm}
+                  historyKey="loadPull.deltaXmm"
+                  onChange={(e) => setDeltaXmm(Math.max(0, Number(e.target.value) || 0))}
+                  inputProps={{ step: 0.1, min: 0 }}
+                  width={112}
+                />
+                {/* The plan is what these three inputs produce, so the result of
+                    changing one belongs next to them rather than only in the
+                    strip at the top of the page. */}
+                <Typography sx={{ fontSize: 12, color: 'text.secondary', pb: 1 }}>
+                  {totalPoints > 0
+                    ? <>= <b>{totalPoints}</b> points across {fmt(Math.abs(mm((endPulses ?? 0) - (zeroPulses ?? 0))), 2)} mm</>
+                    : 'capture both ends to build the plan'}
+                </Typography>
+              </Stack>
+            </Box>
+          </TwoCol>
         </Section>
 
         <Section
