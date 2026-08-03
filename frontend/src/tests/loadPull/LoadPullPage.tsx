@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Box, Button, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
-  TableHead, TableRow, Typography,
+  TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
@@ -133,8 +133,9 @@ function StepMark({ done, label }: { done: boolean; label: string }) {
   )
 }
 
-interface CaptureFieldProps {
+interface BoundRowProps {
   label: string
+  caption: string
   value: number | null
   onCapture: () => void
   onClear: () => void
@@ -143,47 +144,51 @@ interface CaptureFieldProps {
 }
 
 /**
- * One end of the sweep: capture the position the trombone is standing at, or
- * clear it. Shows what was captured, because the plan is built from these two
- * and an empty one is the usual reason Run is unavailable.
+ * One end of the sweep, as three cells of the enclosing grid — label, button,
+ * captured value — so it lines up with the other bounds and with Delta X
+ * instead of being its own little block with its own spacing.
  */
-function CaptureField({
-  label, value, onCapture, onClear, captureDisabled, clearDisabled,
-}: CaptureFieldProps) {
+function BoundRow({
+  label, caption, value, onCapture, onClear, captureDisabled, clearDisabled,
+}: BoundRowProps) {
   return (
-    <Box>
-      {/* Matches LabeledField's own label, so the three controls on this row
-          read as one set rather than two different kinds of thing. */}
-      <Typography sx={{ ...TEXT.label, color: 'text.primary', mb: 0.5, whiteSpace: 'nowrap' }}>
-        {label}
-      </Typography>
-      <Stack direction="row" spacing={0.75} alignItems="center">
-        <Button
-          size="small"
-          variant={value == null ? 'contained' : 'outlined'}
-          color={value == null ? 'primary' : 'inherit'}
-          onClick={onCapture}
-          disabled={captureDisabled}
-          sx={{ minWidth: 78, height: CONTROL_H.md }}
-        >
-          {value == null ? 'Capture' : 'Recapture'}
-        </Button>
+    <>
+      <Box>
+        <Typography sx={{ ...TEXT.label, color: 'text.primary', whiteSpace: 'nowrap' }}>
+          {label}
+        </Typography>
+        <Typography sx={{ ...TEXT.micro, color: 'text.disabled', whiteSpace: 'nowrap' }}>
+          {caption}
+        </Typography>
+      </Box>
+      <Button
+        size="small"
+        variant={value == null ? 'contained' : 'outlined'}
+        color={value == null ? 'primary' : 'inherit'}
+        onClick={onCapture}
+        disabled={captureDisabled}
+        sx={{ minWidth: 104, height: CONTROL_H.md }}
+      >
+        {value == null ? 'Capture' : 'Recapture'}
+      </Button>
+      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
         <Typography
           sx={{
-            fontFamily: MONO, fontSize: 12.5, minWidth: 96,
+            fontFamily: MONO, fontSize: 12.5,
             color: value == null ? 'text.disabled' : 'text.primary',
+            fontWeight: value == null ? 400 : 600,
           }}
         >
           {value == null ? 'not set' : `${(value / PULSES_PER_MM).toFixed(2)} mm`}
         </Typography>
         {value != null && (
           <Button size="small" onClick={onClear} disabled={clearDisabled}
-            sx={{ minWidth: 0, height: 24, fontSize: 11.5, px: 0.75 }}>
+            sx={{ minWidth: 0, height: 22, fontSize: 11.5, px: 0.75 }}>
             clear
           </Button>
         )}
       </Stack>
-    </Box>
+    </>
   )
 }
 
@@ -595,16 +600,17 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
                 )}
               </Stack>
 
-          {/* flex-end, not center: Jog speed carries a label above its input,
-              so centring sat the buttons halfway up it. Aligning the bottoms
-              puts every control on one line. */}
-          <Stack direction="row" spacing={1} alignItems="flex-end" useFlexGap flexWrap="wrap">
+          {/* Motion on one line, speed on the next. All four controls will not
+              fit across half the panel, and left to wrap they broke wherever
+              the width ran out — Max landing under the jog pad. Two deliberate
+              rows say the same thing and hold their shape. */}
+          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ mb: 1.25 }}>
             <Button
               variant="outlined" startIcon={<FirstPageIcon />}
               onClick={() => goMinM.mutate()}
               disabled={!motorConnected || motorJogBusy || running || travelMin == null}
               title={travelMin == null ? 'Capture zero first' : undefined}
-              sx={{ minWidth: 88, height: CONTROL_H.md }}
+              sx={{ minWidth: 68, height: CONTROL_H.md }}
             >
               Min
             </Button>
@@ -639,7 +645,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               >
                 <ArrowBackIcon sx={{ fontSize: 18 }} />
               </IconButton>
-              <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: jogDir !== 0 ? 'warning.main' : (jogFocused ? 'primary.main' : 'text.secondary'), whiteSpace: 'nowrap', minWidth: 78, textAlign: 'center' }}>
+              <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: jogDir !== 0 ? 'warning.main' : (jogFocused ? 'primary.main' : 'text.secondary'), whiteSpace: 'nowrap', minWidth: 62, textAlign: 'center' }}>
                 {jogDir !== 0 ? 'jogging' : jogFocused ? 'hold arrows' : 'click + hold'}
               </Typography>
               <IconButton
@@ -659,62 +665,93 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               onClick={() => goMaxM.mutate()}
               disabled={!motorConnected || motorJogBusy || running || travelMax == null}
               title={travelMax == null ? 'Capture end first' : undefined}
-              sx={{ minWidth: 88, height: CONTROL_H.md }}
+              sx={{ minWidth: 68, height: CONTROL_H.md }}
             >
               Max
             </Button>
 
-            <LabeledField
-              label="Jog speed" select value={jogSpeed}
-              width={124}
-              onChange={(e) => setJogSpeed(Number(e.target.value))}
+          </Stack>
+
+          {/* Three fixed speeds, so three buttons with the name beside them.
+              As a select it needed a label stacked above it, which made it half
+              again as tall as everything it sat next to. */}
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography sx={{ ...TEXT.label, color: 'text.secondary' }}>Speed</Typography>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={jogSpeed}
+              onChange={(_e, v) => { if (v != null) setJogSpeed(Number(v)) }}
+              disabled={!motorConnected || running}
+              sx={{
+                height: 30,
+                '& .MuiToggleButton-root': {
+                  px: 1.5, fontSize: 12, textTransform: 'none', fontWeight: 500,
+                },
+              }}
             >
-              <MenuItem value={400}>Slow</MenuItem>
-              <MenuItem value={800}>Medium</MenuItem>
-              <MenuItem value={1500}>Fast</MenuItem>
-            </LabeledField>
+              <ToggleButton value={400}>Slow</ToggleButton>
+              <ToggleButton value={800}>Medium</ToggleButton>
+              <ToggleButton value={1500}>Fast</ToggleButton>
+            </ToggleButtonGroup>
           </Stack>
             </Box>
 
             <Box>
               <SubHead>Mark the sweep</SubHead>
-              <Stack direction="row" spacing={1} alignItems="flex-end" useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
-                <CaptureField
-                  label="Zero — start"
+              {/* Three inputs of the same kind, so one aligned grid — label,
+                  control, result — rather than two rows with their own rhythms
+                  and a value hanging off the side of the last one. */}
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'auto auto minmax(0, 1fr)',
+                  columnGap: 1.25,
+                  rowGap: 1,
+                  alignItems: 'center',
+                }}
+              >
+                <BoundRow
+                  label="Zero"
+                  caption="sweep start"
                   value={zeroPulses}
                   onCapture={() => setZeroPulses(motorPos)}
                   onClear={() => setZeroPulses(null)}
                   captureDisabled={motorPos == null || running}
                   clearDisabled={running}
                 />
-                <CaptureField
-                  label="End — finish"
+                <BoundRow
+                  label="End"
+                  caption="sweep finish"
                   value={endPulses}
                   onCapture={() => setEndPulses(motorPos)}
                   onClear={() => setEndPulses(null)}
                   captureDisabled={motorPos == null || running}
                   clearDisabled={running}
                 />
-              </Stack>
 
-              <Stack direction="row" spacing={1.25} alignItems="flex-end" useFlexGap flexWrap="wrap">
-                <LabeledField
-                  label="Delta X" hint="mm"
-                  type="number" value={deltaXmm}
-                  historyKey="loadPull.deltaXmm"
-                  onChange={(e) => setDeltaXmm(Math.max(0, Number(e.target.value) || 0))}
-                  inputProps={{ step: 0.1, min: 0 }}
-                  width={112}
-                />
-                {/* The plan is what these three inputs produce, so the result of
-                    changing one belongs next to them rather than only in the
-                    strip at the top of the page. */}
-                <Typography sx={{ fontSize: 12, color: 'text.secondary', pb: 1 }}>
-                  {totalPoints > 0
-                    ? <>= <b>{totalPoints}</b> points across {fmt(Math.abs(mm((endPulses ?? 0) - (zeroPulses ?? 0))), 2)} mm</>
-                    : 'capture both ends to build the plan'}
+                <Typography sx={{ ...TEXT.label, color: 'text.primary', whiteSpace: 'nowrap' }}>
+                  Delta X
                 </Typography>
-              </Stack>
+                <TextField
+                  size="small"
+                  type="number"
+                  value={deltaXmm}
+                  onChange={(e) => setDeltaXmm(Math.max(0, Number(e.target.value) || 0))}
+                  onFocus={(e) => (e.target as HTMLInputElement).select()}
+                  inputProps={{ step: 0.1, min: 0 }}
+                  disabled={running}
+                  sx={{ width: 104, '& input': { fontFamily: MONO } }}
+                />
+                {/* The plan is what these three produce, so the effect of
+                    changing one shows next to it and not only in the strip at
+                    the top of the page. */}
+                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                  {totalPoints > 0
+                    ? <>mm = <b>{totalPoints}</b> points over {fmt(Math.abs(mm((endPulses ?? 0) - (zeroPulses ?? 0))), 2)} mm</>
+                    : 'mm — capture both ends to build the plan'}
+                </Typography>
+              </Box>
             </Box>
           </TwoCol>
         </Section>
