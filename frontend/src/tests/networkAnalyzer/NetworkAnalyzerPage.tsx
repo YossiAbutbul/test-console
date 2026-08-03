@@ -11,15 +11,17 @@ import { PageHeader } from '../../components/PageHeader'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { vna, type VnaMeasureResponse } from '../../api/networkAnalyzer'
 import { useLog } from '../../context/LogContext'
-import { fmt, fmtHz, fmtMhz } from '../../lib/format'
+import { DASH, fmt, fmtHz, fmtMhz } from '../../lib/format'
 import {
-  ACTION_W, Card, ConnectButton, CONTROL_H, Eyebrow, MONO, MonoText, PageBody,
-  Section, StatusChip, TEXT,
+  ACTION_W, ConnectButton, CONTROL_H, MONO, MonoText, PageBody, Section,
+  StatRow, StatTile, StatusChip, TEXT, TwoCol,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import { useActionReporter } from '../engine/useRunReporter'
 
 const MHZ = 1e6
+
+const MAX_MARKERS = 9
 
 /** Frequency fields are retyped rather than edited, so focus selects the value. */
 const selectOnFocus = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -124,10 +126,8 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
     connectM.isPending || disconnectM.isPending || setFreqM.isPending ||
     setMarkersM.isPending || measureM.isPending
 
-  const statusText = connected ? `Connected · ${cfg?.idn ?? ''}` : 'Disconnected'
-
   const addMarker = () => {
-    if (markersMHz.length >= 9) return
+    if (markersMHz.length >= MAX_MARKERS) return
     setMarkersMHz((arr) => [...arr, ''])
   }
   const removeMarker = (i: number) => {
@@ -137,6 +137,19 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
     setMarkersMHz((arr) => arr.map((x, j) => (j === i ? v : x)))
   }
 
+  // The form holds what you have typed; the strip shows what the instrument is
+  // actually set to. They differ until Apply, which is worth saying — a sweep
+  // reads at the instrument's range, not the one on screen.
+  //
+  // Compared with a tolerance rather than exactly, because the instrument gets
+  // the last word: the E5061B snaps a requested edge to its own frequency
+  // resolution, so what it reports back is not always the number sent. On `!==`
+  // a range would read as unapplied forever after applying it.
+  const differs = (a: number | null | undefined, b: number) =>
+    a == null || Math.abs(a - b) > 1
+  const pendingFreq = connected && freqValid
+    && (differs(cfg?.start_hz, startHz) || differs(cfg?.stop_hz, stopHz))
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
       <PageHeader
@@ -144,147 +157,7 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
         group={group}
         label="Network Analyzer"
         actions={
-          <ConnectButton
-            connected={connected}
-            pending={connectM.isPending || disconnectM.isPending}
-            disabled={busy || (!connected && !resource)}
-            onConnect={() => connectM.mutate()}
-            onDisconnect={() => disconnectM.mutate()}
-          />
-        }
-      />
-
-      <PageBody width="panel">
-        <Section
-          title="Instrument"
-          action={<MonoText>Agilent E5061B · USBTMC / VISA</MonoText>}
-        >
-          <Card>
-            <Stack direction="row" alignItems="center" spacing={2}>
-              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                <Eyebrow>Status</Eyebrow>
-                <Typography sx={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {statusText}
-                </Typography>
-              </Box>
-              {!connected && (
-                <Autocomplete
-                  size="small"
-                  freeSolo
-                  options={resources}
-                  value={resource}
-                  onChange={(_e, v) => setResource(typeof v === 'string' ? v : (v ?? ''))}
-                  onInputChange={(_e, v) => setResource(v ?? '')}
-                  onOpen={() => discoverM.mutate()}
-                  loading={discoverM.isPending}
-                  sx={{ width: 320 }}
-                  renderInput={(p) => <TextField {...p} label="VISA resource" placeholder="USB0::0x0957::…" />}
-                />
-              )}
-              <StatusChip
-                label={connected ? 'Online' : 'Offline'}
-                tone={connected ? 'ok' : 'off'}
-              />
-            </Stack>
-          </Card>
-        </Section>
-
-        <Section title="Sweep range">
-          <Stack direction="row" spacing={1.5} alignItems="flex-start">
-            <TextField
-              size="small"
-              label="Start (MHz)"
-              type="number"
-              value={startMHz}
-              onChange={(e) => setStartMHz(e.target.value)}
-              {...freqFocusBind('start')}
-              inputProps={{ step: 1, min: 0 }}
-              sx={{ width: 160 }}
-              disabled={!connected || busy}
-              error={startMHz.trim() !== '' && !freqValid}
-              InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(startMHz, freqValid, freqFocus === 'start')} message={startMHz.trim() === '' ? 'Enter a value' : 'Stop must be greater than Start, both > 0'} /> }}
-            />
-            <TextField
-              size="small"
-              label="Stop (MHz)"
-              type="number"
-              value={stopMHz}
-              onChange={(e) => setStopMHz(e.target.value)}
-              {...freqFocusBind('stop')}
-              inputProps={{ step: 1, min: 0 }}
-              sx={{ width: 160 }}
-              disabled={!connected || busy}
-              error={stopMHz.trim() !== '' && !freqValid}
-              InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(stopMHz, freqValid, freqFocus === 'stop')} message={stopMHz.trim() === '' ? 'Enter a value' : 'Stop must be greater than Start, both > 0'} /> }}
-            />
-            <Button
-              variant="contained"
-              onClick={() => setFreqM.mutate()}
-              disabled={!connected || busy || !freqValid}
-              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.lg }}
-            >
-              Apply
-            </Button>
-            <Box sx={{ flexGrow: 1 }} />
-            <Box sx={{ pt: 0.5 }}>
-              <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
-                instrument: {fmtHz(cfg?.start_hz)} → {fmtHz(cfg?.stop_hz)}
-              </Typography>
-              <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
-                {cfg?.points ?? '—'} points · IFBW {cfg?.if_bandwidth_hz ? `${fmt(cfg.if_bandwidth_hz / 1e3, 1)} kHz` : '—'}
-              </Typography>
-            </Box>
-          </Stack>
-        </Section>
-
-        <Section
-          title="Markers (MHz)"
-          action={
-            <Stack direction="row" spacing={1}>
-              <Button
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={addMarker}
-                disabled={markersMHz.length >= 9 || busy}
-              >
-                Add
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => setMarkersM.mutate()}
-                disabled={!connected || busy}
-              >
-                Apply markers
-              </Button>
-            </Stack>
-          }
-        >
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            {markersMHz.map((v, i) => (
-              <Stack key={i} direction="row" spacing={0.5} alignItems="center">
-                <TextField
-                  size="small"
-                  type="number"
-                  label={`M${i + 1}`}
-                  value={v}
-                  onChange={(e) => updateMarker(i, e.target.value)}
-                  onFocus={selectOnFocus}
-                  inputProps={{ step: 1, min: 0 }}
-                  sx={{ width: 130 }}
-                  disabled={busy}
-                />
-                <IconButton size="small" onClick={() => removeMarker(i)} disabled={busy}>
-                  <DeleteIcon sx={{ fontSize: 18 }} />
-                </IconButton>
-              </Stack>
-            ))}
-          </Stack>
-        </Section>
-
-        <Section
-          title="Measurement (S11)"
-          action={
+          <Stack direction="row" spacing={1}>
             <Button
               variant="contained"
               startIcon={<PlayArrowIcon />}
@@ -294,26 +167,209 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
             >
               {measureM.isPending ? 'Sweeping…' : 'Sweep + Read'}
             </Button>
+            <ConnectButton
+              connected={connected}
+              pending={connectM.isPending || disconnectM.isPending}
+              disabled={busy || (!connected && !resource)}
+              onConnect={() => connectM.mutate()}
+              onDisconnect={() => disconnectM.mutate()}
+            />
+          </Stack>
+        }
+      />
+
+      <PageBody width="fluid">
+        <Box>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+            <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
+              Instrument
+            </Typography>
+            <MonoText sx={{ fontSize: 11 }}>
+              {connected ? (cfg?.idn ?? 'E5061B') : 'Agilent E5061B · USBTMC / VISA'}
+            </MonoText>
+            <Box sx={{ flexGrow: 1 }} />
+            {!connected && (
+              <Autocomplete
+                size="small"
+                freeSolo
+                options={resources}
+                value={resource}
+                onChange={(_e, v) => setResource(typeof v === 'string' ? v : (v ?? ''))}
+                onInputChange={(_e, v) => setResource(v ?? '')}
+                onOpen={() => discoverM.mutate()}
+                loading={discoverM.isPending}
+                sx={{ width: 300 }}
+                renderInput={(p) => <TextField {...p} label="VISA resource" placeholder="USB0::0x0957::…" />}
+              />
+            )}
+            <StatusChip
+              label={connected ? 'Online' : 'Offline'}
+              tone={connected ? 'ok' : 'off'}
+            />
+          </Stack>
+
+          {/* Read back from the instrument, not echoed from the form. */}
+          <StatRow>
+            <StatTile
+              label="Start"
+              value={cfg?.start_hz == null ? DASH : fmtMhz(cfg.start_hz, 3)}
+              unit={cfg?.start_hz == null ? undefined : 'MHz'}
+              off={!connected}
+            />
+            <StatTile
+              label="Stop"
+              value={cfg?.stop_hz == null ? DASH : fmtMhz(cfg.stop_hz, 3)}
+              unit={cfg?.stop_hz == null ? undefined : 'MHz'}
+              off={!connected}
+            />
+            <StatTile
+              label="Points"
+              value={cfg?.points == null ? DASH : String(cfg.points)}
+              sub={cfg?.source_power_dbm == null
+                ? undefined
+                : `source ${fmt(cfg.source_power_dbm, 1)} dBm`}
+              off={!connected}
+            />
+            <StatTile
+              label="IF bandwidth"
+              value={cfg?.if_bandwidth_hz == null ? DASH : fmt(cfg.if_bandwidth_hz / 1e3, 1)}
+              unit={cfg?.if_bandwidth_hz == null ? undefined : 'kHz'}
+              off={!connected}
+            />
+          </StatRow>
+        </Box>
+
+        <TwoCol stretch>
+          <Section
+            title="Sweep range"
+            panel
+            // Says which of the two ranges a sweep would actually use.
+            hint={pendingFreq ? 'Not applied — the instrument still has the range above.' : undefined}
+          >
+            <Stack direction="row" spacing={1} alignItems="flex-start">
+              <TextField
+                size="small"
+                label="Start (MHz)"
+                type="number"
+                value={startMHz}
+                onChange={(e) => setStartMHz(e.target.value)}
+                {...freqFocusBind('start')}
+                inputProps={{ step: 1, min: 0 }}
+                sx={{ flexGrow: 1, minWidth: 0 }}
+                disabled={!connected || busy}
+                error={startMHz.trim() !== '' && !freqValid}
+                InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(startMHz, freqValid, freqFocus === 'start')} message={startMHz.trim() === '' ? 'Enter a value' : 'Stop must be greater than Start, both > 0'} /> }}
+              />
+              <TextField
+                size="small"
+                label="Stop (MHz)"
+                type="number"
+                value={stopMHz}
+                onChange={(e) => setStopMHz(e.target.value)}
+                {...freqFocusBind('stop')}
+                inputProps={{ step: 1, min: 0 }}
+                sx={{ flexGrow: 1, minWidth: 0 }}
+                disabled={!connected || busy}
+                error={stopMHz.trim() !== '' && !freqValid}
+                InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(stopMHz, freqValid, freqFocus === 'stop')} message={stopMHz.trim() === '' ? 'Enter a value' : 'Stop must be greater than Start, both > 0'} /> }}
+              />
+              <Button
+                variant={pendingFreq ? 'contained' : 'outlined'}
+                onClick={() => setFreqM.mutate()}
+                disabled={!connected || busy || !freqValid}
+                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md, flexShrink: 0 }}
+              >
+                Apply
+              </Button>
+            </Stack>
+          </Section>
+
+          <Section
+            title="Markers"
+            panel
+            hint={`Up to ${MAX_MARKERS}, in MHz. Read on the next sweep.`}
+            action={
+              <Stack direction="row" alignItems="center" spacing={0.5}>
+                <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
+                  {markerHzList.length}/{MAX_MARKERS}
+                </Typography>
+                <Button
+                  size="small"
+                  variant="text"
+                  startIcon={<AddIcon sx={{ fontSize: 15 }} />}
+                  onClick={addMarker}
+                  disabled={markersMHz.length >= MAX_MARKERS || busy}
+                  sx={{ minWidth: 0, height: 24, fontSize: 12, px: 1 }}
+                >
+                  Add
+                </Button>
+                <Button
+                  size="small"
+                  variant="text"
+                  onClick={() => setMarkersM.mutate()}
+                  disabled={!connected || busy}
+                  sx={{ minWidth: 0, height: 24, fontSize: 12, px: 1 }}
+                >
+                  Apply
+                </Button>
+              </Stack>
+            }
+          >
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+              {markersMHz.map((v, i) => (
+                <Stack key={i} direction="row" alignItems="center">
+                  <TextField
+                    size="small"
+                    type="number"
+                    label={`M${i + 1}`}
+                    value={v}
+                    onChange={(e) => updateMarker(i, e.target.value)}
+                    onFocus={selectOnFocus}
+                    inputProps={{ step: 1, min: 0 }}
+                    sx={{ width: 108, '& input': { fontFamily: MONO } }}
+                    disabled={busy}
+                  />
+                  <IconButton
+                    size="small"
+                    onClick={() => removeMarker(i)}
+                    disabled={busy}
+                    aria-label={`remove marker ${i + 1}`}
+                  >
+                    <DeleteIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Stack>
+              ))}
+            </Stack>
+          </Section>
+        </TwoCol>
+
+        <Section
+          title="S11 at markers"
+          panel
+          action={
+            lastMeas ? (
+              <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+                {fmtHz(lastMeas.start_hz)} → {fmtHz(lastMeas.stop_hz)} · {lastMeas.points} pts
+              </Typography>
+            ) : null
           }
         >
-          {!lastMeas && (
+          {!lastMeas ? (
             <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-              No measurement yet. Apply markers and click Sweep + Read.
+              No measurement yet. Set markers, then Sweep + Read.
             </Typography>
-          )}
-
-          {lastMeas && (
+          ) : (
             <Box sx={{ overflowX: 'auto' }}>
-              <Table size="small">
+              <Table size="small" sx={{ width: '100%' }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Mk</TableCell>
                     <TableCell>Freq (MHz)</TableCell>
                     <TableCell align="right">R (Ω)</TableCell>
                     <TableCell align="right">jX (Ω)</TableCell>
+                    <TableCell align="right">|S11| (dB)</TableCell>
                     <TableCell align="right">S11 real</TableCell>
                     <TableCell align="right">S11 imag</TableCell>
-                    <TableCell align="right">|S11| (dB)</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -323,16 +379,13 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
                       <TableCell sx={{ fontFamily: MONO }}>{fmtMhz(m.freq_hz)}</TableCell>
                       <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.r_ohm, 2)}</TableCell>
                       <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.x_ohm, 2)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.s11_real, 4)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.s11_imag, 4)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.s11_mag_db, 2)}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: MONO, fontWeight: 700 }}>{fmt(m.s11_mag_db, 2)}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: MONO, color: 'text.secondary' }}>{fmt(m.s11_real, 4)}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: MONO, color: 'text.secondary' }}>{fmt(m.s11_imag, 4)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-              <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 1 }}>
-                sweep {fmtHz(lastMeas.start_hz)} → {fmtHz(lastMeas.stop_hz)} · {lastMeas.points} pts
-              </Typography>
             </Box>
           )}
         </Section>
