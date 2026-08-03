@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Box, Button, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
-  TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup, Typography,
+  Box, Button, Divider, IconButton, MenuItem, Stack, Table, TableBody,
+  TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
+  Typography,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
@@ -101,6 +102,56 @@ function downloadCsv(rows: LoadPullResultRow[], meta: CsvMeta): void {
 }
 
 const RESULT_ACTION_SX = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
+
+interface RigRowProps {
+  name: string
+  connected: boolean
+  /** Shown instead of the derived state — the DUT's address, say. */
+  detail?: string
+  /** True for the one thing the operator must connect themselves. */
+  required?: boolean
+}
+
+/**
+ * One line of the rig checklist.
+ *
+ * A row per instrument rather than a cloud of chips: the names line up, so the
+ * eye runs down the dots instead of hunting a wrapped row, and there is space
+ * to say what each state means without a tooltip.
+ */
+function RigRow({ name, connected, detail, required }: RigRowProps) {
+  const p = useAppPalette()
+  return (
+    <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, py: 0.3 }}>
+      <Box
+        sx={{
+          width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+          bgcolor: connected ? p.data.ok : (required ? p.data.warn : 'text.disabled'),
+        }}
+      />
+      <Typography
+        sx={{
+          fontSize: 12.5,
+          fontWeight: connected ? 600 : 400,
+          color: connected ? 'text.primary' : 'text.secondary',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {name}
+      </Typography>
+      <Box sx={{ flexGrow: 1, minWidth: 8 }} />
+      <Typography
+        sx={{
+          fontSize: 11, fontFamily: detail ? MONO : undefined,
+          color: connected ? 'text.disabled' : (required ? p.data.warn : 'text.disabled'),
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}
+      >
+        {detail ?? (connected ? 'ready' : required ? 'connect first' : 'connects on run')}
+      </Typography>
+    </Stack>
+  )
+}
 
 /** Quiet divider label inside a step, one level below its heading. */
 function SubHead({ children }: { children: React.ReactNode }) {
@@ -476,18 +527,30 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
             hint="Connected automatically when the run starts."
             action={<StepMark done={allReady} label={allReady ? 'all ready' : 'will connect on run'} />}
           >
-            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-              <StatusChip label="Power sensor" tone={ps.status === 'connected' ? 'ok' : 'off'} />
-              <StatusChip label="DC analyzer" tone={dc.status === 'connected' ? 'ok' : 'off'} />
-              <StatusChip label="VNA" tone={na.status === 'connected' ? 'ok' : 'off'} />
-              <StatusChip label="Switch" tone={sw.status === 'connected' ? 'ok' : 'off'} />
-              <StatusChip label="Trombone" tone={tr.status === 'connected' ? 'ok' : 'off'} />
-              <StatusChip
-                label="BLE DUT"
-                tone={dutConnected ? 'ok' : 'off'}
-                detail={bleStatus?.address ?? undefined}
-              />
-            </Stack>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
+                columnGap: 2.5,
+              }}
+            >
+              <RigRow name="Power sensor" connected={ps.status === 'connected'} />
+              <RigRow name="DC analyzer" connected={dc.status === 'connected'} />
+              <RigRow name="VNA" connected={na.status === 'connected'} />
+              <RigRow name="Switch" connected={sw.status === 'connected'} />
+              <RigRow name="Trombone" connected={tr.status === 'connected'} />
+            </Box>
+
+            {/* The DUT sits apart because it is the only one here that stops
+                the run: nothing can open a BLE link on the operator's behalf,
+                so it is a precondition where the others are a courtesy. */}
+            <Divider sx={{ my: 1 }} />
+            <RigRow
+              name="BLE DUT"
+              connected={dutConnected}
+              required
+              detail={dutConnected ? (bleStatus?.address ?? 'connected') : undefined}
+            />
           </Section>
 
           <Section
@@ -749,7 +812,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
                 <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
                   {totalPoints > 0
                     ? <>mm = <b>{totalPoints}</b> points over {fmt(Math.abs(mm((endPulses ?? 0) - (zeroPulses ?? 0))), 2)} mm</>
-                    : 'mm — capture both ends to build the plan'}
+                    : 'mm - capture both ends to build the plan'}
                 </Typography>
               </Box>
             </Box>
@@ -854,6 +917,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
         open={smithOpen}
         onClose={() => setSmithOpen(false)}
         results={results}
+        freqMhz={freqMhz}
       />
       {preflight.dialog}
     </Box>
