@@ -18,6 +18,7 @@ import {
 } from '../../ui'
 import type { ResultRow, StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
+import { comboLabel } from './bestSettings'
 import { SweepResultsModal } from './SweepResultsModal'
 import { SweepResultsTable } from './SweepResultsTable'
 import { useBackendRun } from '../engine/useBackendRun'
@@ -275,18 +276,20 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
           </Section>
         </TwoCol>
 
-        {/* The sweep's own readout. `power_dbm_setting` is what this row asked
-            the DUT for, so the strip can show the error the same way the manual
-            pages do rather than leaving the two numbers side by side. */}
+        {/* Deliberately no target here. The manual pages ask for a power and
+            the gap to it is the result; a sweep is characterising the PA, so a
+            point landing short of the power it was handed is the measurement,
+            not a failure — scoring it against ±1 dB would paint most of a
+            healthy run red. What matters per row is which settings ran and
+            what they drew. */}
         <MeasurementCard
-          targetDbm={lastRow?.power_dbm_setting}
           staticData={{
             power_dbm: lastRow?.tx_power_dbm ?? null,
             current_a: lastRow?.current_a ?? null,
             voltage_v: lastRow?.voltage_v ?? null,
             label: 'Last measured row',
             subLabel: lastRow
-              ? `#${lastRow.idx + 1} · hp=${lastRow.hp_max} duty=${lastRow.pa_duty_cycle} · incl. path loss ${pathLossDb} dB`
+              ? `#${lastRow.idx + 1} · ${comboLabel(lastRow)} · incl. path loss ${pathLossDb} dB`
               : `waiting for first step… · path loss ${pathLossDb} dB`,
           }}
         />
