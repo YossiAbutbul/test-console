@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Box, Button, Collapse, MenuItem, Stack, Tab, Tabs, Typography } from '@mui/material'
+import { Box, MenuItem, Stack, Tab, Tabs, Typography } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
@@ -9,7 +9,9 @@ import { useLog } from '../../context/LogContext'
 import { useAppPalette } from '../../context/ThemeModeContext'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
-import { FrameDump, GRID_GAP, PageBody, Section, SendStopControls } from '../../ui'
+import {
+  FIELD_MAX_W, FrameDump, GRID_GAP, PageBody, Section, SendStopControls,
+} from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
 import { AutomationPanel } from './AutomationPanel'
@@ -27,7 +29,6 @@ export function PowerPage({ protocol, group }: TestPageProps) {
   const [paMode, setPaMode] = useState(2)
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
-  const [frameOpen, setFrameOpen] = useState(false)
   const p = useAppPalette()
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
   const [tab, setTab] = useState<PowerPageTab>(() => powerPageSnapshot.tab ?? 'manual')
@@ -111,15 +112,10 @@ export function PowerPage({ protocol, group }: TestPageProps) {
 
       {/* Both panels stay mounted; toggle via display so switching is instant. */}
       <Box sx={{ display: tab === 'manual' ? 'block' : 'none' }}>
-        <PageBody width="grid">
-          {/* The result first: what we asked for, what came out, and the error
-              between them — the question this page exists to answer. */}
-          <MeasurementCard
-            freqHz={Math.round(freqMhz * 1_000_000)}
-            triggerId={measureTrigger}
-            targetDbm={power}
-          />
-
+        <PageBody width="fluid">
+          {/* Top-down: what to transmit, what went over the wire, what came
+              back. The result sits last because that is where the eye lands
+              after pressing Send. */}
           {/* Every field on one row: they are three short values, and stacking
               them made a tall lonely column that pushed the result off screen. */}
           <Section title="Transmit" panel>
@@ -128,6 +124,9 @@ export function PowerPage({ protocol, group }: TestPageProps) {
                 display: 'grid',
                 gap: `${GRID_GAP}px`,
                 gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
+                // Inputs stop growing well before the panel does: a number
+                // field half the screen wide is mostly empty box.
+                maxWidth: FIELD_MAX_W,
               }}
             >
               <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
@@ -150,39 +149,49 @@ export function PowerPage({ protocol, group }: TestPageProps) {
             </Box>
           </Section>
 
-          {/* Wire detail: kept collapsed so it stops competing with the result,
-              but the ok/status stays visible because that is the one part of it
-              you check on every send. */}
+          {/* The answer: what we asked for, what came out, and the error
+              between them — the question this page exists to settle. */}
+          <MeasurementCard
+            freqHz={Math.round(freqMhz * 1_000_000)}
+            triggerId={measureTrigger}
+            targetDbm={power}
+          />
+
+          {/* Wire detail last, and collapsed: it explains a result you have
+              already read, and the ok/status on the heading is the only part
+              checked on every send. */}
           <Section
             title="Last frame"
             panel
+            collapsible={last != null}
+            defaultOpen={false}
             action={
               last ? (
-                <Stack direction="row" alignItems="center" spacing={1}>
+                <Stack direction="row" alignItems="center" spacing={0.75}>
+                  <Box
+                    sx={{
+                      width: 6, height: 6, borderRadius: '50%',
+                      bgcolor: last.ok ? p.data.ok : p.data.bad,
+                    }}
+                  />
                   <Typography
                     sx={{
                       fontSize: 11.5, fontWeight: 600,
                       color: last.ok ? p.data.ok : p.data.bad,
+                      textTransform: 'none', letterSpacing: 0,
                     }}
                   >
-                    {last.ok ? 'ok' : 'failed'} · status {last.status}
+                    {last.ok ? 'ok' : 'failed'}
                   </Typography>
-                  <Button
-                    size="small"
-                    variant="text"
-                    onClick={() => setFrameOpen((v) => !v)}
-                    sx={{ minWidth: 0, height: 22, fontSize: 11.5, px: 0.75 }}
-                  >
-                    {frameOpen ? 'Hide' : 'Show'}
-                  </Button>
+                  <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+                    status {last.status}
+                  </Typography>
                 </Stack>
               ) : null
             }
           >
             {last ? (
-              <Collapse in={frameOpen} unmountOnExit>
-                <FrameDump result={last} plain />
-              </Collapse>
+              <FrameDump result={last} plain />
             ) : (
               <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
                 Send a command to see the raw request and reply here.

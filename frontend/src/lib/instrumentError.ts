@@ -122,3 +122,77 @@ export function describeConnectError(error: unknown, address = ''): ConnectFailu
 export function formatFailure(failure: ConnectFailure): string {
   return `${failure.title} (${failure.raw})`
 }
+
+export interface MeasureFailure {
+  /** Short statement of what went wrong. */
+  title: string
+  /** What to do about it, when the backend offered advice. */
+  hint?: string
+  /** Original text, kept for the log. */
+  raw: string
+}
+
+/** `RuntimeError:`, `ValueError:`, `current: InvalidSession:` … */
+const EXC_PREFIX = /^\s*(?:[A-Za-z_][\w.]*\s*:\s*)*?([A-Za-z_][\w.]*(?:Error|Exception|Timeout|Session)\s*:\s*)/
+
+function stripNoise(segment: string): string {
+  // Drop the Python exception class the backend prepends. It names the type of
+  // the failure, never the failure — an operator at the bench cannot act on
+  // "RuntimeError", only on what follows it.
+  let s = segment.replace(EXC_PREFIX, '')
+  // Drop a leading field tag ("current: ", "voltage: ") once the class is gone;
+  // which field failed is already obvious from the blank tile.
+  s = s.replace(/^\s*(?:current|voltage|power)\s*:\s*/i, '')
+  return s.trim()
+}
+
+/**
+ * Turn a measurement failure into something short enough to sit under the
+ * readouts.
+ *
+ * The backend reports these as `TypeName: message`, joins several with `;`, and
+ * writes the message itself as "what happened — what to do". Rendered raw that
+ * is a full-width line of red text led by a word the operator cannot use.
+ */
+export function describeMeasureError(error: unknown): MeasureFailure {
+  const raw = error instanceof Error ? error.message : String(error)
+
+  // A single cause often fails several fields at once ("current: …; voltage: …")
+  // and repeating one sentence twice reads as two different problems.
+  const parts = Array.from(new Set(raw.split(';').map(stripNoise).filter(Boolean)))
+  const first = parts[0] ?? raw
+  const extra = parts.length > 1 ? ` (+${parts.length - 1} more)` : ''
+
+  const [causeRaw, ...adviceParts] = first.split(/\s+[—–]\s+/)
+  const cause = causeRaw.trim()
+  const advice = adviceParts.join(' — ').trim() || undefined
+  const text = first.toLowerCase()
+
+  if (text.includes('no signal')) {
+    // Keep the measured level: "-997 dBm" is how the operator confirms the
+    // sensor is reading a floor rather than a weak signal.
+    const level = cause.match(/\(([^)]+)\)/)?.[1]
+    // The backend spells the advice out at length ("…so the PA is keyed before
+    // the read"). That belongs in the log, not under the readouts — this line
+    // sits beneath a result the operator is trying to read past.
+    return {
+      title: `No signal at the power sensor${level ? ` · ${level}` : ''}`,
+      hint: 'Check the RF path, or increase the settle time.',
+      raw,
+    }
+  }
+  if (text.includes('invalidsession') || text.includes('resource might be closed')) {
+    return {
+      title: 'Instrument session closed',
+      hint: 'Reconnect it from the Instruments panel.',
+      raw,
+    }
+  }
+  if (text.includes('timed out') || text.includes('timeout')) {
+    return { title: 'Instrument did not respond', hint: advice, raw }
+  }
+
+  // Capitalise so the line reads as a sentence rather than a fragment of one.
+  const title = cause.charAt(0).toUpperCase() + cause.slice(1)
+  return { title: `${title}${extra}`, hint: advice, raw }
+}

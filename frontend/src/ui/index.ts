@@ -12,6 +12,6 @@ export {
   ConnectButton, RunControls, SendStopControls, PathLossChip, FrameDump,
 } from './controls'
 export {
-  ACTION_W, CARD_SX, CARD_PAD, CONTROL_H, GRID_GAP, MONO, PANEL_SX,
-  PAGE_W, TEXT, TILE_PAD, type TileAccent,
+  ACTION_W, CARD_SX, CARD_PAD, CONTROL_H, FIELD_MAX_W, GRID_GAP, MONO,
+  PANEL_SX, PAGE_W, TEXT, TILE_PAD, type TileAccent,
 } from './tokens'

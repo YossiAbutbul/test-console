@@ -24,8 +24,15 @@ export const CONTROL_H = { md: 36, lg: 40 } as const
 export const ACTION_W = { compact: 96, default: 120, wide: 148 } as const
 
 /** Content column widths. Pages pick one instead of inventing a number.
- *  `grid` is the wide dashboard layout (stat row + two columns). */
-export const PAGE_W = { form: 760, panel: 900, grid: 1040, full: 1180 } as const
+ *  `grid` is the wide dashboard layout; `fluid` fills whatever the content
+ *  area gives it, for pages whose panels are readouts rather than prose. */
+export const PAGE_W = {
+  form: 760, panel: 900, grid: 1040, full: 1180, fluid: '100%',
+} as const
+
+/** Widest a column of text inputs should get. Past this a number field is all
+ *  empty box, and the label drifts away from the value it belongs to. */
+export const FIELD_MAX_W = 780
 
 /** Type scale for the roles the app actually has. */
 export const TEXT = {

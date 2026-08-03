@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Button, CircularProgress, Stack, Tooltip, Typography } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import CableIcon from '@mui/icons-material/Cable'
+import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 import { useMutation } from '@tanstack/react-query'
 import { instrumentsApi, type MeasureResponse } from '../api/instruments'
 import { useInstruments } from '../context/InstrumentsContext'
 import { usePathLoss } from '../context/PathLossContext'
+import { describeMeasureError } from '../lib/instrumentError'
+import { useAppPalette } from '../context/ThemeModeContext'
 import { StatRow, StatTile } from '../ui'
 
 interface Props {
@@ -44,8 +46,9 @@ export function MeasurementCard({
   freqHz, triggerId, settleMs = 250, onResult, staticData,
   targetDbm, toleranceDb = 1,
 }: Props) {
-  const { instruments, setOpen: openInstruments } = useInstruments()
+  const { instruments, connect } = useInstruments()
   const { pathLossDb } = usePathLoss()
+  const p = useAppPalette()
   const isStatic = staticData !== undefined
   const ps = isStatic
     ? staticData?.power_dbm != null
@@ -61,7 +64,29 @@ export function MeasurementCard({
   })
 
   const lastTrigger = useRef<number | undefined>(undefined)
-  const fire = useCallback(() => { measure.mutate() }, [measure])
+  const [connecting, setConnecting] = useState(false)
+
+  /**
+   * Read, bringing the instruments up first if nothing is connected.
+   *
+   * Read used to sit disabled behind a separate Connect button, which made
+   * the operator perform a step the app can do itself. `connect` is a no-op
+   * for anything already up, so the common case costs nothing.
+   */
+  const fire = useCallback(async () => {
+    if (!anyConnected) {
+      setConnecting(true)
+      try {
+        // Sequential: these are USB/VISA sessions and the vendor layers do
+        // not reliably tolerate concurrent opens.
+        await connect('power-sensor')
+        await connect('dc-analyzer')
+      } finally {
+        setConnecting(false)
+      }
+    }
+    measure.mutate()
+  }, [anyConnected, connect, measure])
 
   useEffect(() => {
     if (isStatic) return
@@ -93,6 +118,14 @@ export function MeasurementCard({
   // Error against the requested power. Only meaningful once we actually have a
   // reading — before that the tile shows the target alone rather than a
   // fabricated "0.00" that reads like a passing result.
+  const busy = connecting || measure.isPending
+  // A failed request and a request that returned an error field are the same
+  // event to the operator; only the transport differs.
+  const rawError = measure.error
+    ? (measure.error as Error).message
+    : data?.error ?? null
+  const failure = rawError ? describeMeasureError(rawError) : null
+
   const hasTarget = targetDbm != null && Number.isFinite(targetDbm)
   const measured = ps && power != null && Number.isFinite(power) ? power : null
   const errDb = hasTarget && measured != null ? measured - targetDbm : null
@@ -126,33 +159,26 @@ export function MeasurementCard({
           <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>{data.t_ms} ms</Typography>
         )}
         {!isStatic && (
-          <>
-            <Tooltip title={anyConnected ? 'Re-measure' : 'No instruments connected'}>
-              <span>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={fire}
-                  disabled={measure.isPending || !anyConnected}
-                  startIcon={measure.isPending ? <CircularProgress size={12} color="inherit" /> : <RefreshIcon sx={{ fontSize: 16 }} />}
-                  sx={{ minWidth: 0, height: 26, fontSize: 12, px: 1.25 }}
-                >
-                  {measure.isPending ? 'Reading' : 'Read'}
-                </Button>
-              </span>
-            </Tooltip>
-            <Tooltip title="Connect instruments">
+          <Tooltip
+            title={anyConnected ? 'Re-measure' : 'Connect the instruments and read'}
+          >
+            <span>
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => openInstruments(true)}
-                startIcon={<CableIcon sx={{ fontSize: 16 }} />}
-                sx={{ minWidth: 0, height: 26, fontSize: 12, px: 1.25 }}
+                onClick={fire}
+                disabled={busy}
+                startIcon={
+                  busy
+                    ? <CircularProgress size={12} color="inherit" />
+                    : <RefreshIcon sx={{ fontSize: 16 }} />
+                }
+                sx={{ minWidth: 84, height: 26, fontSize: 12, px: 1.25 }}
               >
-                Connect
+                {connecting ? 'Connecting' : measure.isPending ? 'Reading' : 'Read'}
               </Button>
-            </Tooltip>
-          </>
+            </span>
+          </Tooltip>
         )}
       </Stack>
 
@@ -174,7 +200,9 @@ export function MeasurementCard({
               ? 'sensor off'
               : power_mW != null
                 ? `${power_mW.toFixed(2)} mW`
-                : isStatic ? undefined : 'not read yet'
+                // "not read yet" after a failed read is a lie — the read
+                // happened, it just did not produce a number.
+                : isStatic ? undefined : failure ? 'read failed' : 'not read yet'
           }
           off={!ps}
         />
@@ -206,13 +234,33 @@ export function MeasurementCard({
         />
       </StatRow>
 
-      {!isStatic && data?.error && (
-        <Typography sx={{ fontSize: 11, color: 'error.main', mt: 1 }}>{data.error}</Typography>
-      )}
-      {!isStatic && measure.error && (
-        <Typography sx={{ fontSize: 11, color: 'error.main', mt: 1 }}>
-          {(measure.error as Error).message}
-        </Typography>
+      {!isStatic && failure && (
+        <Stack
+          direction="row"
+          spacing={0.75}
+          sx={{
+            mt: 1, px: 1.25, py: 0.75,
+            borderRadius: 1,
+            bgcolor: p.data.highlight,
+            border: 1,
+            borderColor: 'divider',
+            alignItems: 'flex-start',
+          }}
+        >
+          <ErrorOutlineRoundedIcon
+            sx={{ fontSize: 15, color: p.data.warn, mt: '1px', flexShrink: 0 }}
+          />
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.primary', lineHeight: 1.35 }}>
+              {failure.title}
+            </Typography>
+            {failure.hint && (
+              <Typography sx={{ fontSize: 11.5, color: 'text.secondary', lineHeight: 1.35 }}>
+                {failure.hint}
+              </Typography>
+            )}
+          </Box>
+        </Stack>
       )}
     </Box>
   )
