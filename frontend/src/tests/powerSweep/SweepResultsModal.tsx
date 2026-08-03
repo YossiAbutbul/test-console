@@ -12,13 +12,15 @@
  */
 import { useMemo, useState } from 'react'
 import {
-  Box, Dialog, DialogContent, DialogTitle, IconButton, MenuItem, Select, Stack,
-  Typography,
+  Box, Dialog, DialogContent, DialogTitle, IconButton, Stack, Typography,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import {
-  CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip,
+  XAxis, YAxis,
 } from 'recharts'
 import type { ResultRow } from '../../types/models'
 import { useAppPalette } from '../../context/ThemeModeContext'
@@ -43,6 +45,12 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
   // Default to the strongest power measured — the usual starting question is
   // "how cheaply can it hold its maximum".
   const active = levels.find((l) => l.power === picked) ?? levels[0] ?? null
+  // `levels` runs strongest first, so +1 is a step down in power.
+  const activeIndex = active ? levels.findIndex((l) => l.power === active.power) : -1
+  const step = (delta: number) => {
+    const next = levels[activeIndex + delta]
+    if (next) setPicked(next.power)
+  }
 
   // Ascending for the curve: current should read left-to-right as power climbs.
   const curve = useMemo(
@@ -121,6 +129,16 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                         return pt ? `${x} dBm — ${pt.combo}` : `${x} dBm`
                       }}
                     />
+                    {/* Without this the list below can be showing a power the
+                        chart gives no sign of, and the two stop being one view. */}
+                    {active && (
+                      <ReferenceLine
+                        x={active.power}
+                        stroke={p.data.ok}
+                        strokeWidth={1.5}
+                        strokeDasharray="3 3"
+                      />
+                    )}
                     <Line
                       name="Lowest current"
                       type="monotone"
@@ -136,25 +154,51 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
               </Box>
             </Box>
 
-            {/* Drill-down: every combination that held the chosen power. */}
+            {/* Drill-down: every combination that held the chosen power.
+                A stepper rather than a list of 33 — it walks the same axis the
+                chart above draws, so the two read as one control, and nothing
+                opens over the results to do it. */}
             <Stack direction="row" alignItems="center" spacing={1.5} sx={{ flexShrink: 0 }}>
               <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'text.secondary' }}>
                 Combinations at
               </Typography>
-              <Select
-                size="small"
-                value={active ? active.power : ''}
-                onChange={(e) => setPicked(Number(e.target.value))}
-                sx={{ height: 28, fontSize: 12.5, fontFamily: MONO, minWidth: 110 }}
+              <Stack
+                direction="row"
+                alignItems="center"
+                sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}
               >
-                {levels.map((l) => (
-                  <MenuItem key={l.power} value={l.power} sx={{ fontSize: 12.5, fontFamily: MONO }}>
-                    {l.power} dBm ({l.rows.length})
-                  </MenuItem>
-                ))}
-              </Select>
+                {/* Left steps down in power, matching the chart's own axis. */}
+                <IconButton
+                  size="small"
+                  onClick={() => step(+1)}
+                  disabled={activeIndex >= levels.length - 1}
+                  sx={{ borderRadius: 0, width: 26, height: 26 }}
+                  aria-label="lower power"
+                >
+                  <ChevronLeftIcon sx={{ fontSize: 17 }} />
+                </IconButton>
+                <Typography
+                  sx={{
+                    fontFamily: MONO, fontSize: 12.5, fontWeight: 700,
+                    px: 1, minWidth: 66, textAlign: 'center',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {active ? `${active.power} dBm` : '—'}
+                </Typography>
+                <IconButton
+                  size="small"
+                  onClick={() => step(-1)}
+                  disabled={activeIndex <= 0}
+                  sx={{ borderRadius: 0, width: 26, height: 26 }}
+                  aria-label="higher power"
+                >
+                  <ChevronRightIcon sx={{ fontSize: 17 }} />
+                </IconButton>
+              </Stack>
               <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
-                cheapest first — click the curve to jump
+                {active?.rows.length ?? 0} combination{active?.rows.length === 1 ? '' : 's'}
+                {' · cheapest first · click the curve to jump'}
               </Typography>
             </Stack>
 
