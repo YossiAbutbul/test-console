@@ -4,6 +4,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import FirstPageIcon from '@mui/icons-material/FirstPage'
 import LastPageIcon from '@mui/icons-material/LastPage'
+import StopIcon from '@mui/icons-material/Stop'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
@@ -12,8 +13,8 @@ import { motor } from '../../api/motor'
 import { useLog } from '../../context/LogContext'
 import { DASH } from '../../lib/format'
 import {
-  ACTION_W, CONTROL_H, Card, ConnectButton, MONO, MonoText, PageBody, Readout,
-  Section, StatusChip, TEXT,
+  ACTION_W, CONTROL_H, ConnectButton, MONO, MonoText, PageBody, Section,
+  StatRow, StatTile, StatusChip, TEXT, TwoCol,
 } from '../../ui'
 import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
@@ -21,6 +22,9 @@ import type { TestPageProps } from '../types'
 /** Faster than the servo page: the position readout is the only feedback
  *  during a move, so it has to track the motor. */
 const POLL_MS = 500
+
+/** Used only to bound a jog when the motor has no soft limits configured. */
+const OPEN_TRAVEL = 1_000_000
 
 export function TrombonePage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
@@ -43,10 +47,20 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
   const connected = !!s?.connected
   const moving = !!s?.moving
   const pos = s?.position ?? null
-  // Soft limits are user-defined at runtime now; this manual debug page falls
-  // back to a wide range when none are set so jogging still works.
-  const softMin = s?.soft_min ?? -1_000_000
-  const softMax = s?.soft_max ?? 1_000_000
+
+  // Soft limits are set at runtime and are genuinely absent until they are.
+  // The page used to substitute ±1,000,000 for "unset" and then report it as
+  // fact — "range 2,000,000 pulses" — so an unconfigured motor looked
+  // configured. Track whether they exist and say so instead.
+  const hasLimits = s?.soft_min != null && s?.soft_max != null
+  const softMin = s?.soft_min ?? -OPEN_TRAVEL
+  const softMax = s?.soft_max ?? OPEN_TRAVEL
+  const travel = softMax - softMin
+  const roomBelow = pos == null ? null : pos - softMin
+  const roomAbove = pos == null ? null : softMax - pos
+  const pctOfTravel = pos == null || travel <= 0
+    ? null
+    : Math.max(0, Math.min(100, ((pos - softMin) / travel) * 100))
 
   const clampInc = (step: number): number => {
     if (pos == null) return step
@@ -98,6 +112,7 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
     goMaxM.isPending || stopM.isPending
 
   const statusText = !connected ? 'Disconnected' : moving ? 'Moving' : 'Idle'
+  const num = (n: number | null) => (n == null ? DASH : n.toLocaleString())
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
@@ -106,63 +121,98 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
         group={group}
         label="Trombone"
         actions={
-          <ConnectButton
-            connected={connected}
-            pending={connectM.isPending || disconnectM.isPending}
-            disabled={busy}
-            onConnect={() => connectM.mutate()}
-            onDisconnect={() => disconnectM.mutate()}
-          />
+          // Stop lives in the header, not on the panel that happens to start a
+          // move: this drives a physical axis, and the control that halts it
+          // should be in one fixed place and reachable without first finding
+          // which panel began the motion.
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<StopIcon />}
+              onClick={() => stopM.mutate()}
+              disabled={!connected || stopM.isPending}
+              sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+            >
+              {stopM.isPending ? 'Stopping…' : 'Stop'}
+            </Button>
+            <ConnectButton
+              connected={connected}
+              pending={connectM.isPending || disconnectM.isPending}
+              disabled={busy}
+              onConnect={() => connectM.mutate()}
+              onDisconnect={() => disconnectM.mutate()}
+            />
+          </Stack>
         }
       />
 
-      <PageBody width="panel">
-        <Section title="Motor status" action={<MonoText>MT986A · Arcus DMX-J-SA</MonoText>}>
-          <Card>
-            <Stack direction="row" alignItems="center" spacing={2}>
-              <Box sx={{ flexGrow: 1 }}>
-                <Readout
-                  label="Position"
-                  value={pos == null ? DASH : pos.toLocaleString()}
-                  unit="pulses"
-                />
-              </Box>
-              {!connected && (
-                <TextField
-                  size="small"
-                  type="number"
-                  label="Index"
-                  value={deviceIndex}
-                  onChange={(e) => setDeviceIndex(Math.max(0, Number(e.target.value) || 0))}
-                  inputProps={{ min: 0, max: 15 }}
-                  sx={{ width: 84 }}
-                />
-              )}
-              <StatusChip
-                label={statusText}
-                tone={connected ? (moving ? 'busy' : 'ok') : 'off'}
-                spinning={connected && moving}
+      <PageBody width="fluid">
+        {/* Where the carriage is, and how much travel is left either way —
+            the numbers a jog is decided from. */}
+        <Box>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+            <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
+              Position
+            </Typography>
+            <MonoText sx={{ fontSize: 11 }}>MT986A · Arcus DMX-J-SA</MonoText>
+            <Box sx={{ flexGrow: 1 }} />
+            {!connected && (
+              <TextField
+                size="small"
+                type="number"
+                label="Index"
+                value={deviceIndex}
+                onChange={(e) => setDeviceIndex(Math.max(0, Number(e.target.value) || 0))}
+                inputProps={{ min: 0, max: 15 }}
+                sx={{ width: 84, '& .MuiInputBase-root': { height: 26 } }}
               />
-            </Stack>
+            )}
+            <StatusChip
+              label={statusText}
+              tone={connected ? (moving ? 'busy' : 'ok') : 'off'}
+              spinning={connected && moving}
+            />
+          </Stack>
 
-            <Box sx={{ mt: 1.5 }}>
+          <StatRow>
+            <StatTile
+              label="Position"
+              value={num(pos)}
+              unit={pos == null ? undefined : 'pulses'}
+              sub={pctOfTravel == null ? undefined : `${pctOfTravel.toFixed(0)}% of travel`}
+              off={!connected}
+            />
+            <StatTile
+              label="Room below"
+              value={hasLimits ? num(roomBelow) : DASH}
+              unit={hasLimits && roomBelow != null ? 'pulses' : undefined}
+              sub={hasLimits ? `min ${softMin.toLocaleString()}` : 'no soft limit'}
+              off={!connected || !hasLimits}
+            />
+            <StatTile
+              label="Room above"
+              value={hasLimits ? num(roomAbove) : DASH}
+              unit={hasLimits && roomAbove != null ? 'pulses' : undefined}
+              sub={hasLimits ? `max ${softMax.toLocaleString()}` : 'no soft limit'}
+              off={!connected || !hasLimits}
+            />
+          </StatRow>
+
+          {/* The bar only means something against known ends. */}
+          {hasLimits && (
+            <Box sx={{ mt: 1.25 }}>
               <Box
                 sx={{
-                  position: 'relative',
-                  height: 6,
-                  borderRadius: 3,
-                  bgcolor: 'action.hover',
-                  overflow: 'hidden',
+                  position: 'relative', height: 6, borderRadius: 3,
+                  bgcolor: 'action.hover', overflow: 'hidden',
                 }}
               >
-                {pos != null && softMax > softMin && (
+                {pctOfTravel != null && (
                   <Box
                     sx={{
-                      position: 'absolute',
-                      top: 0,
-                      bottom: 0,
-                      left: 0,
-                      width: `${Math.max(0, Math.min(100, ((pos - softMin) / (softMax - softMin)) * 100))}%`,
+                      position: 'absolute', top: 0, bottom: 0, left: 0,
+                      width: `${pctOfTravel}%`,
                       bgcolor: moving ? 'warning.main' : 'primary.main',
                       transition: 'width 0.3s',
                     }}
@@ -173,110 +223,103 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
                 <Typography sx={{ fontSize: 10.5, color: 'text.secondary', fontFamily: MONO }}>
                   {softMin.toLocaleString()}
                 </Typography>
-                <Typography sx={{ fontSize: 10.5, color: 'text.secondary' }}>
-                  range {(softMax - softMin).toLocaleString()} pulses
+                <Typography sx={{ fontSize: 10.5, color: 'text.disabled' }}>
+                  {travel.toLocaleString()} pulses of travel
                 </Typography>
                 <Typography sx={{ fontSize: 10.5, color: 'text.secondary', fontFamily: MONO }}>
                   {softMax.toLocaleString()}
                 </Typography>
               </Stack>
             </Box>
-          </Card>
-        </Section>
+          )}
 
-        <Section title="Absolute move">
-          <Stack direction="row" spacing={1.5} alignItems="flex-start">
-            <LabeledField
-              label="Target"
-              hint={`${softMin.toLocaleString()} … ${softMax.toLocaleString()}`}
-              type="number"
-              value={targetStr}
-              inputProps={{ min: softMin, max: softMax, step: 100 }}
-              onChange={(e) => setTargetStr(e.target.value)}
-              onFocus={() => setTargetFocused(true)}
-              onBlur={() => setTargetFocused(false)}
-              error={targetOutOfRange || (!targetValid && targetStr.trim() !== '')}
-              InputProps={{
-                endAdornment: (
-                  <ValidationAdornment
-                    show={shouldShowValidation(targetStr, targetValid && targetInRange, targetFocused)}
-                    message={
-                      targetStr.trim() === ''
-                        ? 'Enter a value'
-                        : targetOutOfRange
-                          ? `Out of range — must be ${softMin.toLocaleString()} … ${softMax.toLocaleString()}`
-                          : 'Invalid number'
-                    }
-                  />
-                ),
-              }}
-              sx={{ maxWidth: 280 }}
-            />
-            <Button
-              variant="contained"
-              onClick={() => moveM.mutate()}
-              disabled={!connected || busy || !targetInRange}
-              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.lg, mt: '22px' }}
-            >
-              Move to
-            </Button>
-            <Box sx={{ flexGrow: 1 }} />
-            <Button
-              variant="outlined"
-              onClick={() => stopM.mutate()}
-              disabled={!connected || stopM.isPending}
-              sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.lg, mt: '22px' }}
-            >
-              {stopM.isPending ? 'Stopping…' : 'Stop'}
-            </Button>
-          </Stack>
-        </Section>
+          {s?.error && (
+            <Typography sx={{ ...TEXT.hint, color: 'error.main', mt: 1 }}>{s.error}</Typography>
+          )}
+        </Box>
 
-        <Section title="Movement">
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Button
-              variant="outlined"
-              startIcon={<ArrowBackIcon />}
-              onClick={() => jogNegM.mutate()}
-              disabled={!connected || busy}
-              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
-            >
-              Step Down
-            </Button>
-            <Button
-              variant="outlined"
-              endIcon={<ArrowForwardIcon />}
-              onClick={() => jogPosM.mutate()}
-              disabled={!connected || busy}
-              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
-            >
-              Step Up
-            </Button>
-            <Box sx={{ width: 16 }} />
-            <Button
-              variant="outlined"
-              startIcon={<FirstPageIcon />}
-              onClick={() => goMinM.mutate()}
-              disabled={!connected || busy}
-              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
-            >
-              Go Min
-            </Button>
-            <Button
-              variant="outlined"
-              endIcon={<LastPageIcon />}
-              onClick={() => goMaxM.mutate()}
-              disabled={!connected || busy}
-              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
-            >
-              Go Max
-            </Button>
-          </Stack>
-        </Section>
+        <TwoCol stretch>
+          <Section title="Move to" panel>
+            <Stack direction="row" spacing={1} alignItems="flex-start">
+              <LabeledField
+                label="Target"
+                hint={hasLimits
+                  ? `${softMin.toLocaleString()} … ${softMax.toLocaleString()}`
+                  : 'pulses'}
+                type="number"
+                value={targetStr}
+                inputProps={{ min: softMin, max: softMax, step: 100 }}
+                onChange={(e) => setTargetStr(e.target.value)}
+                onFocus={() => setTargetFocused(true)}
+                onBlur={() => setTargetFocused(false)}
+                error={targetOutOfRange || (!targetValid && targetStr.trim() !== '')}
+                InputProps={{
+                  endAdornment: (
+                    <ValidationAdornment
+                      show={shouldShowValidation(targetStr, targetValid && targetInRange, targetFocused)}
+                      message={
+                        targetStr.trim() === ''
+                          ? 'Enter a value'
+                          : targetOutOfRange
+                            ? `Out of range — must be ${softMin.toLocaleString()} … ${softMax.toLocaleString()}`
+                            : 'Invalid number'
+                      }
+                    />
+                  ),
+                }}
+              />
+              <Button
+                variant="contained"
+                onClick={() => moveM.mutate()}
+                disabled={!connected || busy || !targetInRange}
+                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md, mt: '22px', flexShrink: 0 }}
+              >
+                Move
+              </Button>
+            </Stack>
+          </Section>
 
-        {s?.error && (
-          <Typography sx={{ ...TEXT.hint, color: 'error.main' }}>{s.error}</Typography>
-        )}
+          <Section title="Jog" panel hint="Steps of 3,200 pulses, clamped to the soft limits.">
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Button
+                variant="outlined"
+                startIcon={<ArrowBackIcon />}
+                onClick={() => jogNegM.mutate()}
+                disabled={!connected || busy}
+                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+              >
+                Step down
+              </Button>
+              <Button
+                variant="outlined"
+                endIcon={<ArrowForwardIcon />}
+                onClick={() => jogPosM.mutate()}
+                disabled={!connected || busy}
+                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+              >
+                Step up
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<FirstPageIcon />}
+                onClick={() => goMinM.mutate()}
+                disabled={!connected || busy || !hasLimits}
+                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+              >
+                Go min
+              </Button>
+              <Button
+                variant="outlined"
+                endIcon={<LastPageIcon />}
+                onClick={() => goMaxM.mutate()}
+                disabled={!connected || busy || !hasLimits}
+                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+              >
+                Go max
+              </Button>
+            </Stack>
+          </Section>
+        </TwoCol>
       </PageBody>
     </Box>
   )
