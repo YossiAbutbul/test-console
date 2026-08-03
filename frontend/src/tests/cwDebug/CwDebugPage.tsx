@@ -11,7 +11,9 @@ import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
-import { FrameDump, PageBody, Section, SendStopControls } from '../../ui'
+import {
+  FieldGrid, LastFrameSection, PageBody, Section, SendStopControls,
+} from '../../ui'
 
 /** This page measures what it transmits, so the readings need these up. */
 const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
@@ -96,9 +98,9 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
         }
       />
 
-      <PageBody width="form">
-        <Section title="RF setup">
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+      <PageBody width="fluid">
+        <Section title="Transmit" panel>
+          <FieldGrid>
             <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
               historyKey={`${protocol}.debug.freqMhz`}
               onChange={(e) => setFreqMhz(Number(e.target.value))}
@@ -132,15 +134,16 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
               <MenuItem value={1}>On</MenuItem>
               <MenuItem value={0}>Off</MenuItem>
             </LabeledField>
-          </Box>
+          </FieldGrid>
         </Section>
 
         <MeasurementCard
           freqHz={Math.round(freqMhz * 1_000_000)}
           triggerId={measureTrigger}
+          targetDbm={power}
         />
 
-        {last && <FrameDump result={last} />}
+        <LastFrameSection result={last} />
       </PageBody>
 
       {preflight.dialog}

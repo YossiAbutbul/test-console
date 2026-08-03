@@ -6,10 +6,12 @@
  */
 export { Section, Card } from './Section'
 export { PageBody, TwoCol } from './PageBody'
+export { FieldGrid } from './FieldGrid'
 export { StatTile, StatRow, StatGrid } from './StatTile'
 export { Eyebrow, Readout, StatusChip, StatusDot, MonoText } from './Readout'
 export {
   ConnectButton, RunControls, SendStopControls, PathLossChip, FrameDump,
+  LastFrameSection,
 } from './controls'
 export {
   ACTION_W, CARD_SX, CARD_PAD, CONTROL_H, FIELD_MAX_W, GRID_GAP, MONO,

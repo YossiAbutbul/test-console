@@ -3,6 +3,8 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import PowerIcon from '@mui/icons-material/Power'
 import StopIcon from '@mui/icons-material/Stop'
 import type { CommandResponse } from '../types/models'
+import { useAppPalette } from '../context/ThemeModeContext'
+import { Section } from './Section'
 import { ACTION_W, CONTROL_H, MONO, TEXT } from './tokens'
 
 /** Shared sizing for every header action, so button rows line up page to page. */
@@ -169,5 +171,56 @@ export function FrameDump({ result, plain }: { result: CommandResponse; plain?: 
       <div>opcode: {result.reply_opcode_hex} payload: {result.reply_payload_hex}</div>
       <div>ok: {String(result.ok)} status: {result.status}</div>
     </Box>
+  )
+}
+
+/**
+ * The last command's wire detail, collapsed behind its outcome.
+ *
+ * Every one-shot command page ends with the same question — did the DUT accept
+ * it? — and only occasionally with the follow-up of what exactly went over the
+ * wire. So the ok/status rides on the heading and the hex stays folded away.
+ */
+export function LastFrameSection({ result }: { result: CommandResponse | null }) {
+  const p = useAppPalette()
+  return (
+    <Section
+      title="Last frame"
+      panel
+      collapsible={result != null}
+      defaultOpen={false}
+      action={
+        result ? (
+          <Stack direction="row" alignItems="center" spacing={0.75}>
+            <Box
+              sx={{
+                width: 6, height: 6, borderRadius: '50%',
+                bgcolor: result.ok ? p.data.ok : p.data.bad,
+              }}
+            />
+            <Typography
+              sx={{
+                fontSize: 11.5, fontWeight: 600,
+                color: result.ok ? p.data.ok : p.data.bad,
+                textTransform: 'none', letterSpacing: 0,
+              }}
+            >
+              {result.ok ? 'ok' : 'failed'}
+            </Typography>
+            <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+              status {result.status}
+            </Typography>
+          </Stack>
+        ) : null
+      }
+    >
+      {result ? (
+        <FrameDump result={result} plain />
+      ) : (
+        <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
+          Send a command to see the raw request and reply here.
+        </Typography>
+      )}
+    </Section>
   )
 }

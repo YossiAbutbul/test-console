@@ -8,7 +8,9 @@ import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
-import { FrameDump, PageBody, Section, SendStopControls, TEXT } from '../../ui'
+import {
+  FieldGrid, LastFrameSection, PageBody, Section, SendStopControls, TEXT,
+} from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
 
@@ -104,18 +106,9 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
         }
       />
 
-      <PageBody width="form">
-        <Section title="RF setup">
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-              gridAutoFlow: { xs: 'row', md: 'column' },
-              gridTemplateRows: { md: 'repeat(3, auto)' },
-              columnGap: 2,
-              rowGap: 2,
-            }}
-          >
+      <PageBody width="fluid">
+        <Section title="Transmit" panel>
+          <FieldGrid>
             <LabeledField
               label="Frequency"
               hint="MHz"
@@ -173,15 +166,16 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
               inputProps={{ min: DR_MIN, max: DR_MAX, step: 1 }}
               onChange={(e) => setDatarate(Number(e.target.value))}
             />
-          </Box>
+          </FieldGrid>
         </Section>
 
         <MeasurementCard
           freqHz={Math.round(freqMhz * 1_000_000)}
           triggerId={measureTrigger}
+          targetDbm={power}
         />
 
-        {last && <FrameDump result={last} />}
+        <LastFrameSection result={last} />
       </PageBody>
 
       {preflight.dialog}

@@ -1,17 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Box, MenuItem, Stack, Tab, Tabs, Typography } from '@mui/material'
+import { Box, MenuItem, Tab, Tabs } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
-import { useAppPalette } from '../../context/ThemeModeContext'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import {
-  FIELD_MAX_W, FrameDump, GRID_GAP, PageBody, RunControls, Section,
-  SendStopControls,
+  FieldGrid, LastFrameSection, PageBody, RunControls, Section, SendStopControls,
 } from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
@@ -30,7 +28,6 @@ export function PowerPage({ protocol, group }: TestPageProps) {
   const [paMode, setPaMode] = useState(2)
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
-  const p = useAppPalette()
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
   // The automation tab owns its run; it publishes just enough for the header
   // to render the buttons in the same slot the manual tab uses.
@@ -133,16 +130,7 @@ export function PowerPage({ protocol, group }: TestPageProps) {
           {/* Every field on one row: they are three short values, and stacking
               them made a tall lonely column that pushed the result off screen. */}
           <Section title="Transmit" panel>
-            <Box
-              sx={{
-                display: 'grid',
-                gap: `${GRID_GAP}px`,
-                gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
-                // Inputs stop growing well before the panel does: a number
-                // field half the screen wide is mostly empty box.
-                maxWidth: FIELD_MAX_W,
-              }}
-            >
+            <FieldGrid>
               <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
                 historyKey={`${protocol}.power.freqMhz`}
                 onChange={(e) => setFreqMhz(Number(e.target.value))}
@@ -160,7 +148,7 @@ export function PowerPage({ protocol, group }: TestPageProps) {
                 <MenuItem value={1}>On</MenuItem>
                 <MenuItem value={0}>Off</MenuItem>
               </LabeledField>
-            </Box>
+            </FieldGrid>
           </Section>
 
           {/* The answer: what we asked for, what came out, and the error
@@ -172,46 +160,8 @@ export function PowerPage({ protocol, group }: TestPageProps) {
           />
 
           {/* Wire detail last, and collapsed: it explains a result you have
-              already read, and the ok/status on the heading is the only part
-              checked on every send. */}
-          <Section
-            title="Last frame"
-            panel
-            collapsible={last != null}
-            defaultOpen={false}
-            action={
-              last ? (
-                <Stack direction="row" alignItems="center" spacing={0.75}>
-                  <Box
-                    sx={{
-                      width: 6, height: 6, borderRadius: '50%',
-                      bgcolor: last.ok ? p.data.ok : p.data.bad,
-                    }}
-                  />
-                  <Typography
-                    sx={{
-                      fontSize: 11.5, fontWeight: 600,
-                      color: last.ok ? p.data.ok : p.data.bad,
-                      textTransform: 'none', letterSpacing: 0,
-                    }}
-                  >
-                    {last.ok ? 'ok' : 'failed'}
-                  </Typography>
-                  <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
-                    status {last.status}
-                  </Typography>
-                </Stack>
-              ) : null
-            }
-          >
-            {last ? (
-              <FrameDump result={last} plain />
-            ) : (
-              <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
-                Send a command to see the raw request and reply here.
-              </Typography>
-            )}
-          </Section>
+              already read. */}
+          <LastFrameSection result={last} />
         </PageBody>
       </Box>
 
