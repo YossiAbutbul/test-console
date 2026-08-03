@@ -143,21 +143,54 @@ Then confirm the wrappers import:
 
 Two terminals.
 
-**Backend** (live reload on `.py` edits):
+**Backend** — this is the form to use whenever instruments are attached:
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
-python -m uvicorn backend.main:app --reload --reload-dir backend --timeout-graceful-shutdown 3 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --timeout-graceful-shutdown 3 --port 8000
 ```
 
-Why the flags:
+Call the venv's interpreter by path rather than activating and running
+`python`: a bare `python` takes whichever one is first on `PATH`, and the
+system install has neither the wrappers nor `uvicorn`.
 
-- `--reload --reload-dir backend` watches only Python sources, ignoring
-  `frontend/` and `node_modules/`.
-- `--timeout-graceful-shutdown 3` keeps Ctrl+C snappy; without it uvicorn
-  waits indefinitely for in-flight streaming responses.
+`--timeout-graceful-shutdown 3` keeps Ctrl+C snappy; without it uvicorn waits
+indefinitely for in-flight streaming responses.
 
 API at `http://localhost:8000`. Health: `GET /health`. Docs: `/docs`.
+
+### Live reload, and why it is not the default
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload --reload-dir backend --timeout-graceful-shutdown 3 --port 8000
+```
+
+`--reload` restarts on `.py` edits — `--reload-dir backend` keeps it off
+`frontend/` and `node_modules/` — but **instrument calls can fail under it**,
+with:
+
+```
+VisaIOError: VI_ERROR_LIBRARY_NFOUND (-1073807202):
+A code library required by VISA could not be located or loaded.
+```
+
+Reload does not serve requests from the process you started. It spawns a
+worker, and that worker comes up under the *base* interpreter rather than the
+venv:
+
+```
+reloader  →  .venv\Scripts\python.exe                    (what you launched)
+worker    →  ...\Programs\Python\Python312\python.exe     (what serves)
+```
+
+Python code still imports, because the venv's packages are passed to the
+worker. The DLL search path is not, so `visa32.dll` loads and then fails to
+find the vendor library behind it. Whether it survives depends on the `PATH`
+the worker inherits, which is why this can work from one terminal and not
+another.
+
+Use reload for routes, schemas and anything that does not touch hardware.
+Switch back to the command above for the rig — or run it from VS Code, where
+`.vscode/launch.json` offers both as separate configurations.
 
 **Frontend** (Vite HMR):
 
@@ -185,7 +218,7 @@ install it into the venv on a new machine:
 ```
 
 ```powershell
-python -m pytest
+.\.venv\Scripts\python.exe -m pytest
 ```
 
 ## Run — production
@@ -197,7 +230,7 @@ proxy):
 cd frontend
 npm run build
 cd ..
-python -m uvicorn backend.main:app --port 8000
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --port 8000
 ```
 
 The backend serves `frontend/dist` at `/`.
@@ -236,6 +269,34 @@ string, which carries an extra interface field the default lacks:
 
 ```
 USB0::0x0957::0x0F07::MY50000200::0::INSTR
+```
+
+**`VI_ERROR_LIBRARY_NFOUND` — "a code library required by VISA could not be
+located or loaded".** pyvisa found `visa32.dll` but not the vendor library
+behind it, which means the process serving the request is not the one you
+started. Two causes, in order of likelihood:
+
+1. The backend is running with `--reload`. Its worker comes up under the base
+   interpreter, without the venv's DLL search path — see
+   [Live reload](#live-reload-and-why-it-is-not-the-default). Restart without
+   the flag.
+2. It was launched with a bare `python`, which resolved to the system install.
+   Call `.\.venv\Scripts\python.exe` by path.
+
+Confirm which interpreter is actually serving, rather than which one you
+launched — with `--reload` they differ:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
+  Select-Object ProcessId, ParentProcessId, CommandLine | Format-List
+```
+
+A stale worker can outlive its reloader and keep port 8000, so a restart alone
+may leave the broken process serving. If the port is held by a PID that no
+longer exists, kill the surviving child:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8000 -State Listen
 ```
 
 **`pip install` fails with `[Errno 9] Bad file descriptor`.** Seen on a machine
