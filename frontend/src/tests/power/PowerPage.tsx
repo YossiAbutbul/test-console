@@ -10,11 +10,12 @@ import { useAppPalette } from '../../context/ThemeModeContext'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import {
-  FIELD_MAX_W, FrameDump, GRID_GAP, PageBody, Section, SendStopControls,
+  FIELD_MAX_W, FrameDump, GRID_GAP, PageBody, RunControls, Section,
+  SendStopControls,
 } from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
-import { AutomationPanel } from './AutomationPanel'
+import { AutomationPanel, type AutomationControls } from './AutomationPanel'
 import { powerPageSnapshot, persistPowerPage, type PowerPageTab } from '../../store/powerPageStore'
 
 /** The manual tab measures the command it sends, so it needs what the
@@ -31,6 +32,9 @@ export function PowerPage({ protocol, group }: TestPageProps) {
   const [measureTrigger, setMeasureTrigger] = useState(0)
   const p = useAppPalette()
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
+  // The automation tab owns its run; it publishes just enough for the header
+  // to render the buttons in the same slot the manual tab uses.
+  const [autoCtl, setAutoCtl] = useState<AutomationControls | null>(null)
   const [tab, setTab] = useState<PowerPageTab>(() => powerPageSnapshot.tab ?? 'manual')
   useEffect(() => { powerPageSnapshot.tab = tab; persistPowerPage() }, [tab])
 
@@ -85,6 +89,8 @@ export function PowerPage({ protocol, group }: TestPageProps) {
         group={group}
         label="Power"
         actions={
+          // Both tabs put their primary action in the same place, so switching
+          // tabs does not move Run/Send to a different part of the screen.
           tab === 'manual' ? (
             <SendStopControls
               busy={busy}
@@ -92,6 +98,14 @@ export function PowerPage({ protocol, group }: TestPageProps) {
               stopping={stop.isPending}
               onSend={() => send.mutate()}
               onStop={() => stop.mutate()}
+            />
+          ) : autoCtl ? (
+            <RunControls
+              running={autoCtl.running}
+              canRun={autoCtl.canRun}
+              progress={autoCtl.progress}
+              onRun={autoCtl.onRun}
+              onStop={autoCtl.onStop}
             />
           ) : null
         }
@@ -207,7 +221,7 @@ export function PowerPage({ protocol, group }: TestPageProps) {
           display: tab === 'automation' ? 'flex' : 'none',
         }}
       >
-        <AutomationPanel protocol={protocol} />
+        <AutomationPanel protocol={protocol} onControlsChange={setAutoCtl} />
       </Box>
 
       {preflight.dialog}

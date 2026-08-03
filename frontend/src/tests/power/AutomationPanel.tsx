@@ -1,12 +1,10 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Box, Button, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'
-import StopIcon from '@mui/icons-material/Stop'
 import DownloadIcon from '@mui/icons-material/Download'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import ShowChartIcon from '@mui/icons-material/ShowChart'
@@ -20,7 +18,11 @@ import { formatDuration, sleep } from '../../lib/async'
 import { downloadCsv as saveCsv, exportName } from '../../lib/download'
 import { fmt, num } from '../../lib/format'
 import { parseRangeSpec } from '../../lib/numericList'
-import { TEXT } from '../../ui'
+import { GRID_GAP, Section, TEXT } from '../../ui'
+
+/** Result actions are secondary to the run itself — quiet text buttons on the
+ *  panel heading, not another row of outlined buttons competing with it. */
+const resultActionSx = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
 import { ResultsGraphModal } from './ResultsGraphModal'
 import { runSequence } from '../engine/runSequence'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
@@ -101,7 +103,29 @@ function snap(): NonNullable<typeof powerPageSnapshot.automation> {
   return powerPageSnapshot.automation
 }
 
-export function AutomationPanel({ protocol }: { protocol: string }) {
+/**
+ * What the page header needs to drive the run.
+ *
+ * The run lives here — rows, plan, results, abort — but its buttons belong in
+ * the header next to the manual tab's Send/Stop, so switching tabs does not
+ * move the primary action to a different part of the screen.
+ */
+export interface AutomationControls {
+  running: boolean
+  canRun: boolean
+  /** "3/40", for the label while running. */
+  progress: string
+  onRun: () => void
+  onStop: () => void
+}
+
+interface AutomationPanelProps {
+  protocol: string
+  /** Called whenever the run state changes, so the header can re-render. */
+  onControlsChange?: (c: AutomationControls) => void
+}
+
+export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelProps) {
   const { pathLossDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
   const reporter = useRunReporter('TX Power automation', 'Automation')
@@ -253,7 +277,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
     onError: (e: Error) => reporter.failed(e.message),
   })
 
-  const onStop = () => {
+  const onStop = useCallback(() => {
     // Aborting cancels the in-flight request and wakes the settle delay, so
     // the loop notices immediately rather than at the end of the point.
     abortRef.current.abort()
@@ -262,7 +286,23 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
     if (hasBackend) {
       void device.stop().catch((e: Error) => reporter.note(`stop failed: ${e.message}`, 'error'))
     }
-  }
+  }, [hasBackend, reporter])
+
+  const runMutate = runM.mutate
+  const onRun = useCallback(() => { runMutate() }, [runMutate])
+
+  // Publish the run state upward so the header can render the buttons. Only
+  // primitives and stable callbacks are in the dependency list, so this settles
+  // after one pass rather than looping on a fresh object each render.
+  useEffect(() => {
+    onControlsChange?.({
+      running,
+      canRun: totalPoints > 0,
+      progress: `${progressIdx}/${totalPoints}`,
+      onRun,
+      onStop,
+    })
+  }, [running, totalPoints, progressIdx, onRun, onStop, onControlsChange])
 
   useEffect(() => {
     if (pendingFocusIdx == null) return
@@ -280,20 +320,9 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }, [results.length])
 
+  // The two config panels stay the same height so the row reads as one block
+  // however many frequency rows are in the list.
   const PANEL_HEIGHT = 250
-  const cardSx = {
-    height: PANEL_HEIGHT,
-    display: 'flex' as const,
-    flexDirection: 'column' as const,
-  }
-  const cardHeaderSx = {
-    height: 44,
-    pb: 1, mb: 1.5,
-    borderBottom: 1, borderColor: 'divider' as const,
-    flexShrink: 0,
-    display: 'flex' as const,
-    alignItems: 'center' as const,
-  }
   const cardBodySx = {
     flexGrow: 1,
     overflowY: 'auto' as const,
@@ -301,34 +330,39 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
   }
 
   return (
-    <Stack spacing={2} sx={{ flexGrow: 1, minHeight: 0 }}>
+    <Stack spacing={`${GRID_GAP}px`} sx={{ flexGrow: 1, minHeight: 0 }}>
       <Box
         sx={{
           display: 'grid',
           gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-          gap: 2,
+          gap: `${GRID_GAP}px`,
           alignItems: 'start',
           flexShrink: 0,
         }}
       >
         {/* ── Frequency list ─────────────────────────── */}
-        <Box sx={cardSx}>
-          <Stack direction="row" alignItems="center" sx={{ ...cardHeaderSx, width: '100%' }}>
-            <Typography sx={{ fontSize: 17, fontWeight: 700, flexGrow: 1 }}>
-              Frequency list
-              <Typography component="span" sx={{ fontSize: 12, ml: 1, color: 'text.secondary' }}>
-                {totalPoints} point{totalPoints === 1 ? '' : 's'} total
-              </Typography>
-            </Typography>
-            <Button
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={addRow}
-              disabled={running}
-            >
-              Add
-            </Button>
-          </Stack>
+        <Box sx={{ height: PANEL_HEIGHT, display: 'flex', flexDirection: 'column' }}>
+          <Section
+            title="Frequency list"
+            panel
+            grow
+            action={
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+                  {totalPoints} point{totalPoints === 1 ? '' : 's'}
+                </Typography>
+                <Button
+                  size="small"
+                  startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+                  onClick={addRow}
+                  disabled={running}
+                  sx={{ minWidth: 0, height: 24, fontSize: 12, px: 1 }}
+                >
+                  Add
+                </Button>
+              </Stack>
+            }
+          >
           <Box ref={bodyRef} sx={cardBodySx}>
           <Stack spacing={0.75}>
             {rows.map((r, i) => {
@@ -406,14 +440,11 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
           <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 1, pt: 1, borderTop: 1, borderColor: 'divider', whiteSpace: 'nowrap', flexShrink: 0 }}>
             Freq / Power: "915" · "900-930" · "900-930:5" · "902.3,915,927.5"
           </Typography>
+          </Section>
         </Box>
 
-        <Box sx={cardSx}>
-          <Box sx={cardHeaderSx}>
-            <Typography sx={{ fontSize: 17, fontWeight: 700 }}>
-              Common settings
-            </Typography>
-          </Box>
+        <Box sx={{ height: PANEL_HEIGHT, display: 'flex', flexDirection: 'column' }}>
+          <Section title="Common settings" panel grow>
           <Box sx={cardBodySx}>
             <Stack spacing={1} sx={{ maxWidth: 320 }}>
               <LabeledField
@@ -448,62 +479,56 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
               </Box>
             </Stack>
           </Box>
+          </Section>
         </Box>
       </Box>
 
-      <Stack direction="row" spacing={1} alignItems="center">
-        <Button
-          variant="contained"
-          startIcon={<PlayArrowIcon />}
-          onClick={() => runM.mutate()}
-          disabled={running || totalPoints === 0}
-          sx={{ minWidth: 140 }}
-        >
-          {running ? `Running ${progressIdx}/${totalPoints}` : 'Run'}
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<StopIcon />}
-          onClick={onStop}
-          disabled={!running}
-        >
-          Stop
-        </Button>
-        <Box sx={{ flexGrow: 1 }} />
-        <Button
-          variant="outlined"
-          color="inherit"
-          startIcon={<DeleteSweepIcon />}
-          onClick={() => setResults([])}
-          disabled={results.length === 0 || running}
-        >
-          Clear
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<ShowChartIcon />}
-          onClick={() => setGraphOpen(true)}
-          disabled={results.length === 0}
-        >
-          Graph
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<DownloadIcon />}
-          onClick={() => downloadCsv(results, pathLossDb, bleStatus?.address ?? null)}
-          disabled={results.length === 0}
-        >
-          Export
-        </Button>
-      </Stack>
-
-      <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <Typography sx={{ fontSize: 17, fontWeight: 700, mb: 1, pb: 1, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
-          Results
-          <Typography component="span" sx={{ fontSize: 12, ml: 1, color: 'text.secondary' }}>
-            corrected = measured + path-loss ({pathLossDb} dB)
-          </Typography>
-        </Typography>
+      {/* Run/Stop live in the page header beside the manual tab's Send/Stop.
+          What is left here acts on the results, so it belongs on the results
+          panel rather than in a row of its own. */}
+      <Section
+        title="Results"
+        panel
+        grow
+        action={
+          <Stack direction="row" alignItems="center" spacing={0.75}>
+            <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
+              measured + path loss ({pathLossDb} dB)
+            </Typography>
+            <Button
+              size="small"
+              variant="text"
+              color="inherit"
+              startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
+              onClick={() => setResults([])}
+              disabled={results.length === 0 || running}
+              sx={resultActionSx}
+            >
+              Clear
+            </Button>
+            <Button
+              size="small"
+              variant="text"
+              startIcon={<ShowChartIcon sx={{ fontSize: 15 }} />}
+              onClick={() => setGraphOpen(true)}
+              disabled={results.length === 0}
+              sx={resultActionSx}
+            >
+              Graph
+            </Button>
+            <Button
+              size="small"
+              variant="text"
+              startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
+              onClick={() => downloadCsv(results, pathLossDb, bleStatus?.address ?? null)}
+              disabled={results.length === 0}
+              sx={resultActionSx}
+            >
+              Export
+            </Button>
+          </Stack>
+        }
+      >
         {results.length === 0 ? (
           <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
             No data yet. Add frequencies and press Run.
@@ -539,7 +564,7 @@ export function AutomationPanel({ protocol }: { protocol: string }) {
             </Table>
           </Box>
         )}
-      </Box>
+      </Section>
 
       <ResultsGraphModal
         open={graphOpen}
