@@ -18,6 +18,7 @@ from ._common import (
     ConnectRequest,
     ConnectResponse,
     DiscoverResponse,
+    bound_resource,
     discover_visa,
 )
 from ._state import state
@@ -45,7 +46,8 @@ def _connect(resource: str) -> str:
     a.connect()
     _force_free_run(a)
     state.network_analyzer = a
-    state.network_analyzer_resource = resource or None
+    # See dc_analyzer._connect — record what VISA resolved, not what was typed.
+    state.network_analyzer_resource = bound_resource(a, resource)
     try:
         idn = str(a.idn)
     except Exception:

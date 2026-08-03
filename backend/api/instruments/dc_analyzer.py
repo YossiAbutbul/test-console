@@ -11,6 +11,7 @@ from ._common import (
     ConnectRequest,
     ConnectResponse,
     DiscoverResponse,
+    bound_resource,
     discover_visa,
 )
 from ._state import DC_VOLTAGE_SCALE, state
@@ -26,7 +27,10 @@ def _connect(resource: str, channel: int) -> str:
     a.connect()
     state.dc_analyzer = a
     state.dc_analyzer_channel = channel
-    state.dc_analyzer_resource = resource or None
+    # Ask the live session what it bound rather than trusting the typed string:
+    # a blank address means "driver default", and a typed one may be an alias.
+    # Getting this wrong lets discovery re-open the instrument mid-session.
+    state.dc_analyzer_resource = bound_resource(a, resource)
     idn = getattr(a, "idn", None) or "Keysight DC Power Analyzer"
     state.dc_analyzer_idn = str(idn)
     return state.dc_analyzer_idn

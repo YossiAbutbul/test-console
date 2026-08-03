@@ -10,6 +10,7 @@ from ._common import (
     ConnectRequest,
     ConnectResponse,
     DiscoverResponse,
+    bound_resource,
     discover_visa,
 )
 from ._state import state
@@ -27,7 +28,8 @@ def _connect(resource: str) -> str:
         idn = "Spectrum Analyzer"
     state.spectrum = inst
     state.spectrum_idn = idn
-    state.spectrum_resource = resource or None
+    # See dc_analyzer._connect — record what VISA resolved, not what was typed.
+    state.spectrum_resource = bound_resource(inst, resource)
     return idn
 
 
