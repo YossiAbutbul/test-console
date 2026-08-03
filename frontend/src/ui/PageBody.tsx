@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react'
-import { Stack } from '@mui/material'
-import { PAGE_W } from './tokens'
+import { Box, Stack } from '@mui/material'
+import { GRID_GAP, PAGE_W } from './tokens'
 
 interface PageBodyProps {
   children: ReactNode
   /**
    * Content width. `form` for stacked input pages, `panel` for pages with a
-   * status block plus controls, `full` for data-heavy pages.
+   * status block plus controls, `grid` for the wide dashboard layout, `full`
+   * for data-heavy pages.
    */
   width?: keyof typeof PAGE_W
   /** Let the body own the remaining height and scroll internally — for pages
@@ -24,7 +25,7 @@ interface PageBodyProps {
 export function PageBody({ children, width = 'panel', scroll }: PageBodyProps) {
   return (
     <Stack
-      spacing={2}
+      spacing={`${GRID_GAP}px`}
       sx={{
         mt: 1,
         maxWidth: PAGE_W[width],
@@ -35,5 +36,37 @@ export function PageBody({ children, width = 'panel', scroll }: PageBodyProps) {
     >
       {children}
     </Stack>
+  )
+}
+
+interface TwoColProps {
+  children: ReactNode
+  /** Column template. Defaults to two equal columns that stack under `minCol`. */
+  left?: number
+  right?: number
+  /** Below this container width the columns stack to one. */
+  minCol?: number
+}
+
+/**
+ * Responsive two-column layout for dashboard pages: config on the left, live
+ * results on the right. Collapses to a single column when the content area is
+ * narrow (log drawer open on a small window).
+ */
+export function TwoCol({ children, left = 1, right = 1, minCol = 300 }: TwoColProps) {
+  return (
+    <Box
+      sx={{
+        display: 'grid',
+        gap: `${GRID_GAP}px`,
+        gridTemplateColumns: {
+          xs: '1fr',
+          md: `minmax(${minCol}px, ${left}fr) minmax(${minCol}px, ${right}fr)`,
+        },
+        alignItems: 'start',
+      }}
+    >
+      {children}
+    </Box>
   )
 }

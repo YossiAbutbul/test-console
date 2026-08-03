@@ -23,8 +23,9 @@ export const CONTROL_H = { md: 36, lg: 40 } as const
  *  label changes ("Run" → "Running 3/40"). */
 export const ACTION_W = { compact: 96, default: 120, wide: 148 } as const
 
-/** Content column widths. Pages pick one instead of inventing a number. */
-export const PAGE_W = { form: 760, panel: 900, full: 1180 } as const
+/** Content column widths. Pages pick one instead of inventing a number.
+ *  `grid` is the wide dashboard layout (stat row + two columns). */
+export const PAGE_W = { form: 760, panel: 900, grid: 1040, full: 1180 } as const
 
 /** Type scale for the roles the app actually has. */
 export const TEXT = {
@@ -60,3 +61,29 @@ export const CARD_SX = {
   border: 1,
   borderColor: 'divider',
 } as const
+
+/**
+ * Density constants for the data-dense instrument layout.
+ *
+ * The whole point of this app is reading numbers off hardware, so the layout
+ * is tuned for information per screen, not for breathing room: 12px inside a
+ * panel, 8px between them. Anything looser and a sweep result stops fitting
+ * without scrolling.
+ */
+export const GRID_GAP = 8
+export const CARD_PAD = 12
+export const TILE_PAD = 12
+
+/** Panel surface — a plain hairline container. No shadow and no radius beyond
+ *  the app's 6px: depth is reserved for things that actually float (menus,
+ *  dialogs), so panels sitting in the page stay flat. */
+export const PANEL_SX = {
+  border: 1,
+  borderColor: 'divider',
+  borderRadius: 1,
+  bgcolor: 'background.paper',
+} as const
+
+/** Colour roles that encode *state*, not decoration. A tile or heading only
+ *  takes one when the colour means something the user must act on. */
+export type TileAccent = 'blue' | 'teal' | 'amber' | 'purple' | 'red' | 'neutral'

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ThemeProvider } from '@mui/material/styles'
 import CssBaseline from '@mui/material/CssBaseline'
-import { makeTheme, type ThemeMode } from '../theme'
+import { getAppPalette, makeTheme, type AppPalette, type ThemeMode } from '../theme'
 import { STORAGE_KEYS, usePersistedState } from '../store'
 
 export type ThemePreference = ThemeMode | 'system'
@@ -48,4 +48,10 @@ export function useThemeMode(): Ctx {
   const v = useContext(ThemeModeCtx)
   if (!v) throw new Error('useThemeMode must be inside ThemeModeProvider')
   return v
+}
+
+/** The active mode's app palette. Shortcut for the common
+ *  `getAppPalette(useThemeMode().mode)` pairing. */
+export function useAppPalette(): AppPalette {
+  return getAppPalette(useThemeMode().mode)
 }

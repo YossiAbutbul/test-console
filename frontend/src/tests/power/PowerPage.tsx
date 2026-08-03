@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Box, MenuItem, Stack, Tab, Tabs } from '@mui/material'
+import { Box, MenuItem, Stack, Tab, Tabs, Typography } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
-import { FrameDump, PageBody, Section, SendStopControls } from '../../ui'
+import { FrameDump, PageBody, Section, SendStopControls, TwoCol } from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
 import { AutomationPanel } from './AutomationPanel'
@@ -93,35 +93,45 @@ export function PowerPage({ protocol, group }: TestPageProps) {
 
       {/* Both panels stay mounted; toggle via display so switching is instant. */}
       <Box sx={{ display: tab === 'manual' ? 'block' : 'none' }}>
-        <PageBody width="form">
-          <Section title="RF setup">
-            <Stack spacing={2} sx={{ maxWidth: 360 }}>
-              <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
-                historyKey={`${protocol}.power.freqMhz`}
-                onChange={(e) => setFreqMhz(Number(e.target.value))}
-                inputProps={{ step: 0.1 }} />
-              <LabeledField label="Power" hint="dBm" type="number" value={power}
-                historyKey={`${protocol}.power.power_dbm`}
-                onChange={(e) => setPower(Number(e.target.value))} />
-              <LabeledField
-                label="PA Mode"
-                select
-                value={paMode}
-                onChange={(e) => setPaMode(Number(e.target.value))}
-              >
-                <MenuItem value={2}>Auto</MenuItem>
-                <MenuItem value={1}>On</MenuItem>
-                <MenuItem value={0}>Off</MenuItem>
-              </LabeledField>
-            </Stack>
-          </Section>
-
+        <PageBody width="grid">
           <MeasurementCard
             freqHz={Math.round(freqMhz * 1_000_000)}
             triggerId={measureTrigger}
           />
 
-          {last && <FrameDump result={last} />}
+          <TwoCol>
+            <Section title="RF setup" panel>
+              <Stack spacing={1.5}>
+                <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
+                  historyKey={`${protocol}.power.freqMhz`}
+                  onChange={(e) => setFreqMhz(Number(e.target.value))}
+                  inputProps={{ step: 0.1 }} />
+                <LabeledField label="Power" hint="dBm" type="number" value={power}
+                  historyKey={`${protocol}.power.power_dbm`}
+                  onChange={(e) => setPower(Number(e.target.value))} />
+                <LabeledField
+                  label="PA Mode"
+                  select
+                  value={paMode}
+                  onChange={(e) => setPaMode(Number(e.target.value))}
+                >
+                  <MenuItem value={2}>Auto</MenuItem>
+                  <MenuItem value={1}>On</MenuItem>
+                  <MenuItem value={0}>Off</MenuItem>
+                </LabeledField>
+              </Stack>
+            </Section>
+
+            <Section title="Last frame" panel>
+              {last ? (
+                <FrameDump result={last} plain />
+              ) : (
+                <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
+                  Send a command to see the raw request and reply here.
+                </Typography>
+              )}
+            </Section>
+          </TwoCol>
         </PageBody>
       </Box>
 

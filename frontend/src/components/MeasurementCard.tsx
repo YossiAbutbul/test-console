@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query'
 import { instrumentsApi, type MeasureResponse } from '../api/instruments'
 import { useInstruments } from '../context/InstrumentsContext'
 import { usePathLoss } from '../context/PathLossContext'
+import { StatRow, StatTile } from '../ui'
 
 interface Props {
   /** Hz, used to set sensor calibration freq before reading. */
@@ -25,27 +26,10 @@ interface Props {
   } | null
 }
 
-function fmt(v: number | null | undefined, digits: number, suffix: string): string {
+/** Numeric part only — the unit rides in the tile's `unit` slot. */
+function num(v: number | null | undefined, digits: number): string {
   if (v == null || !Number.isFinite(v)) return '—'
-  return `${v.toFixed(digits)} ${suffix}`
-}
-
-function Metric({
-  label, value, sub, dim,
-}: { label: string; value: string; sub?: string; dim?: boolean }) {
-  return (
-    <Box sx={{ flex: 1, minWidth: 0 }}>
-      <Typography sx={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary', mb: 0.25 }}>
-        {label}
-      </Typography>
-      <Typography sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 17, fontWeight: 600, color: dim ? 'text.disabled' : 'text.primary' }}>
-        {value}
-      </Typography>
-      {sub && (
-        <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.25 }}>{sub}</Typography>
-      )}
-    </Box>
-  )
+  return v.toFixed(digits)
 }
 
 export function MeasurementCard({ freqHz, triggerId, settleMs = 250, onResult, staticData }: Props) {
@@ -91,16 +75,12 @@ export function MeasurementCard({ freqHz, triggerId, settleMs = 250, onResult, s
   const power_mW = power != null && Number.isFinite(power) ? Math.pow(10, power / 10) : null
   const cur_mA = cur != null ? cur * 1000 : null
 
+  // Show the voltage tile whenever there's a DC channel in play (live or
+  // static). Power-only static rows (e.g. a mode-sweep point) stay two-up.
+  const showVolt = isStatic ? staticData?.voltage_v != null : dc
+
   return (
-    <Box
-      sx={{
-        p: 1.5,
-        borderRadius: 1,
-        border: 1,
-        borderColor: 'divider',
-        bgcolor: 'background.paper',
-      }}
-    >
+    <Box>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
         <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary', flexGrow: 1 }}>
           {staticData?.label ?? 'Measurement'}
@@ -141,20 +121,32 @@ export function MeasurementCard({ freqHz, triggerId, settleMs = 250, onResult, s
           </>
         )}
       </Stack>
-      <Stack direction="row" spacing={2} divider={<Box sx={{ width: '1px', bgcolor: 'divider' }} />}>
-        <Metric
+
+      <StatRow>
+        <StatTile
           label="TX Power"
-          value={ps ? fmt(power, 2, 'dBm') : '—'}
-          sub={ps && power_mW != null ? `${power_mW.toFixed(2)} mW` : (ps ? undefined : 'sensor off')}
-          dim={!ps}
+          value={ps ? num(power, 2) : '—'}
+          unit={ps && power != null ? 'dBm' : undefined}
+          sub={ps ? (power_mW != null ? `${power_mW.toFixed(2)} mW` : undefined) : 'sensor off'}
+          off={!ps}
         />
-        <Metric
+        <StatTile
           label="Current"
-          value={dc ? fmt(cur_mA, 1, 'mA') : '—'}
-          sub={dc && volt != null ? `${volt.toFixed(3)} V` : (dc ? undefined : 'DC off')}
-          dim={!dc}
+          value={dc ? num(cur_mA, 1) : '—'}
+          unit={dc && cur_mA != null ? 'mA' : undefined}
+          sub={dc ? undefined : 'DC off'}
+          off={!dc}
         />
-      </Stack>
+        {showVolt && (
+          <StatTile
+            label="Voltage"
+            value={num(volt, 3)}
+            unit={volt != null ? 'V' : undefined}
+            off={!dc && !isStatic}
+          />
+        )}
+      </StatRow>
+
       {!isStatic && data?.error && (
         <Typography sx={{ fontSize: 11, color: 'error.main', mt: 1 }}>{data.error}</Typography>
       )}

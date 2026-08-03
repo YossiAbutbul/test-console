@@ -23,6 +23,17 @@ export interface ActionColor {
   border: string
 }
 
+/** Colours that encode data state in readouts and result rows — a measured
+ *  value out of limits, a row that failed. Panels themselves stay neutral, so
+ *  these are the only colours competing for attention on a dense page. */
+export interface DataPalette {
+  ok: string
+  warn: string
+  bad: string
+  /** Row background wash for a highlighted/selected result row. */
+  highlight: string
+}
+
 export interface AppPalette {
   appBar: string
   appBarBorder: string
@@ -30,6 +41,7 @@ export interface AppPalette {
   paper: string
   logBg: string
   sidebar: SidebarPalette
+  data: DataPalette
   actions: {
     scan: ActionColor
     connect: ActionColor
@@ -46,6 +58,12 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
     contentBg: '#FDFDFC',
     paper: '#FFFFFF',
     logBg: '#F7F7F6',
+    data: {
+      ok: '#15803D',
+      warn: '#B45309',
+      bad: '#B91C1C',
+      highlight: 'rgba(61,107,196,0.07)',
+    },
     sidebar: {
       bg: '#F3F3F2',
       bg2: '#F3F3F2',
@@ -73,6 +91,12 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
     contentBg: '#262626',
     paper: '#2C2C2C',
     logBg: '#232322',
+    data: {
+      ok: '#5FBF74',
+      warn: '#E0A02A',
+      bad: '#EF6B6B',
+      highlight: 'rgba(91,159,217,0.10)',
+    },
     sidebar: {
       bg: '#1F1F1E',
       bg2: '#1F1F1E',
@@ -100,6 +124,12 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
     contentBg: '#121212',
     paper: '#181818',
     logBg: '#111111',
+    data: {
+      ok: '#5FBF74',
+      warn: '#E0A02A',
+      bad: '#F87171',
+      highlight: 'rgba(91,159,217,0.10)',
+    },
     sidebar: {
       bg: '#0D0D0D',
       bg2: '#0D0D0D',

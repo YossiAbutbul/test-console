@@ -149,19 +149,19 @@ export function PathLossChip({ pathLossDb }: { pathLossDb: number }) {
   )
 }
 
-/** Raw request/response frame dump shown under the one-shot command pages. */
-export function FrameDump({ result }: { result: CommandResponse }) {
+/** Raw request/response frame dump shown under the one-shot command pages.
+ *  `plain` drops the border/padding so it can nest inside a Section card. */
+export function FrameDump({ result, plain }: { result: CommandResponse; plain?: boolean }) {
   return (
     <Box
       sx={{
         fontFamily: MONO,
         ...TEXT.hint,
-        p: 1.5,
-        borderRadius: 1,
-        border: 1,
-        borderColor: 'divider',
         lineHeight: 1.7,
         wordBreak: 'break-all',
+        ...(plain
+          ? null
+          : { p: 1.5, borderRadius: 1, border: 1, borderColor: 'divider' }),
       }}
     >
       <div>tx: {result.tx_hex}</div>
