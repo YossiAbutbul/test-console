@@ -190,12 +190,6 @@ export function SwitchPage({ protocol, group }: TestPageProps) {
                 : undefined}
               off={!connected || lastAngle == null}
             />
-            <StatTile
-              label="Last command"
-              value={s?.last_command ?? DASH}
-              sub={s?.last_response ? `reply ${s.last_response}` : undefined}
-              off={!connected || !s?.last_command}
-            />
           </StatRow>
 
           {s?.error && (
