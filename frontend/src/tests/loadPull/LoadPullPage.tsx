@@ -138,7 +138,11 @@ function CaptureField({
 }: CaptureFieldProps) {
   return (
     <Box>
-      <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>{label}</Typography>
+      {/* Matches LabeledField's own label, so the three controls on this row
+          read as one set rather than two different kinds of thing. */}
+      <Typography sx={{ ...TEXT.label, color: 'text.primary', mb: 0.5, whiteSpace: 'nowrap' }}>
+        {label}
+      </Typography>
       <Stack direction="row" spacing={0.75} alignItems="center">
         <Button
           size="small"
@@ -570,7 +574,10 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
             />
           </Stack>
 
-          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ mb: 1.75 }}>
+          {/* flex-end, not center: Jog speed carries a label above its input,
+              so centring sat the buttons halfway up it. Aligning the bottoms
+              puts every control on one line. */}
+          <Stack direction="row" spacing={1} alignItems="flex-end" useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
             <Button
               variant="outlined" startIcon={<FirstPageIcon />}
               onClick={() => goMinM.mutate()}
