@@ -106,10 +106,8 @@ const RESULT_ACTION_SX = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as con
 interface RigRowProps {
   name: string
   connected: boolean
-  /** Shown instead of the derived state — the DUT's address, say. */
+  /** Shown instead of the state once connected — the DUT's address, say. */
   detail?: string
-  /** True for the one thing the operator must connect themselves. */
-  required?: boolean
 }
 
 /**
@@ -118,15 +116,20 @@ interface RigRowProps {
  * A row per instrument rather than a cloud of chips: the names line up, so the
  * eye runs down the dots instead of hunting a wrapped row, and there is space
  * to say what each state means without a tooltip.
+ *
+ * Every line reads the same way, because every one of these is needed. The
+ * preflight will try to open whatever is down when the run starts, but that is
+ * not worth saying here — a load pull with no trombone or no VNA has nothing
+ * to measure, so "connects on run" promised a recovery that does not exist.
  */
-function RigRow({ name, connected, detail, required }: RigRowProps) {
+function RigRow({ name, connected, detail }: RigRowProps) {
   const p = useAppPalette()
   return (
     <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, py: 0.3 }}>
       <Box
         sx={{
           width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-          bgcolor: connected ? p.data.ok : (required ? p.data.warn : 'text.disabled'),
+          bgcolor: connected ? p.data.ok : p.data.warn,
         }}
       />
       <Typography
@@ -142,12 +145,13 @@ function RigRow({ name, connected, detail, required }: RigRowProps) {
       <Box sx={{ flexGrow: 1, minWidth: 8 }} />
       <Typography
         sx={{
-          fontSize: 11, fontFamily: detail ? MONO : undefined,
-          color: connected ? 'text.disabled' : (required ? p.data.warn : 'text.disabled'),
+          fontSize: 11,
+          fontFamily: connected && detail ? MONO : undefined,
+          color: connected ? 'text.disabled' : p.data.warn,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}
       >
-        {detail ?? (connected ? 'ready' : required ? 'connect first' : 'connects on run')}
+        {connected ? (detail ?? 'ready') : 'not connected'}
       </Typography>
     </Stack>
   )
@@ -260,9 +264,16 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const tr = useInstrumentValue('rf-trombone')
   const dutConnected = !!bleStatus?.connected
 
-  const allReady =
-    ps.status === 'connected' && dc.status === 'connected' && na.status === 'connected' &&
-    sw.status === 'connected' && tr.status === 'connected' && dutConnected
+  const rigUp = [
+    ps.status === 'connected',
+    dc.status === 'connected',
+    na.status === 'connected',
+    sw.status === 'connected',
+    tr.status === 'connected',
+    dutConnected,
+  ]
+  const allReady = rigUp.every(Boolean)
+  const missingCount = rigUp.filter((up) => !up).length
 
   const [freqMhz, setFreqMhz] = useState<number>(() => loadPullPageSnapshot.freqMhz ?? 902.3)
   const [powerDbm, setPowerDbm] = useState<number>(() => loadPullPageSnapshot.powerDbm ?? 14)
@@ -524,8 +535,13 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
             title="Instruments"
             step={1}
             panel
-            hint="Connected automatically when the run starts."
-            action={<StepMark done={allReady} label={allReady ? 'all ready' : 'will connect on run'} />}
+            hint="Every stage of a point uses one of these."
+            action={
+              <StepMark
+                done={allReady}
+                label={allReady ? 'all ready' : `${missingCount} not connected`}
+              />
+            }
           >
             <Box
               sx={{
@@ -541,15 +557,14 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               <RigRow name="Trombone" connected={tr.status === 'connected'} />
             </Box>
 
-            {/* The DUT sits apart because it is the only one here that stops
-                the run: nothing can open a BLE link on the operator's behalf,
-                so it is a precondition where the others are a courtesy. */}
+            {/* Apart from the rest because it is connected from the toolbar
+                rather than the Instruments panel, so a missing one is fixed
+                somewhere else. */}
             <Divider sx={{ my: 1 }} />
             <RigRow
               name="BLE DUT"
               connected={dutConnected}
-              required
-              detail={dutConnected ? (bleStatus?.address ?? 'connected') : undefined}
+              detail={bleStatus?.address ?? 'connected'}
             />
           </Section>
 
