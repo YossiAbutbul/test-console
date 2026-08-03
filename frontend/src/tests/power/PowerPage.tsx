@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Box, MenuItem, Stack, Tab, Tabs, Typography } from '@mui/material'
+import { Box, Button, Collapse, MenuItem, Stack, Tab, Tabs, Typography } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
-import { FrameDump, PageBody, Section, SendStopControls, TwoCol } from '../../ui'
+import { useAppPalette } from '../../context/ThemeModeContext'
+import { FrameDump, GRID_GAP, PageBody, Section, SendStopControls } from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
 import { AutomationPanel } from './AutomationPanel'
@@ -20,6 +21,8 @@ export function PowerPage({ protocol, group }: TestPageProps) {
   const [paMode, setPaMode] = useState(2)
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
+  const [frameOpen, setFrameOpen] = useState(false)
+  const p = useAppPalette()
   const [tab, setTab] = useState<PowerPageTab>(() => powerPageSnapshot.tab ?? 'manual')
   useEffect(() => { powerPageSnapshot.tab = tab; persistPowerPage() }, [tab])
 
@@ -94,44 +97,83 @@ export function PowerPage({ protocol, group }: TestPageProps) {
       {/* Both panels stay mounted; toggle via display so switching is instant. */}
       <Box sx={{ display: tab === 'manual' ? 'block' : 'none' }}>
         <PageBody width="grid">
+          {/* The result first: what we asked for, what came out, and the error
+              between them — the question this page exists to answer. */}
           <MeasurementCard
             freqHz={Math.round(freqMhz * 1_000_000)}
             triggerId={measureTrigger}
+            targetDbm={power}
           />
 
-          <TwoCol>
-            <Section title="RF setup" panel>
-              <Stack spacing={1.5}>
-                <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
-                  historyKey={`${protocol}.power.freqMhz`}
-                  onChange={(e) => setFreqMhz(Number(e.target.value))}
-                  inputProps={{ step: 0.1 }} />
-                <LabeledField label="Power" hint="dBm" type="number" value={power}
-                  historyKey={`${protocol}.power.power_dbm`}
-                  onChange={(e) => setPower(Number(e.target.value))} />
-                <LabeledField
-                  label="PA Mode"
-                  select
-                  value={paMode}
-                  onChange={(e) => setPaMode(Number(e.target.value))}
-                >
-                  <MenuItem value={2}>Auto</MenuItem>
-                  <MenuItem value={1}>On</MenuItem>
-                  <MenuItem value={0}>Off</MenuItem>
-                </LabeledField>
-              </Stack>
-            </Section>
+          {/* Every field on one row: they are three short values, and stacking
+              them made a tall lonely column that pushed the result off screen. */}
+          <Section title="Transmit" panel>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: `${GRID_GAP}px`,
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
+              }}
+            >
+              <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
+                historyKey={`${protocol}.power.freqMhz`}
+                onChange={(e) => setFreqMhz(Number(e.target.value))}
+                inputProps={{ step: 0.1 }} />
+              <LabeledField label="Power" hint="dBm" type="number" value={power}
+                historyKey={`${protocol}.power.power_dbm`}
+                onChange={(e) => setPower(Number(e.target.value))} />
+              <LabeledField
+                label="PA Mode"
+                select
+                value={paMode}
+                onChange={(e) => setPaMode(Number(e.target.value))}
+              >
+                <MenuItem value={2}>Auto</MenuItem>
+                <MenuItem value={1}>On</MenuItem>
+                <MenuItem value={0}>Off</MenuItem>
+              </LabeledField>
+            </Box>
+          </Section>
 
-            <Section title="Last frame" panel>
-              {last ? (
+          {/* Wire detail: kept collapsed so it stops competing with the result,
+              but the ok/status stays visible because that is the one part of it
+              you check on every send. */}
+          <Section
+            title="Last frame"
+            panel
+            action={
+              last ? (
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Typography
+                    sx={{
+                      fontSize: 11.5, fontWeight: 600,
+                      color: last.ok ? p.data.ok : p.data.bad,
+                    }}
+                  >
+                    {last.ok ? 'ok' : 'failed'} · status {last.status}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => setFrameOpen((v) => !v)}
+                    sx={{ minWidth: 0, height: 22, fontSize: 11.5, px: 0.75 }}
+                  >
+                    {frameOpen ? 'Hide' : 'Show'}
+                  </Button>
+                </Stack>
+              ) : null
+            }
+          >
+            {last ? (
+              <Collapse in={frameOpen} unmountOnExit>
                 <FrameDump result={last} plain />
-              ) : (
-                <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
-                  Send a command to see the raw request and reply here.
-                </Typography>
-              )}
-            </Section>
-          </TwoCol>
+              </Collapse>
+            ) : (
+              <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
+                Send a command to see the raw request and reply here.
+              </Typography>
+            )}
+          </Section>
         </PageBody>
       </Box>
 

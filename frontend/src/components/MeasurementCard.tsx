@@ -16,6 +16,14 @@ interface Props {
   /** Delay before auto-measure fires, lets DUT settle. */
   settleMs?: number
   onResult?: (r: MeasureResponse) => void
+  /**
+   * The power we asked the DUT for, in dBm. When given, the strip adds the
+   * error against it — the number a TX power test actually exists to produce.
+   * Without it the operator has to subtract two readings in their head.
+   */
+  targetDbm?: number | null
+  /** |error| at or under this is on-spec; up to twice this is marginal. */
+  toleranceDb?: number
   /** When set, render these values instead of fetching. Hides controls. */
   staticData?: {
     power_dbm?: number | null
@@ -32,7 +40,10 @@ function num(v: number | null | undefined, digits: number): string {
   return v.toFixed(digits)
 }
 
-export function MeasurementCard({ freqHz, triggerId, settleMs = 250, onResult, staticData }: Props) {
+export function MeasurementCard({
+  freqHz, triggerId, settleMs = 250, onResult, staticData,
+  targetDbm, toleranceDb = 1,
+}: Props) {
   const { instruments, setOpen: openInstruments } = useInstruments()
   const { pathLossDb } = usePathLoss()
   const isStatic = staticData !== undefined
@@ -79,12 +90,35 @@ export function MeasurementCard({ freqHz, triggerId, settleMs = 250, onResult, s
   // static). Power-only static rows (e.g. a mode-sweep point) stay two-up.
   const showVolt = isStatic ? staticData?.voltage_v != null : dc
 
+  // Error against the requested power. Only meaningful once we actually have a
+  // reading — before that the tile shows the target alone rather than a
+  // fabricated "0.00" that reads like a passing result.
+  const hasTarget = targetDbm != null && Number.isFinite(targetDbm)
+  const measured = ps && power != null && Number.isFinite(power) ? power : null
+  const errDb = hasTarget && measured != null ? measured - targetDbm : null
+  const errTone: 'ok' | 'warn' | 'bad' | undefined =
+    errDb == null
+      ? undefined
+      : Math.abs(errDb) <= toleranceDb
+        ? 'ok'
+        : Math.abs(errDb) <= toleranceDb * 2
+          ? 'warn'
+          : 'bad'
+
   return (
     <Box>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-        <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary', flexGrow: 1 }}>
+        <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
           {staticData?.label ?? 'Measurement'}
         </Typography>
+        {/* State where the number came from: a corrected reading that doesn't
+            say so looks like the sensor disagrees with the DUT. */}
+        {!isStatic && pathLossDb !== 0 && (
+          <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>
+            incl. {pathLossDb > 0 ? '+' : ''}{pathLossDb} dB path loss
+          </Typography>
+        )}
+        <Box sx={{ flexGrow: 1 }} />
         {staticData?.subLabel && (
           <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>{staticData.subLabel}</Typography>
         )}
@@ -123,28 +157,53 @@ export function MeasurementCard({ freqHz, triggerId, settleMs = 250, onResult, s
       </Stack>
 
       <StatRow>
+        {hasTarget && (
+          <StatTile
+            label="Target"
+            value={num(targetDbm, 2)}
+            unit="dBm"
+            sub="requested"
+          />
+        )}
         <StatTile
-          label="TX Power"
+          label={hasTarget ? 'Measured' : 'TX Power'}
           value={ps ? num(power, 2) : '—'}
           unit={ps && power != null ? 'dBm' : undefined}
-          sub={ps ? (power_mW != null ? `${power_mW.toFixed(2)} mW` : undefined) : 'sensor off'}
+          sub={
+            !ps
+              ? 'sensor off'
+              : power_mW != null
+                ? `${power_mW.toFixed(2)} mW`
+                : isStatic ? undefined : 'not read yet'
+          }
           off={!ps}
         />
+        {hasTarget && (
+          <StatTile
+            label="Error"
+            value={errDb == null ? '—' : `${errDb >= 0 ? '+' : '−'}${Math.abs(errDb).toFixed(2)}`}
+            unit={errDb == null ? undefined : 'dB'}
+            sub={
+              errDb == null
+                ? 'no reading'
+                : errTone === 'ok'
+                  ? `within ±${toleranceDb} dB`
+                  : `outside ±${toleranceDb} dB`
+            }
+            tone={errTone}
+            off={errDb == null}
+          />
+        )}
+        {/* Supply voltage rides along as the current's context rather than its
+            own tile: it is the condition the current was drawn under, and a
+            fifth tile pushed the strip into a ragged second row. */}
         <StatTile
           label="Current"
           value={dc ? num(cur_mA, 1) : '—'}
           unit={dc && cur_mA != null ? 'mA' : undefined}
-          sub={dc ? undefined : 'DC off'}
+          sub={dc ? (showVolt && volt != null ? `at ${volt.toFixed(3)} V` : undefined) : 'DC off'}
           off={!dc}
         />
-        {showVolt && (
-          <StatTile
-            label="Voltage"
-            value={num(volt, 3)}
-            unit={volt != null ? 'V' : undefined}
-            off={!dc && !isStatic}
-          />
-        )}
       </StatRow>
 
       {!isStatic && data?.error && (
