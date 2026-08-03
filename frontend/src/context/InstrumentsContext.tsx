@@ -54,6 +54,34 @@ export interface ConnectOutcome {
 export const CONNECT_TIMEOUT_MS = 15000
 
 /**
+ * Substring identifying each instrument in a discovered IDN.
+ *
+ * Several VISA devices answer one scan, so "the first candidate" is not good
+ * enough — it is how the network analyzer picker ends up offering the DC
+ * analyzer. Shared with the Instruments panel so the address a scan pre-fills
+ * and the one an auto-connect resolves are chosen the same way.
+ */
+export const EXPECTED_MODEL: Partial<Record<InstrumentId, string>> = {
+  'dc-analyzer': 'N6705',
+  'network-analyzer': 'E5061',
+  spectrum: 'FSW',
+}
+
+/** The candidate that best matches `id`, or null when the scan found nothing. */
+export function pickCandidate(
+  id: InstrumentId,
+  list: DiscoverCandidate[],
+): DiscoverCandidate | null {
+  if (list.length === 0) return null
+  const want = EXPECTED_MODEL[id]
+  if (want) {
+    const m = list.find((c) => c.idn?.toLowerCase().includes(want.toLowerCase()))
+    if (m) return m
+  }
+  return list[0]
+}
+
+/**
  * Hard cap on a single discover/scan. The backend already bounds VISA
  * enumeration and returns a 504 on a wedged instrument, but a scan must never
  * be able to spin the row's progress bar forever if a request hangs below that
@@ -235,14 +263,20 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
     patch(id, { channel })
   }, [patch])
 
+  // `discover` is declared below but only ever called from inside a handler,
+  // so route through a ref rather than reordering the two around each other.
+  const discoverRef = useRef<(id: InstrumentId) => Promise<DiscoverCandidate[]>>(
+    async () => [],
+  )
+
   /** The connect itself. Throws on failure; `connect` classifies it. */
   const openSession = useCallback(async (id: InstrumentId) => {
     const cur = instrumentsRef.current[id]
     if (cur.placeholder) throw new Error('not wired yet')
-    // A blank address is legitimate and means "bind the first device found":
-    // the power-sensor driver falls back to a no-arg connect, and the DC
-    // analyzer to its default VISA resource. Addresses are not persisted, so
-    // rejecting a blank one here made every test unrunnable after a reload.
+    // A blank address is legitimate and means "bind whatever is out there":
+    // the power-sensor driver falls back to a no-arg connect. Addresses are
+    // not persisted, so rejecting a blank one here made every test unrunnable
+    // after a reload.
 
     if (id === 'rf-switch') {
       const r = await servo.connect(cur.address.trim())
@@ -263,7 +297,22 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
       patch(id, { status: 'connected', idn })
       return
     }
-    const res = await instrumentsApi.connect(id as InstrumentKind, cur.address.trim(), cur.channel)
+    // For the VISA instruments a blank address is *not* a usable default: the
+    // driver falls back to a resource string compiled into it, which is some
+    // other unit's serial and fails with "not found at that address" even
+    // though a scan would have located the instrument immediately. Since
+    // addresses are not persisted, that is the state after every reload — so
+    // resolve one by scanning before giving up.
+    let address = cur.address.trim()
+    if (!address && EXPECTED_MODEL[id]) {
+      const pick = pickCandidate(id, await discoverRef.current(id))
+      if (pick) {
+        address = pick.resource
+        // Show what it bound to, so the field is not still blank afterwards.
+        patch(id, { address })
+      }
+    }
+    const res = await instrumentsApi.connect(id as InstrumentKind, address, cur.channel)
     patch(id, { status: 'connected', idn: res.idn ?? undefined })
   }, [patch])
 
@@ -357,6 +406,7 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
       if (timer != null) window.clearTimeout(timer)
     }
   }, [])
+  discoverRef.current = discover
 
   const state = useMemo<State>(
     () => ({ open: openState, required, instruments }),

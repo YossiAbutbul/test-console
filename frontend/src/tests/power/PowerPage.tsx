@@ -7,11 +7,17 @@ import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
 import { useAppPalette } from '../../context/ThemeModeContext'
+import type { InstrumentId } from '../../context/InstrumentsContext'
+import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { FrameDump, GRID_GAP, PageBody, Section, SendStopControls } from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
 import { AutomationPanel } from './AutomationPanel'
 import { powerPageSnapshot, persistPowerPage, type PowerPageTab } from '../../store/powerPageStore'
+
+/** The manual tab measures the command it sends, so it needs what the
+ *  automation tab needs. Kept in sync with AutomationPanel deliberately. */
+const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
 
 export function PowerPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
@@ -23,14 +29,23 @@ export function PowerPage({ protocol, group }: TestPageProps) {
   const [measureTrigger, setMeasureTrigger] = useState(0)
   const [frameOpen, setFrameOpen] = useState(false)
   const p = useAppPalette()
+  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
   const [tab, setTab] = useState<PowerPageTab>(() => powerPageSnapshot.tab ?? 'manual')
   useEffect(() => { powerPageSnapshot.tab = tab; persistPowerPage() }, [tab])
 
   const send = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!hasBackend) {
         log('DUT', `${protocol} Power: no backend wired yet`, 'warn')
-        return Promise.resolve(null)
+        return null
+      }
+      // Connect the instruments before keying the PA, not after: the card
+      // auto-measures once the command lands, and connecting a VISA session
+      // takes long enough that the DUT would already be transmitting into a
+      // sensor nobody was reading.
+      if (!(await preflight.run())) {
+        log('DUT', 'Send cancelled — instruments not ready', 'warn')
+        return null
       }
       return device.loraPower({
         freq_hz: Math.round(freqMhz * 1_000_000),
@@ -185,6 +200,8 @@ export function PowerPage({ protocol, group }: TestPageProps) {
       >
         <AutomationPanel protocol={protocol} />
       </Box>
+
+      {preflight.dialog}
     </Box>
   )
 }

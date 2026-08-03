@@ -19,7 +19,7 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react'
 
 import {
-  PreflightDialog, type PreflightStep,
+  PreflightDialog, type PreflightStep, type PreflightVerb,
 } from '../../components/PreflightDialog'
 import {
   CONNECT_TIMEOUT_MS, useInstrumentsActions, useInstrumentsState,
@@ -37,9 +37,15 @@ export interface Preflight {
   dialog: ReactNode
 }
 
+interface PreflightOptions {
+  timeoutMs?: number
+  /** Tailors the dialog's wording to what proceeding would cost. */
+  verb?: PreflightVerb
+}
+
 export function useInstrumentPreflight(
   required: InstrumentId[],
-  timeoutMs = CONNECT_TIMEOUT_MS,
+  { timeoutMs = CONNECT_TIMEOUT_MS, verb = 'run' }: PreflightOptions = {},
 ): Preflight {
   const { instruments } = useInstrumentsState()
   const { connect, setOpen, refreshStatus } = useInstrumentsActions()
@@ -146,6 +152,7 @@ export function useInstrumentPreflight(
       busy={busy}
       elapsed={elapsed}
       timeoutMs={timeoutMs}
+      verb={verb}
       onRunAnyway={() => settle(true)}
       onCancel={() => settle(false)}
       onOpenInstruments={() => { settle(false); setOpen(true) }}

@@ -7,9 +7,14 @@ import { MeasurementCard } from '../../components/MeasurementCard'
 import { useMutation } from '@tanstack/react-query'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
+import type { InstrumentId } from '../../context/InstrumentsContext'
+import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
 import { FrameDump, PageBody, Section, SendStopControls } from '../../ui'
+
+/** This page measures what it transmits, so the readings need these up. */
+const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
 
 export function CwDebugPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
@@ -22,6 +27,7 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
   const [paMode, setPaMode] = useState(0)
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
+  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
 
   // PA Duty Cycle and HP Max are valid only in 1..7 (0 doesn't work on the DUT).
   const inRange = (v: number) => Number.isInteger(v) && v >= 1 && v <= 7
@@ -36,10 +42,15 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
   })
 
   const send = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!hasBackend) {
         log('DUT', `${protocol} Debug: no backend wired yet`, 'warn')
-        return Promise.resolve(null)
+        return null
+      }
+      // Connect before keying the PA — see PowerPage.send.
+      if (!(await preflight.run())) {
+        log('DUT', 'Send cancelled — instruments not ready', 'warn')
+        return null
       }
       return device.loraCw({ freq_hz: Math.round(freqMhz * 1_000_000), power_dbm: power, pa_duty_cycle: Number(duty), hp_max: Number(hp), pa_mode: paMode })
     },
@@ -131,6 +142,8 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
 
         {last && <FrameDump result={last} />}
       </PageBody>
+
+      {preflight.dialog}
     </Box>
   )
 }

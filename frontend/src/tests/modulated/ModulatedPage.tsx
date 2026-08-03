@@ -6,9 +6,14 @@ import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
+import type { InstrumentId } from '../../context/InstrumentsContext'
+import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { FrameDump, PageBody, Section, SendStopControls, TEXT } from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
+
+/** This page measures what it transmits, so the readings need these up. */
+const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
 
 const MODEM = { FSK: 0, LoRa: 1 } as const
 type ModemName = keyof typeof MODEM
@@ -33,16 +38,22 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
   const [power, setPower] = useState(14)
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
+  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
 
   useEffect(() => {
     if (modem === 'FSK' && bandwidth !== 0) setBandwidth(0)
   }, [modem, bandwidth])
 
   const send = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!hasBackend) {
         log('DUT', `${protocol} Modulated: no backend wired yet`, 'warn')
-        return Promise.resolve(null)
+        return null
+      }
+      // Connect before keying the PA — see PowerPage.send.
+      if (!(await preflight.run())) {
+        log('DUT', 'Send cancelled — instruments not ready', 'warn')
+        return null
       }
       return device.loraModulated({
         bandwidth,
@@ -172,6 +183,8 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
 
         {last && <FrameDump result={last} />}
       </PageBody>
+
+      {preflight.dialog}
     </Box>
   )
 }

@@ -7,6 +7,7 @@ import CloseIcon from '@mui/icons-material/Close'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import {
+  EXPECTED_MODEL, pickCandidate,
   useInstrumentsModal, useInstrumentsActions, useInstrumentsState,
   type InstrumentId, type InstrumentState,
 } from '../context/InstrumentsContext'
@@ -47,15 +48,6 @@ function fieldPlaceholder(id: InstrumentId, placeholder?: boolean): string {
   return 'VISA — USB0::0x...::INSTR'
 }
 
-/** Substring to look for in the discovered IDN to pre-select the right
- *  resource. Without this, discovery would just pick the first candidate
- *  which can be the wrong instrument when several VISA devices are present. */
-const EXPECTED_MODEL: Partial<Record<InstrumentId, string>> = {
-  'dc-analyzer': 'N6705',
-  'network-analyzer': 'E5061',
-  spectrum: 'FSW',
-}
-
 /** Drop candidates that clearly belong to a *different* known instrument.
  *  Keeps the model-matched device plus any with no IDN (still unidentified),
  *  so the network-analyzer picker won't list the DC analyzer (N6705) etc. */
@@ -71,16 +63,6 @@ function filterCandidates(id: InstrumentId, list: DiscoverCandidate[]): Discover
     if (idn.includes(want)) return true
     return !others.some((o) => idn.includes(o)) // exclude known-other models
   })
-}
-
-function pickDefault(id: InstrumentId, list: DiscoverCandidate[]): DiscoverCandidate | null {
-  if (list.length === 0) return null
-  const want = EXPECTED_MODEL[id]
-  if (want) {
-    const m = list.find((c) => c.idn?.toLowerCase().includes(want.toLowerCase()))
-    if (m) return m
-  }
-  return list[0]
 }
 
 interface RowProps {
@@ -115,7 +97,7 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
       // candidate, pre-fill it. Prefers the model-matched device (e.g. N6705B
       // for dc-analyzer, E5061B for network-analyzer) to avoid mis-mapping
       // when multiple VISA instruments are present.
-      const pick = pickDefault(id, list)
+      const pick = pickCandidate(id, list)
       if (pick && !inst.address.trim() && !connected) {
         setAddress(id, pick.resource)
       }
