@@ -53,6 +53,15 @@ export interface ConnectOutcome {
  */
 export const CONNECT_TIMEOUT_MS = 15000
 
+/**
+ * Hard cap on a single discover/scan. The backend already bounds VISA
+ * enumeration and returns a 504 on a wedged instrument, but a scan must never
+ * be able to spin the row's progress bar forever if a request hangs below that
+ * (proxy stall, lost socket). Kept above the backend's own scan timeout so the
+ * server's 504 is what normally surfaces.
+ */
+export const DISCOVER_TIMEOUT_MS = 20000
+
 interface Actions {
   setOpen: (b: boolean) => void
   notifyMissing: (ids: InstrumentId[]) => void
@@ -306,30 +315,46 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
   }, [patch])
 
   const discover = useCallback(async (id: InstrumentId): Promise<DiscoverCandidate[]> => {
+    let timer: number | undefined
     try {
-      if (id === 'rf-switch') {
-        const r = await servo.discover()
-        if (r.details && r.details.length) {
-          return r.details.map((d) => ({ resource: d.port, idn: d.idn }))
+      const scan = (async (): Promise<DiscoverCandidate[]> => {
+        if (id === 'rf-switch') {
+          const r = await servo.discover()
+          if (r.details && r.details.length) {
+            return r.details.map((d) => ({ resource: d.port, idn: d.idn }))
+          }
+          return r.candidates.map((resource) => ({ resource, idn: null }))
         }
-        return r.candidates.map((resource) => ({ resource, idn: null }))
-      }
-      if (id === 'rf-trombone') {
-        const r = await motor.discover()
-        // Expose the device name (e.g. "jsa00") as the picked value; the index
-        // is resolved at connect time by re-listing devices.
-        return r.candidates.map((name, i) => ({
-          resource: name,
-          idn: `Arcus DMX-J-SA · device #${i}`,
-        }))
-      }
-      const res = await instrumentsApi.discover(id as InstrumentKind)
-      if (res.details && res.details.length) return res.details
-      return res.candidates.map((resource) => ({ resource, idn: null }))
+        if (id === 'rf-trombone') {
+          const r = await motor.discover()
+          // Expose the device name (e.g. "jsa00") as the picked value; the index
+          // is resolved at connect time by re-listing devices.
+          return r.candidates.map((name, i) => ({
+            resource: name,
+            idn: `Arcus DMX-J-SA · device #${i}`,
+          }))
+        }
+        const res = await instrumentsApi.discover(id as InstrumentKind)
+        if (res.details && res.details.length) return res.details
+        return res.candidates.map((resource) => ({ resource, idn: null }))
+      })()
+      // The request keeps running if it loses the race; the caller just stops
+      // waiting so the scan indicator can't spin indefinitely.
+      return await Promise.race([
+        scan,
+        new Promise<DiscoverCandidate[]>((_, reject) => {
+          timer = window.setTimeout(
+            () => reject(new Error('discover timed out')),
+            DISCOVER_TIMEOUT_MS,
+          )
+        }),
+      ])
     } catch {
       // Scan is opportunistic — never surface a discover failure as an
       // instrument error (502/timeout/etc would otherwise paint the row red).
       return []
+    } finally {
+      if (timer != null) window.clearTimeout(timer)
     }
   }, [])
 

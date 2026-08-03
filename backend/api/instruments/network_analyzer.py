@@ -18,7 +18,7 @@ from ._common import (
     ConnectRequest,
     ConnectResponse,
     DiscoverResponse,
-    list_visa_resources_idn,
+    discover_visa,
 )
 from ._state import state
 
@@ -71,7 +71,7 @@ def _disconnect() -> None:
 @router.get("/discover/network-analyzer", response_model=DiscoverResponse)
 async def discover() -> DiscoverResponse:
     with handle_driver_errors("vna discover"):
-        details = await asyncio.to_thread(list_visa_resources_idn)
+        details = await discover_visa()
     return DiscoverResponse(
         candidates=[d.resource for d in details],
         details=details,

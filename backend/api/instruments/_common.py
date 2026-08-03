@@ -1,9 +1,13 @@
 """Shared schemas and helpers for instrument route modules."""
 from __future__ import annotations
 
+import asyncio
+import time
+
 from pydantic import BaseModel, Field
 
 from ..errors import DriverUnavailable
+from ._bus import InstrumentBus
 
 
 class DiscoverCandidate(BaseModel):
@@ -92,3 +96,48 @@ def list_visa_resources_idn() -> list[DiscoverCandidate]:
         except Exception:
             pass
     return out
+
+
+# How long a single VISA enumeration may run before the caller gives up. A
+# wedged USBTMC open (see `discover_visa`) is uninterruptible, so this only
+# bounds *waiting*, not the thread — but that is enough to return a 504 to the
+# UI instead of hanging until the proxy resets the socket. Kept below the
+# frontend's own discover cap so the server's 504 is what normally surfaces.
+DISCOVER_TIMEOUT_S = 12.0
+
+#: Two pickers (dc-analyzer + network-analyzer) scan on the same modal-open, and
+#: a re-scan often follows within a second. A short cache lets the second scan
+#: reuse the first's result instead of touching the hardware again.
+_DISCOVER_TTL_S = 3.0
+
+#: A single isolated worker for *all* VISA enumeration. USBTMC access is
+#: exclusive: two threads opening the same instrument concurrently wedge it (the
+#: open lock is not bounded by `open_timeout`). Routing every scan through one
+#: thread makes concurrent opens impossible, and the bus bounds how long callers
+#: wait on a stuck one.
+_visa_bus = InstrumentBus("visa-discover")
+
+#: Serialises the *coroutines* so the second concurrent caller waits for the
+#: first and then hits the cache, rather than racing it onto the bus (which
+#: would reject it as "busy"). Guards `_cache`.
+_discover_lock = asyncio.Lock()
+_cache: tuple[float, list[DiscoverCandidate]] | None = None
+
+
+async def discover_visa() -> list[DiscoverCandidate]:
+    """Enumerate VISA resources safely for concurrent callers.
+
+    Serialised (never two overlapping hardware scans), time-bounded (a wedged
+    open surfaces as `TimeoutError` → 504, not an endless request), and briefly
+    cached so the dc-analyzer and network-analyzer pickers share one scan.
+    """
+    global _cache
+    async with _discover_lock:
+        cached = _cache
+        if cached is not None and time.monotonic() - cached[0] < _DISCOVER_TTL_S:
+            return cached[1]
+        result = await _visa_bus.call(
+            list_visa_resources_idn, timeout=DISCOVER_TIMEOUT_S
+        )
+        _cache = (time.monotonic(), result)
+        return result
