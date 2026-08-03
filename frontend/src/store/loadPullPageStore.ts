@@ -26,8 +26,12 @@ export interface LoadPullPageSnapshot {
   jogSpeed?: number
   zeroPulses?: number | null
   endPulses?: number | null
-  pathAck?: boolean
   results?: LoadPullResultRow[]
+  // `pathAck` is deliberately absent. Confirming the RF path asserts how the
+  // bench is cabled right now — the one precondition the app cannot check for
+  // itself — so it is held in component state and starts false every session.
+  // Persisted, a tick from a previous sitting would vouch for a rig that has
+  // since been unplugged.
 }
 
 const store = makePageStore<LoadPullPageSnapshot>(STORAGE_KEYS.loadPullPage, {})

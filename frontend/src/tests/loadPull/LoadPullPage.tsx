@@ -10,6 +10,9 @@ import LastPageIcon from '@mui/icons-material/LastPage'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import DownloadIcon from '@mui/icons-material/Download'
 import ScatterPlotIcon from '@mui/icons-material/ScatterPlot'
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
+import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
+import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
@@ -25,11 +28,12 @@ import { useLog } from '../../context/LogContext'
 import { useNotify } from '../../context/NotifyContext'
 import { sleep } from '../../lib/async'
 import { downloadBlob, exportName, toCsv } from '../../lib/download'
-import { fmt, num } from '../../lib/format'
+import { DASH, fmt, num } from '../../lib/format'
 import {
-  ACTION_W, CONTROL_H, MONO, PageBody, PathLossChip, Readout, RunControls,
-  Section, StatusChip, TEXT,
+  ACTION_W, CONTROL_H, FieldGrid, MONO, PageBody, PathLossChip, RunControls,
+  Section, StatRow, StatTile, StatusChip, TEXT, TwoCol,
 } from '../../ui'
+import { useAppPalette } from '../../context/ThemeModeContext'
 import type { TestPageProps } from '../types'
 import {
   loadPullPageSnapshot, persistLoadPullPage, type LoadPullResultRow,
@@ -96,12 +100,82 @@ function downloadCsv(rows: LoadPullResultRow[], meta: CsvMeta): void {
   downloadBlob(blob, exportName('load-pull', meta.mac, 'csv', '-load-pull'))
 }
 
+const RESULT_ACTION_SX = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
+
+/** Done / not-done marker for a step heading. */
+function StepMark({ done, label }: { done: boolean; label: string }) {
+  const p = useAppPalette()
+  return (
+    <Stack direction="row" alignItems="center" spacing={0.5}>
+      {done
+        ? <CheckCircleRoundedIcon sx={{ fontSize: 15, color: p.data.ok }} />
+        : <RadioButtonUncheckedIcon sx={{ fontSize: 15, color: 'text.disabled' }} />}
+      <Typography
+        sx={{ fontSize: 11.5, fontWeight: 600, color: done ? p.data.ok : 'text.disabled' }}
+      >
+        {label}
+      </Typography>
+    </Stack>
+  )
+}
+
+interface CaptureFieldProps {
+  label: string
+  value: number | null
+  onCapture: () => void
+  onClear: () => void
+  captureDisabled: boolean
+  clearDisabled: boolean
+}
+
+/**
+ * One end of the sweep: capture the position the trombone is standing at, or
+ * clear it. Shows what was captured, because the plan is built from these two
+ * and an empty one is the usual reason Run is unavailable.
+ */
+function CaptureField({
+  label, value, onCapture, onClear, captureDisabled, clearDisabled,
+}: CaptureFieldProps) {
+  return (
+    <Box>
+      <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>{label}</Typography>
+      <Stack direction="row" spacing={0.75} alignItems="center">
+        <Button
+          size="small"
+          variant={value == null ? 'contained' : 'outlined'}
+          color={value == null ? 'primary' : 'inherit'}
+          onClick={onCapture}
+          disabled={captureDisabled}
+          sx={{ minWidth: 78, height: CONTROL_H.md }}
+        >
+          {value == null ? 'Capture' : 'Recapture'}
+        </Button>
+        <Typography
+          sx={{
+            fontFamily: MONO, fontSize: 12.5, minWidth: 96,
+            color: value == null ? 'text.disabled' : 'text.primary',
+          }}
+        >
+          {value == null ? 'not set' : `${(value / PULSES_PER_MM).toFixed(2)} mm`}
+        </Typography>
+        {value != null && (
+          <Button size="small" onClick={onClear} disabled={clearDisabled}
+            sx={{ minWidth: 0, height: 24, fontSize: 11.5, px: 0.75 }}>
+            clear
+          </Button>
+        )}
+      </Stack>
+    </Box>
+  )
+}
+
 export function LoadPullPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
   const notify = useNotify()
   const reporter = useRunReporter('Load Pull', 'LoadPull')
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
   const { pathLossDb } = usePathLoss()
+  const p = useAppPalette()
   const { status: bleStatus } = useConnection()
   const hasBackend = protocol === 'LoRa'
 
@@ -124,7 +198,9 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const [jogSpeed, setJogSpeed] = useState<number>(() => loadPullPageSnapshot.jogSpeed ?? 800)
   const [zeroPulses, setZeroPulses] = useState<number | null>(() => loadPullPageSnapshot.zeroPulses ?? null)
   const [endPulses, setEndPulses] = useState<number | null>(() => loadPullPageSnapshot.endPulses ?? null)
-  const [pathAck, setPathAck] = useState<boolean>(() => !!loadPullPageSnapshot.pathAck)
+  // Starts false every session on purpose: it asserts how the bench is
+  // cabled *now*, which is the one precondition nothing here can verify.
+  const [pathAck, setPathAck] = useState(false)
   const [results, setResults] = useState<LoadPullResultRow[]>(() => loadPullPageSnapshot.results ?? [])
   const [smithOpen, setSmithOpen] = useState(false)
 
@@ -136,7 +212,6 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   useEffect(() => { loadPullPageSnapshot.jogSpeed = jogSpeed; persistLoadPullPage() }, [jogSpeed])
   useEffect(() => { loadPullPageSnapshot.zeroPulses = zeroPulses; persistLoadPullPage() }, [zeroPulses])
   useEffect(() => { loadPullPageSnapshot.endPulses = endPulses; persistLoadPullPage() }, [endPulses])
-  useEffect(() => { loadPullPageSnapshot.pathAck = pathAck; persistLoadPullPage() }, [pathAck])
   useEffect(() => { loadPullPageSnapshot.results = results; persistLoadPullPage() }, [results])
 
   const [running, setRunning] = useState(false)
@@ -180,7 +255,18 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   // Instruments are deliberately not gated here — the preflight connects them
   // on Run, and gating would make an unconnected rig look like a broken page.
   // The DUT link is different: nothing can connect it on the operator's behalf.
-  const canRun = hasBackend && dutConnected && pathAck && totalPoints > 0 && !running
+  //
+  // Each blocker is named rather than folded into one disabled button. Four
+  // separate preconditions can hold the run, and a greyed Run said which one
+  // about as well as saying nothing.
+  const blockers: string[] = []
+  if (!hasBackend) blockers.push(`${protocol} has no backend wired up`)
+  if (!dutConnected) blockers.push('connect the DUT over BLE')
+  if (!pathAck) blockers.push('confirm the RF path')
+  if (zeroPulses == null) blockers.push('capture the zero position')
+  if (endPulses == null) blockers.push('capture the end position')
+  if (deltaXmm <= 0) blockers.push('set Delta X above 0')
+  const canRun = blockers.length === 0 && !running
 
   // Measure one trombone position: move → VNA marker (R/J/S11) → PCB → TX →
   // power+CC. Never throws — failures are recorded in the returned row.
@@ -302,107 +388,129 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
         }
       />
 
-      <PageBody width="full" scroll>
-        <Section
-          title="Instruments"
-          step={1}
-          action={
-            <Typography
-              sx={{
-                ...TEXT.hint,
-                fontWeight: 600,
-                color: allReady ? 'success.main' : 'text.secondary',
-              }}
-            >
-              {allReady ? 'all ready' : 'connect missing instruments in the Instruments modal'}
-            </Typography>
-          }
+      {/* What is still missing, by name. The run has several independent
+          preconditions and they are spread down the page, so a disabled Run on
+          its own left the operator hunting for which one it meant. */}
+      {!running && blockers.length > 0 && (
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{
+            mt: 0.5, px: 1.25, py: 0.75,
+            border: 1, borderColor: 'divider', borderRadius: 1,
+            bgcolor: p.data.highlight,
+            alignItems: 'flex-start', flexShrink: 0,
+          }}
         >
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <StatusChip label="Power sensor" tone={ps.status === 'connected' ? 'ok' : 'off'} />
-            <StatusChip label="DC analyzer" tone={dc.status === 'connected' ? 'ok' : 'off'} />
-            <StatusChip label="VNA" tone={na.status === 'connected' ? 'ok' : 'off'} />
-            <StatusChip label="Switch" tone={sw.status === 'connected' ? 'ok' : 'off'} />
-            <StatusChip
-              label="Trombone"
-              tone={tr.status === 'connected' ? 'ok' : 'off'}
-              detail={motorPos == null ? undefined : `pos ${motorPos.toLocaleString()}`}
-            />
-            <StatusChip
-              label="BLE DUT"
-              tone={dutConnected ? 'ok' : 'off'}
-              detail={bleStatus?.address ?? undefined}
-            />
-          </Stack>
-        </Section>
+          <ErrorOutlineRoundedIcon sx={{ fontSize: 15, color: p.data.warn, mt: '2px', flexShrink: 0 }} />
+          <Typography sx={{ fontSize: 12, color: 'text.primary' }}>
+            <Box component="span" sx={{ fontWeight: 700 }}>Before running: </Box>
+            {blockers.join(' · ')}
+          </Typography>
+        </Stack>
+      )}
 
-        <Section
-          title="Path loss"
-          step={2}
-          action={
-            <Button
-              size="small"
-              variant={pathAck ? 'contained' : 'outlined'}
-              color={pathAck ? 'success' : 'primary'}
-              onClick={() => setPathAck(!pathAck)}
-            >
-              {pathAck ? '✓ RF path verified' : 'Confirm RF path'}
-            </Button>
-          }
-        >
-          <PathLossChip pathLossDb={pathLossDb} />
-          {!pathAck && (
-            <Typography sx={{ ...TEXT.hint, color: 'warning.main', mt: 1 }}>
-              Verify cabling: <b>DUT → switch → coupler → power sensor</b>. Click to confirm.
-            </Typography>
-          )}
-        </Section>
+      <PageBody width="fluid" scroll>
+        {/* Calibration state, which is what the run plan is built from. */}
+        <StatRow>
+          <StatTile
+            label="Live position"
+            value={motorPos == null ? DASH : mm(motorPos).toFixed(2)}
+            unit={motorPos == null ? undefined : 'mm'}
+            sub={motorPos == null
+              ? (motorConnected ? 'waiting' : 'trombone offline')
+              : `${motorPos.toLocaleString()} pulses`}
+            off={!motorConnected}
+          />
+          <StatTile
+            label="Zero"
+            value={zeroPulses == null ? DASH : mm(zeroPulses).toFixed(2)}
+            unit={zeroPulses == null ? undefined : 'mm'}
+            sub={zeroPulses == null ? 'not captured' : 'sweep start'}
+            off={zeroPulses == null}
+          />
+          <StatTile
+            label="End"
+            value={endPulses == null ? DASH : mm(endPulses).toFixed(2)}
+            unit={endPulses == null ? undefined : 'mm'}
+            sub={endPulses == null ? 'not captured' : 'sweep end'}
+            off={endPulses == null}
+          />
+          <StatTile
+            label="Plan"
+            value={totalPoints === 0 ? DASH : String(totalPoints)}
+            unit={totalPoints === 0 ? undefined : 'points'}
+            sub={totalPoints === 0 ? 'incomplete' : `every ${deltaXmm} mm`}
+            off={totalPoints === 0}
+          />
+        </StatRow>
 
-        <Section title="RF switch">
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <Button
-              variant="outlined"
-              onClick={() => switchM.mutate('PCB')}
-              disabled={!swConnected || switchM.isPending || running}
-              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.lg }}
-            >
-              Go PCB
-            </Button>
-            <Button
-              variant="outlined"
-              onClick={() => switchM.mutate('VNA')}
-              disabled={!swConnected || switchM.isPending || running}
-              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.lg }}
-            >
-              Go VNA
-            </Button>
-            {!swConnected && (
-              <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-                connect the switch in the Instruments modal
+        <TwoCol stretch>
+          <Section
+            title="Instruments"
+            step={1}
+            panel
+            hint="Connected automatically when the run starts."
+            action={<StepMark done={allReady} label={allReady ? 'all ready' : 'will connect on run'} />}
+          >
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+              <StatusChip label="Power sensor" tone={ps.status === 'connected' ? 'ok' : 'off'} />
+              <StatusChip label="DC analyzer" tone={dc.status === 'connected' ? 'ok' : 'off'} />
+              <StatusChip label="VNA" tone={na.status === 'connected' ? 'ok' : 'off'} />
+              <StatusChip label="Switch" tone={sw.status === 'connected' ? 'ok' : 'off'} />
+              <StatusChip label="Trombone" tone={tr.status === 'connected' ? 'ok' : 'off'} />
+              <StatusChip
+                label="BLE DUT"
+                tone={dutConnected ? 'ok' : 'off'}
+                detail={bleStatus?.address ?? undefined}
+              />
+            </Stack>
+          </Section>
+
+          <Section
+            title="RF path"
+            step={2}
+            panel
+            hint="Re-confirmed each session — this is the one thing the app cannot check."
+            action={<StepMark done={pathAck} label={pathAck ? 'verified' : 'not verified'} />}
+          >
+            <Stack spacing={1.25}>
+              <Typography sx={{ ...TEXT.hint, color: pathAck ? 'text.secondary' : 'warning.main' }}>
+                Check the cabling: <b>DUT to switch to coupler to power sensor</b>.
               </Typography>
-            )}
-          </Stack>
-        </Section>
+              <Stack direction="row" spacing={1.25} alignItems="center" flexWrap="wrap" useFlexGap>
+                <Button
+                  size="small"
+                  variant={pathAck ? 'outlined' : 'contained'}
+                  color={pathAck ? 'inherit' : 'primary'}
+                  onClick={() => setPathAck(!pathAck)}
+                  disabled={running}
+                  sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+                >
+                  {pathAck ? 'Unconfirm' : 'Confirm path'}
+                </Button>
+                <PathLossChip pathLossDb={pathLossDb} />
+              </Stack>
+            </Stack>
+          </Section>
+        </TwoCol>
 
-        <Section title="Test point" step={3}>
-          <Stack direction="row" spacing={1.5} alignItems="flex-start">
+        <Section title="Test point" step={3} panel>
+          <FieldGrid columns={4}>
             <LabeledField
               label="Frequency" hint="MHz" type="number" value={freqMhz}
               historyKey="loadPull.freqMhz"
               onChange={(e) => setFreqMhz(Number(e.target.value))}
               inputProps={{ step: 0.1 }}
-              sx={{ width: 180 }}
             />
             <LabeledField
               label="DUT Power" hint="dBm" type="number" value={powerDbm}
               historyKey="loadPull.powerDbm"
               onChange={(e) => setPowerDbm(Number(e.target.value))}
-              sx={{ width: 160 }}
             />
             <LabeledField
               label="PA Mode" select value={paMode}
               onChange={(e) => setPaMode(Number(e.target.value))}
-              sx={{ width: 140 }}
             >
               <MenuItem value={2}>Auto</MenuItem>
               <MenuItem value={1}>On</MenuItem>
@@ -412,203 +520,196 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               label="Settle" hint="ms" type="number" value={settleMs}
               historyKey="loadPull.settleMs"
               onChange={(e) => setSettleMs(Math.max(0, Number(e.target.value) || 0))}
-              sx={{ width: 140 }}
             />
-          </Stack>
+          </FieldGrid>
         </Section>
 
         <Section
           title="Trombone calibration"
           step={4}
+          panel
+          hint={`Jog to each end of the Smith chart cycle and capture it. ${PULSES_PER_MM} pulses/mm.`}
           action={
-            <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-              {PULSES_PER_MM} pulses/mm
-            </Typography>
+            <StepMark
+              done={totalPoints > 0}
+              label={totalPoints > 0 ? `${totalPoints} points planned` : 'no plan yet'}
+            />
           }
         >
-          <Box>
-            <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1.5 }}>
-              <Box sx={{ flexGrow: 1 }}>
-                <Readout
-                  label="Live position"
-                  value={motorPos == null ? 'NA' : `${mm(motorPos).toFixed(2)} mm`}
-                  note={motorPos == null ? undefined : `(${motorPos.toLocaleString()} pulses)`}
-                />
-              </Box>
-              <StatusChip
-                label={motorConnected ? (motorMoving ? 'Moving' : 'Idle') : 'Disconnected'}
-                tone={motorConnected ? (motorMoving ? 'busy' : 'ok') : 'off'}
-                spinning={motorConnected && motorMoving}
-              />
-            </Stack>
+          {/* Parking the switch on VNA is how you watch the Smith chart while
+              jogging, so it belongs with the jog rather than in a step of its
+              own halfway up the page. */}
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
+            <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>Route RF to</Typography>
+            <Button
+              size="small" variant="outlined"
+              onClick={() => switchM.mutate('VNA')}
+              disabled={!swConnected || switchM.isPending || running}
+              sx={{ minWidth: 74, height: 28 }}
+            >
+              VNA
+            </Button>
+            <Button
+              size="small" variant="outlined"
+              onClick={() => switchM.mutate('PCB')}
+              disabled={!swConnected || switchM.isPending || running}
+              sx={{ minWidth: 74, height: 28 }}
+            >
+              PCB
+            </Button>
+            {!swConnected && (
+              <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>
+                switch offline
+              </Typography>
+            )}
+            <Box sx={{ flexGrow: 1 }} />
+            <StatusChip
+              label={motorConnected ? (motorMoving ? 'Moving' : 'Idle') : 'Trombone offline'}
+              tone={motorConnected ? (motorMoving ? 'busy' : 'ok') : 'off'}
+              spinning={motorConnected && motorMoving}
+            />
+          </Stack>
 
-            <Stack direction="row" spacing={1.5} alignItems="flex-end" justifyContent="flex-start" useFlexGap flexWrap="nowrap" sx={{ mb: 2, overflowX: 'auto' }}>
-              <Button
-                variant="outlined" startIcon={<FirstPageIcon />}
-                onClick={() => goMinM.mutate()}
-                disabled={!motorConnected || motorJogBusy || running || travelMin == null}
-                title={travelMin == null ? 'Capture zero first' : undefined}
-                sx={{ minWidth: 96, height: 40 }}
+          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ mb: 1.75 }}>
+            <Button
+              variant="outlined" startIcon={<FirstPageIcon />}
+              onClick={() => goMinM.mutate()}
+              disabled={!motorConnected || motorJogBusy || running || travelMin == null}
+              title={travelMin == null ? 'Capture zero first' : undefined}
+              sx={{ minWidth: 88, height: CONTROL_H.md }}
+            >
+              Min
+            </Button>
+
+            {/* Press-and-hold jog pad — focus it, then hold the arrow keys to
+                run the motor; release to stop. Mouse press-hold works too. */}
+            <Box
+              tabIndex={motorConnected && !running ? 0 : -1}
+              onKeyDown={onJogKeyDown}
+              onKeyUp={onJogKeyUp}
+              onFocus={() => setJogFocused(true)}
+              onBlur={() => { setJogFocused(false); stopJog() }}
+              sx={{
+                height: CONTROL_H.md, px: 1,
+                display: 'flex', alignItems: 'center', gap: 0.5,
+                border: 1, borderColor: jogFocused ? 'primary.main' : 'divider',
+                borderRadius: 1,
+                outline: 'none',
+                bgcolor: jogFocused ? 'action.hover' : 'transparent',
+                opacity: motorConnected && !running ? 1 : 0.5,
+                userSelect: 'none',
+                transition: 'border-color 0.15s, background-color 0.15s',
+              }}
+            >
+              <IconButton
+                size="small"
+                disabled={!motorConnected || running}
+                onMouseDown={() => startJog(false)}
+                onMouseUp={stopJog}
+                onMouseLeave={stopJog}
+                sx={{ color: jogDir < 0 ? 'primary.main' : 'text.secondary' }}
               >
-                Min
-              </Button>
-
-              {/* Press-and-hold jog pad — focus it, then hold ← / → to run the
-                  motor; release to stop. Mouse press-hold works too. */}
-              <Box
-                tabIndex={motorConnected && !running ? 0 : -1}
-                onKeyDown={onJogKeyDown}
-                onKeyUp={onJogKeyUp}
-                onFocus={() => setJogFocused(true)}
-                onBlur={() => { setJogFocused(false); stopJog() }}
-                sx={{
-                  height: 40, px: 1,
-                  display: 'flex', alignItems: 'center', gap: 0.5,
-                  border: 1, borderColor: jogFocused ? 'primary.main' : 'divider',
-                  borderRadius: 1.5,
-                  outline: 'none',
-                  bgcolor: jogFocused ? 'action.hover' : 'transparent',
-                  opacity: motorConnected && !running ? 1 : 0.5,
-                  userSelect: 'none',
-                  transition: 'border-color 0.15s, background-color 0.15s',
-                }}
+                <ArrowBackIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+              <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: jogDir !== 0 ? 'warning.main' : (jogFocused ? 'primary.main' : 'text.secondary'), whiteSpace: 'nowrap', minWidth: 78, textAlign: 'center' }}>
+                {jogDir !== 0 ? 'jogging' : jogFocused ? 'hold arrows' : 'click + hold'}
+              </Typography>
+              <IconButton
+                size="small"
+                disabled={!motorConnected || running}
+                onMouseDown={() => startJog(true)}
+                onMouseUp={stopJog}
+                onMouseLeave={stopJog}
+                sx={{ color: jogDir > 0 ? 'primary.main' : 'text.secondary' }}
               >
-                <IconButton
-                  size="small"
-                  disabled={!motorConnected || running}
-                  onMouseDown={() => startJog(false)}
-                  onMouseUp={stopJog}
-                  onMouseLeave={stopJog}
-                  sx={{ color: jogDir < 0 ? 'primary.main' : 'text.secondary' }}
-                >
-                  <ArrowBackIcon />
-                </IconButton>
-                <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: jogDir !== 0 ? 'warning.main' : (jogFocused ? 'primary.main' : 'text.secondary'), whiteSpace: 'nowrap', minWidth: 78, textAlign: 'center' }}>
-                  {jogDir !== 0 ? 'jogging…' : jogFocused ? 'hold ← →' : 'click + hold'}
-                </Typography>
-                <IconButton
-                  size="small"
-                  disabled={!motorConnected || running}
-                  onMouseDown={() => startJog(true)}
-                  onMouseUp={stopJog}
-                  onMouseLeave={stopJog}
-                  sx={{ color: jogDir > 0 ? 'primary.main' : 'text.secondary' }}
-                >
-                  <ArrowForwardIcon />
-                </IconButton>
-              </Box>
+                <ArrowForwardIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Box>
 
-              <Button
-                variant="outlined" endIcon={<LastPageIcon />}
-                onClick={() => goMaxM.mutate()}
-                disabled={!motorConnected || motorJogBusy || running || travelMax == null}
-                title={travelMax == null ? 'Capture end first' : undefined}
-                sx={{ minWidth: 96, height: 40 }}
-              >
-                Max
-              </Button>
+            <Button
+              variant="outlined" endIcon={<LastPageIcon />}
+              onClick={() => goMaxM.mutate()}
+              disabled={!motorConnected || motorJogBusy || running || travelMax == null}
+              title={travelMax == null ? 'Capture end first' : undefined}
+              sx={{ minWidth: 88, height: CONTROL_H.md }}
+            >
+              Max
+            </Button>
 
-              <LabeledField
-                label="Jog speed" select value={jogSpeed}
-                width={130}
-                onChange={(e) => setJogSpeed(Number(e.target.value))}
-              >
-                <MenuItem value={400}>Slow</MenuItem>
-                <MenuItem value={800}>Medium</MenuItem>
-                <MenuItem value={1500}>Fast</MenuItem>
-              </LabeledField>
-            </Stack>
+            <LabeledField
+              label="Jog speed" select value={jogSpeed}
+              width={124}
+              onChange={(e) => setJogSpeed(Number(e.target.value))}
+            >
+              <MenuItem value={400}>Slow</MenuItem>
+              <MenuItem value={800}>Medium</MenuItem>
+              <MenuItem value={1500}>Fast</MenuItem>
+            </LabeledField>
+          </Stack>
 
-            <Stack direction="row" spacing={2} alignItems="flex-start" sx={{ flexWrap: 'wrap', gap: 2 }}>
-              <Box>
-                <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>
-                  Zero reference (Smith chart starting point)
-                </Typography>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Button
-                    variant="contained"
-                    size="small"
-                    onClick={() => setZeroPulses(motorPos)}
-                    disabled={motorPos == null || running}
-                  >
-                    Capture zero
-                  </Button>
-                  <Typography sx={{ fontFamily: 'ui-monospace, monospace', fontSize: 13 }}>
-                    {zeroPulses == null ? '—' : `${mm(zeroPulses).toFixed(2)} mm  (${zeroPulses.toLocaleString()})`}
-                  </Typography>
-                  {zeroPulses != null && (
-                    <Button size="small" onClick={() => setZeroPulses(null)} disabled={running}>clear</Button>
-                  )}
-                </Stack>
-              </Box>
-              <Box>
-                <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>
-                  End position (full Smith chart cycle)
-                </Typography>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Button
-                    variant="contained"
-                    size="small"
-                    onClick={() => setEndPulses(motorPos)}
-                    disabled={motorPos == null || running}
-                  >
-                    Capture end
-                  </Button>
-                  <Typography sx={{ fontFamily: 'ui-monospace, monospace', fontSize: 13 }}>
-                    {endPulses == null ? '—' : `${mm(endPulses).toFixed(2)} mm  (${endPulses.toLocaleString()})`}
-                  </Typography>
-                  {endPulses != null && (
-                    <Button size="small" onClick={() => setEndPulses(null)} disabled={running}>clear</Button>
-                  )}
-                </Stack>
-              </Box>
-              <LabeledField
-                label="Delta X" hint="mm"
-                type="number" value={deltaXmm}
-                historyKey="loadPull.deltaXmm"
-                onChange={(e) => setDeltaXmm(Math.max(0, Number(e.target.value) || 0))}
-                inputProps={{ step: 0.1, min: 0 }}
-                sx={{ width: 140 }}
-              />
-            </Stack>
-
-            <Typography sx={{ ...TEXT.hint, color: 'text.secondary', mt: 1.5 }}>
-              {totalPoints > 0
-                ? <>Plan: <b>{totalPoints}</b> points · {fmt(zeroPulses == null ? null : mm(zeroPulses))} → {fmt(endPulses == null ? null : mm(endPulses))} mm · step {deltaXmm} mm ({deltaPulses} pulses)</>
-                : <>Capture zero + end positions and set Delta X to build the sweep plan.</>}
-            </Typography>
-          </Box>
+          <Stack direction="row" spacing={1} alignItems="flex-end" useFlexGap flexWrap="wrap">
+            <CaptureField
+              label="Zero — sweep start"
+              value={zeroPulses}
+              onCapture={() => setZeroPulses(motorPos)}
+              onClear={() => setZeroPulses(null)}
+              captureDisabled={motorPos == null || running}
+              clearDisabled={running}
+            />
+            <CaptureField
+              label="End — sweep end"
+              value={endPulses}
+              onCapture={() => setEndPulses(motorPos)}
+              onClear={() => setEndPulses(null)}
+              captureDisabled={motorPos == null || running}
+              clearDisabled={running}
+            />
+            <LabeledField
+              label="Delta X" hint="mm"
+              type="number" value={deltaXmm}
+              historyKey="loadPull.deltaXmm"
+              onChange={(e) => setDeltaXmm(Math.max(0, Number(e.target.value) || 0))}
+              inputProps={{ step: 0.1, min: 0 }}
+              width={128}
+            />
+          </Stack>
         </Section>
 
         <Section
           title="Results"
           step={5}
-          hint={`power = sensor + path loss (${pathLossDb} dB)`}
+          panel
           action={
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" alignItems="center" spacing={0.75}>
+              <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
+                power = sensor + path loss ({pathLossDb} dB)
+              </Typography>
               <Button
-                size="small" variant="outlined" color="inherit"
-                startIcon={<DeleteSweepIcon />}
+                size="small" variant="text" color="inherit"
+                startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
                 onClick={() => setResults([])}
                 disabled={results.length === 0 || running}
+                sx={RESULT_ACTION_SX}
               >
                 Clear
               </Button>
               <Button
-                size="small" variant="outlined"
-                startIcon={<ScatterPlotIcon />}
+                size="small" variant="text"
+                startIcon={<ScatterPlotIcon sx={{ fontSize: 15 }} />}
                 onClick={() => setSmithOpen(true)}
                 disabled={results.length === 0}
+                sx={RESULT_ACTION_SX}
               >
                 Smith chart
               </Button>
               <Button
-                size="small" variant="outlined"
-                startIcon={<DownloadIcon />}
+                size="small" variant="text"
+                startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
                 onClick={() => downloadCsv(results, {
                   freqMhz, powerDbm, pathLossDb, mac: bleStatus?.address ?? null,
                 })}
                 disabled={results.length === 0}
+                sx={RESULT_ACTION_SX}
               >
                 Export
               </Button>
@@ -648,13 +749,13 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
                   {results.map((r, i) => (
                     <TableRow key={i}>
                       <TableCell>{i + 1}</TableCell>
-                      <TableCell sx={monoSx}>{r.pos_mm.toFixed(2)}</TableCell>
-                      <TableCell sx={monoSx}>{fmt(r.power_dbm, 2)}</TableCell>
-                      <TableCell sx={monoSx}>{fmt(r.current_a == null ? null : r.current_a * 1000, 1)}</TableCell>
-                      <TableCell sx={monoSx}>{fmt(r.r_ohm, 2)}</TableCell>
-                      <TableCell sx={monoSx}>{fmt(r.x_ohm, 2)}</TableCell>
-                      <TableCell sx={monoSx}>{fmt(r.s11_db, 2)}</TableCell>
-                      <TableCell sx={TEXT.micro}>
+                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.pos_mm, 2)}</TableCell>
+                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.power_dbm, 2)}</TableCell>
+                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.current_a == null ? null : r.current_a * 1000, 1)}</TableCell>
+                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.r_ohm, 2)}</TableCell>
+                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.x_ohm, 2)}</TableCell>
+                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.s11_db, 2)}</TableCell>
+                      <TableCell sx={{ fontSize: 11 }}>
                         {r.error
                           ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
                           : <Box component="span" sx={{ color: 'success.main' }}>ok</Box>}
@@ -672,11 +773,8 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
         open={smithOpen}
         onClose={() => setSmithOpen(false)}
         results={results}
-        freqMhz={freqMhz}
       />
       {preflight.dialog}
     </Box>
   )
 }
-
-const monoSx = { fontFamily: MONO }
