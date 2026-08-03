@@ -227,3 +227,46 @@ class TestSweepRun:
         ctx = runner._ctx           # noqa: SLF001
         if ctx and ctx.task:
             await ctx.task
+
+
+class TestClearResults:
+    """`/test/clear` backs the Clear button on the results panel."""
+
+    @sync
+    async def test_clear_drops_the_finished_run(self) -> None:
+        runner = SweepRunner()
+        await run_to_completion(
+            runner, config(), FakeDevice(), FakePowerMeter(12.5), FakeCurrentMeter()
+        )
+        assert runner.results(), "sanity: the run should have produced rows"
+
+        status = runner.clear()
+
+        assert runner.results() == []
+        assert status.state is RunState.IDLE
+        assert status.completed == 0
+        # The page keys its results query on this; leaving the old run's
+        # timestamp would let a cleared table reappear from cache.
+        assert status.started_at is None
+
+    @sync
+    async def test_clear_is_refused_while_running(self) -> None:
+        """The rows are the run's own record — dropping them mid-run would
+        leave progress counting toward measurements that no longer exist."""
+        runner = SweepRunner()
+        cfg = config(power_values=list(range(1, 23)), settle_ms=20)
+        await runner.start(cfg, FakeDevice(), FakePowerMeter(), FakeCurrentMeter())
+        try:
+            with pytest.raises(RuntimeError, match="stop the sweep"):
+                runner.clear()
+            assert runner.status().state is RunState.RUNNING
+        finally:
+            await runner.cancel()
+            ctx = runner._ctx           # noqa: SLF001
+            if ctx and ctx.task:
+                await ctx.task
+
+    @sync
+    async def test_clear_on_an_idle_runner_is_harmless(self) -> None:
+        runner = SweepRunner()
+        assert runner.clear().state is RunState.IDLE

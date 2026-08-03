@@ -113,6 +113,13 @@ async def results() -> list[ResultRow]:
     return runner.results()
 
 
+@router.post("/clear", response_model=RunStatus)
+async def clear() -> RunStatus:
+    # Refusing mid-run surfaces as 409 — see `handle_driver_errors`.
+    with handle_driver_errors("sweep clear"):
+        return runner.clear()
+
+
 @router.get("/export")
 async def export() -> Response:
     rows = runner.results()

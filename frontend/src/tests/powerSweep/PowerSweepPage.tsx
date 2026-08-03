@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
 import DownloadIcon from '@mui/icons-material/Download'
 import ShowChartIcon from '@mui/icons-material/ShowChart'
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tests } from '../../api/tests'
 import { PageHeader } from '../../components/PageHeader'
@@ -117,6 +118,17 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
     mutationFn: () => (hasBackend ? tests.cancel() : Promise.resolve(null)),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['test-status'] }),
     onError: (e: Error) => reporter.note(`Stop failed: ${e.message}`, 'error'),
+  })
+
+  const clearResults = useMutation({
+    mutationFn: () => (hasBackend ? tests.clear() : Promise.resolve(null)),
+    onSuccess: () => {
+      // Both queries key off the run: status decides whether results are
+      // fetched at all, so refresh it first or the table reappears.
+      void qc.invalidateQueries({ queryKey: ['test-status'] })
+      void qc.invalidateQueries({ queryKey: ['test-results'] })
+    },
+    onError: (e: Error) => reporter.note(`Clear failed: ${e.message}`, 'error'),
   })
 
   const exportXlsx = useMutation({
@@ -290,6 +302,19 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
               <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
                 measured + path loss ({pathLossDb} dB)
               </Typography>
+              <Button
+                size="small"
+                variant="text"
+                color="inherit"
+                startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
+                onClick={() => clearResults.mutate()}
+                // Refused mid-run by the backend; disabled here so the refusal
+                // is not the way the operator finds that out.
+                disabled={rows.length === 0 || running || clearResults.isPending}
+                sx={resultActionSx}
+              >
+                Clear
+              </Button>
               <Button
                 size="small"
                 variant="text"

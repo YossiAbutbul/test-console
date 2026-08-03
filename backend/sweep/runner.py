@@ -97,6 +97,18 @@ class TestRunner:
             self._ctx.cancel.set()
         return self.status()
 
+    def clear(self) -> RunStatus:
+        """Drop the finished run's results, returning to idle.
+
+        Refused while a sweep is in flight: the rows are that run's own record,
+        and discarding them mid-run would leave progress counting toward a
+        total whose measurements no longer exist. Stop it first.
+        """
+        if self._ctx and self._ctx.state == RunState.RUNNING:
+            raise RuntimeError("stop the sweep before clearing its results")
+        self._ctx = None
+        return self.status()
+
     async def _measure_step(
         self,
         ctx: _RunCtx,

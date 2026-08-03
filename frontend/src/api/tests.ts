@@ -7,5 +7,7 @@ export const tests = {
   cancel: () => http<RunStatus>('/test/cancel', { method: 'POST' }),
   status: () => http<RunStatus>('/test/status'),
   results: () => http<ResultRow[]>('/test/results'),
+  /** Discard the finished run's rows. 409 while a sweep is still running. */
+  clear: () => http<RunStatus>('/test/clear', { method: 'POST' }),
   exportXlsx: () => httpBlob('/test/export'),
 }
