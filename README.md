@@ -21,6 +21,7 @@ stack and the BLE adapter all assume Windows 10/11.
 | 2 | **Node.js 20+ LTS** (ships npm) | Frontend build + dev server | Node 26.5.1 / npm 11.17.0 |
 | 3 | **Git** | Two Python deps install straight from GitHub | — |
 | 4 | **Keysight IO Libraries Suite** | **Required** — the VISA runtime and USB instrument driver | 2026 (21.3.293) |
+| 5 | **Arcus Drivers and Tools Installer** | **Required** — kernel driver for the DMX-J-SA trombone motor | 1.43 |
 
 Keysight IO Libraries is not optional on this rig. It is what provides:
 
@@ -42,10 +43,94 @@ for them.
 | Device | Driver | Action needed |
 |---|---|---|
 | Keysight/Agilent USB instruments (N6705B DC analyzer, network analyzer, spectrum analyzer) | `ausbtmc.sys` (USBTMC) | Installed automatically with IO Libraries |
-| Arcus DMX-J-SA trombone motor | Silicon Labs `SiUSBXp` | DLL bundled in-repo, no installer |
+| Arcus DMX-J-SA trombone motor | Performax USB (WinUSB-based), from **Arcus Drivers and Tools Installer** | **Two-step install required** — see below |
 | Mini-Circuits power sensor | `mcl_pm_NET45.dll` (.NET 4.5) | DLL bundled in-repo; .NET Framework 4.x ships with Windows |
-| Arduino RF switch (servo) | USB-serial (CH340 / FTDI / native USB CDC, depends on the board) | Install only if the board shows up as an unknown device |
+| Arduino RF switch (servo) | **FTDI VCP** (`ftdibus.sys` / `ftser2k.sys`) — the board uses an FT232R | **Install required** — see below |
 | BLE / DUT | Windows built-in Bluetooth stack | None |
+
+#### Arcus DMX-J-SA motor driver
+
+This one is easy to get wrong. The
+[`dmx-j-sa` wrapper repo](https://github.com/YossiAbutbul/DMX-J-SA-Motor-python-interface)
+says *"DLLs are shipped inside the package — no separate setup."* That is true of
+the **user-mode** libraries only — `PerformaxCom.dll` and `SiUSBXp.dll`. Those
+DLLs still need a **kernel driver** underneath them to reach the hardware, and
+that driver is not in the repo and not in Windows.
+
+Without it the motor enumerates but fails to bind:
+
+```
+Arcus-USB    USB\VID_1589&PID_A101\JSA00
+Code 28 — CM_PROB_FAILED_INSTALL, "The drivers for this device are not installed."
+```
+
+To fix it:
+
+**This is a two-step install.** The downloaded installer only stages files on
+disk; a second installer inside those files does the actual driver binding.
+Stopping after step 2 leaves the device on Code 28 and looks like a failure.
+
+1. Go to the **DMX-J-SA-17 product page** and open its **Software** section:
+   <https://arcus-technology.com/products/integrated-stepper-motors/nema-17-integrated-usb-stepper-basic/>
+
+2. Download **Drivers and Tools Installer** (1.43) and run it as administrator.
+   *DriveMax Series Installer* sits next to it and is the optional control/config
+   application, not the driver. This step only unpacks to:
+
+   ```
+   C:\Program Files (x86)\Arcus Technology\Drivers, Libraries, Source\Performax USB v4.01\
+   ```
+
+3. **Run the driver installer that was just unpacked**, as administrator:
+
+   ```
+   ...\Performax USB v4.01\PerformaxUSBInstaller_x64.exe
+   ```
+
+   (`install.bat` in the same folder picks x64 vs x86 for you.) This is a DPInst
+   wizard — *"Arcus Technology Performax USB Driver Installer"* — and it is what
+   adds `PerformaxUSB.inf` to the driver store and binds the hardware. Expect a
+   UAC prompt; it cannot complete without elevation.
+
+   Despite the Performax name, this **is** the DMX-J-SA's driver — its INF
+   explicitly claims `USB\VID_1589&PID_A101`. It is a WinUSB-based package
+   (`USBXpress_WinUSB`, catalog `siusbxp.cat`), so do not go looking for a
+   `SiUSBXp.sys` in `System32\drivers`; there isn't one.
+
+4. Replug the motor (or reboot) and confirm the device is healthy:
+
+   ```powershell
+   Get-PnpDevice -PresentOnly | Where-Object InstanceId -like 'USB\VID_1589*' |
+     Select-Object Status, FriendlyName, InstanceId
+   ```
+
+   `Status` must read `OK`, not `Error`.
+
+#### Arduino RF switch (FTDI) driver
+
+The Arduino board presents an **FTDI FT232R** (`USB\VID_0403&PID_6001`). Without
+the FTDI VCP driver it lands in *Other devices* on Code 28 and never gets a COM
+port, so the servo/RF-switch endpoints have nothing to talk to.
+
+1. Easiest path: Device Manager → right-click **FT232R USB UART** → *Update
+   driver* → **Search automatically for drivers**. Windows Update carries the
+   WHQL-signed FTDI VCP driver.
+2. If Windows Update is disabled by policy and reports "the best drivers are
+   already installed", get the VCP package directly:
+   <https://ftdichip.com/drivers/vcp-drivers/>
+3. Confirm a COM port appeared:
+
+   ```powershell
+   Get-PnpDevice -PresentOnly -Class Ports | Select-Object Status, FriendlyName
+   ```
+
+   You want a `USB Serial Port (COMn)` at `Status: OK`. That `COMn` is what you
+   hand the servo endpoints.
+
+Note for clone boards: non-genuine FT232R chips are rejected by current FTDI
+drivers (they enumerate but report `NON GENUINE DEVICE FOUND` and refuse to
+open). If that happens the board needs a CH340-based replacement, not a driver
+fix.
 
 ### 3. DLLs — nothing to copy by hand
 
@@ -59,8 +144,10 @@ backend/hw/dlls/
   power_sensor/   mcl_pm_NET45.dll                  (Mini-Circuits PM)
 ```
 
-The only DLLs you install yourself are the VISA ones, and those come from the
-Keysight installer in step 1.
+These bundled DLLs are **user-mode only**. Having them in the repo does not mean
+a device needs no driver — the Arcus motor is exactly that trap (see above). The
+things you install yourself are the VISA libraries (Keysight installer, step 1)
+and the Arcus USB kernel driver (step 5).
 
 ### 4. Python modules
 
@@ -261,6 +348,36 @@ USBTMC interface only if the USB cable is already connected when it powers on.
 Hot-plugging into a running instrument produces no enumeration whatsoever.
 Connect USB first, then power-cycle the instrument at the rear switch (off,
 30 s, on) and let it fully boot.
+
+**The trombone motor shows Code 28 in Device Manager.** `Arcus-USB` under
+`USB\VID_1589&PID_A101` with *"The drivers for this device are not installed"*
+means the Arcus kernel driver is missing. Installing or reinstalling the Python
+`dmx-j-sa` package will not help — its bundled DLLs are user-mode. Follow the
+**two-step** Arcus install in the driver section above; the most common cause of
+a lingering Code 28 is running the downloaded installer but never running
+`PerformaxUSBInstaller_x64.exe` that it unpacks.
+
+Check whether the driver actually reached the driver store:
+
+```powershell
+Get-ChildItem C:\Windows\System32\DriverStore\FileRepository -Directory |
+  Where-Object Name -like 'performaxusb.inf_*'
+```
+
+No match means only the staging step ran. The staged copy lives at
+`C:\Program Files (x86)\Arcus Technology\Drivers, Libraries, Source\Performax USB v4.01\`.
+
+**No COM port for the Arduino / servo endpoints fail.** Check for
+`FT232R USB UART` sitting under *Other devices* on Code 28 — that means the FTDI
+VCP driver is missing and no COM port was ever created:
+
+```powershell
+Get-PnpDevice -PresentOnly | Where-Object InstanceId -like 'USB\VID_0403*' |
+  Select-Object Status, FriendlyName, InstanceId
+```
+
+See the FTDI driver section above. Note the backend deliberately opens serial
+ports without pulsing DTR/RTS, so connecting will not reset the Arduino.
 
 **Connect fails with an empty address field.** The `dc_power_analyzer` wrapper's
 built-in default is a placeholder serial (`MY00000000`) that will not match a
