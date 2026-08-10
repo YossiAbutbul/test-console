@@ -52,3 +52,18 @@ export function num(n: number | null | undefined, digits = 3): string {
 export function plural(count: number, unit: string): string {
   return count === 1 && unit.endsWith('s') ? unit.slice(0, -1) : unit
 }
+
+/**
+ * Elapsed wall time as `hh:mm:ss`.
+ *
+ * Always zero-padded to three parts, including hours, so a run that took two
+ * minutes and one that took two hours are the same width in a modal and can be
+ * compared at a glance.
+ */
+export function formatDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':')
+}

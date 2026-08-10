@@ -12,9 +12,26 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 # Validation ranges, per the CATM2 command spec.
-HP_MAX_RANGE = range(0x00, 0x08)   # 0..7
-PA_DC_RANGE = range(0x00, 0x05)    # 0..4
+# All three axes are 1-based. Zero is not a valid setting for any of them — the
+# DUT does not answer a command carrying one, which hangs the sweep on that
+# point rather than failing it. `validate_ranges` therefore rejects 0 before the
+# run starts, and these defaults never generate one.
+#
+# These must stay in step with `RANGES` in
+# frontend/src/tests/powerSweep/PowerSweepPage.tsx.
+HP_MAX_RANGE = range(1, 8)         # 1..7
+PA_DC_RANGE = range(1, 5)          # 1..4
 POWER_RANGE = range(1, 23)         # 1..22
+
+# Settle delay before anything is read. Below 400 ms the power sensor's averaged
+# reading still carries energy from the previous point, so a low-power point
+# inherits the previous high-power figure while its current reads correctly —
+# which looks like a measurement fault rather than a timing one. Found on the
+# bench; `settle_ms` refuses anything lower.
+#
+# Mirrored by MIN_SETTLE_MS / DEFAULT_SETTLE_MS in frontend/src/lib/settle.ts.
+MIN_SETTLE_MS = 400
+DEFAULT_SETTLE_MS = 400
 
 
 class RunState(str, Enum):
@@ -32,7 +49,7 @@ class SweepConfig(BaseModel):
     power_values: list[int] = Field(default_factory=lambda: list(POWER_RANGE))
     duty_values: list[int] = Field(default_factory=lambda: list(PA_DC_RANGE))
     hp_values: list[int] = Field(default_factory=lambda: list(HP_MAX_RANGE))
-    settle_ms: int = Field(default=30, ge=0, le=10_000)
+    settle_ms: int = Field(default=DEFAULT_SETTLE_MS, ge=MIN_SETTLE_MS, le=10_000)
     cmd_timeout_s: float = Field(default=5.0, ge=0.1, le=60.0)
     pa_mode: int = Field(default=0, ge=0, le=2, description="0=OFF 1=ON 2=AUTO")
     path_loss_db: float = Field(

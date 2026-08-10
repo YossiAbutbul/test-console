@@ -137,6 +137,11 @@ class TestRunner:
 
         try:
             t_step = time.perf_counter()
+            # No stop between points: the DUT accepts a new CW while already
+            # keyed, and measured on the bench this made no difference to the
+            # readings. Settle time is what governs them. A stop here cost
+            # POST_STOP_RECOVERY_S (1.5s) per point — ~16 min over a 616-point
+            # sweep — for nothing.
             result = await device.lora_cw(
                 freq_hz=ctx.config.freq_hz,
                 power_dbm=power,

@@ -102,25 +102,19 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
         <Section title="Transmit" panel>
           <FieldGrid>
             <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
-              historyKey={`${protocol}.debug.freqMhz`}
               onChange={(e) => setFreqMhz(Number(e.target.value))}
               inputProps={{ step: 0.1 }} />
             <LabeledField label="Power" hint="dBm" type="number" value={power}
-              historyKey={`${protocol}.debug.power_dbm`}
               onChange={(e) => setPower(Number(e.target.value))} />
             <LabeledField label="PA Duty Cycle" type="number" value={duty}
-              historyKey={`${protocol}.debug.duty`}
               inputProps={{ min: 1, max: 7 }}
               error={!dutyValid}
-              validate={inRangeStr}
               {...focusBind('duty')}
               InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(duty, dutyValid, focusKey === 'duty')} message={duty.trim() === '' ? 'Enter a value' : 'Allowed range: 1–7'} /> }}
               onChange={(e) => setDuty(e.target.value)} />
             <LabeledField label="HP Max" type="number" value={hp}
-              historyKey={`${protocol}.debug.hp`}
               inputProps={{ min: 1, max: 7 }}
               error={!hpValid}
-              validate={inRangeStr}
               {...focusBind('hp')}
               InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(hp, hpValid, focusKey === 'hp')} message={hp.trim() === '' ? 'Enter a value' : 'Allowed range: 1–7'} /> }}
               onChange={(e) => setHp(e.target.value)} />

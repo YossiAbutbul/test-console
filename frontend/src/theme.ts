@@ -219,6 +219,16 @@ export function makeTheme(mode: ThemeMode): Theme {
           },
         },
       },
+      // Kill the browser's saved-value dropdown on every field. These inputs
+      // hold frequencies, powers and pulse counts, so a list of everything ever
+      // typed into them is noise that covers the control underneath. Set here
+      // rather than per-page so a new field cannot forget it.
+      MuiTextField: {
+        defaultProps: { autoComplete: 'off' },
+      },
+      MuiInputBase: {
+        defaultProps: { autoComplete: 'off' },
+      },
       MuiPaper: {
         defaultProps: { elevation: 0 },
         styleOverrides: {

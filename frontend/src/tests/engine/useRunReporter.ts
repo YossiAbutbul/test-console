@@ -12,10 +12,10 @@
  * "Load Pull done"), and half of them reported nothing at all at start. This
  * is the single vocabulary.
  */
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { useLog, type LogSource } from '../../context/LogContext'
 import { useNotify } from '../../context/NotifyContext'
-import { plural } from '../../lib/format'
+import { formatDuration, plural } from '../../lib/format'
 
 export interface RunSummary {
   /** Points actually measured. */
@@ -53,22 +53,46 @@ export function useRunReporter(
 ): RunReporter {
   const { log } = useLog()
   const notify = useNotify()
+  // Wall time of the run in progress. A ref rather than state: nothing renders
+  // from it until the run ends, and re-rendering every page on every start
+  // would be a change for no visible reason.
+  //
+  // Null once consumed, so a completion that arrives without a matching start —
+  // mounting a page while an old run is still terminal in the backend's status,
+  // or a failure raised before the run began — reports no duration rather than
+  // timing from an unrelated moment.
+  const startedAt = useRef<number | null>(null)
 
   return useMemo<RunReporter>(() => {
     const count = (n: number) => `${n} ${plural(n, unit)}`
     const progress = (s: RunSummary) => `${s.completed}/${s.total} ${unit}`
 
+    /** `hh:mm:ss` for the run just ended, or null if we never saw it start. */
+    const elapsed = (): string | null => {
+      const t0 = startedAt.current
+      startedAt.current = null
+      return t0 == null ? null : formatDuration(Date.now() - t0)
+    }
+
+    /** " · Took 00:12:34", or nothing when the run was not timed. */
+    const suffix = (label: string, took: string | null) =>
+      took == null ? '' : ` ${label} ${took}`
+
     return {
       started: (total) => {
+        startedAt.current = Date.now()
         log(source, total == null ? 'Started' : `Started — ${count(total)}`)
         notify.info(total == null ? 'Running…' : `Running ${count(total)}…`, { title: name })
       },
 
       finished: (summary) => {
         const errors = summary.errors ?? 0
+        const took = elapsed()
         log(
           source,
-          `Finished — ${progress(summary)}${errors ? `, ${count(errors).replace(unit, plural(errors, 'errors'))}` : ''}`,
+          `Finished — ${progress(summary)}`
+          + (errors ? `, ${count(errors).replace(unit, plural(errors, 'errors'))}` : '')
+          + suffix('in', took),
           errors ? 'warn' : 'info',
         )
         notify.complete(
@@ -76,28 +100,36 @@ export function useRunReporter(
             ? {
                 severity: 'warning',
                 title: `${name} finished with errors`,
-                message: `${errors} of ${summary.completed} ${unit} failed.`,
+                message: `${errors} of ${summary.completed} ${unit} failed.`
+                  + suffix('· Took', took),
               }
             : {
                 severity: 'success',
                 title: `${name} complete`,
-                message: `${count(summary.completed)} measured.`,
+                message: `${count(summary.completed)} measured.` + suffix('· Took', took),
               },
         )
       },
 
       stopped: (summary) => {
-        log(source, `Stopped by user — ${progress(summary)}`, 'warn')
+        const took = elapsed()
+        log(source, `Stopped by user — ${progress(summary)}${suffix('after', took)}`, 'warn')
         notify.complete({
           severity: 'warning',
           title: `${name} stopped`,
-          message: `Stopped after ${summary.completed} of ${summary.total} ${unit}.`,
+          message: `Stopped after ${summary.completed} of ${summary.total} ${unit}.`
+            + suffix('· Ran for', took),
         })
       },
 
       failed: (message) => {
-        log(source, `Failed — ${message}`, 'error')
-        notify.complete({ severity: 'error', title: `${name} failed`, message })
+        const took = elapsed()
+        log(source, `Failed — ${message}${suffix('after', took)}`, 'error')
+        notify.complete({
+          severity: 'error',
+          title: `${name} failed`,
+          message: took == null ? message : `${message} · Failed after ${took}`,
+        })
       },
 
       note: (message, level) => log(source, message, level),

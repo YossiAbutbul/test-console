@@ -1,5 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import {
+  DEFAULT_SETTLE_MS as SHARED_DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs,
+} from '../../lib/settle'
+import {
   Box, Button, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Typography,
 } from '@mui/material'
@@ -68,7 +71,7 @@ const STEP_OVERHEAD_TIMEOUT_MS = 30_000
 
 /** Time for the PA to key and the reading to stabilise before measuring.
  *  Long enough for the DUT at 20 dBm; short enough that a sweep stays quick. */
-const DEFAULT_SETTLE_MS = 500
+const DEFAULT_SETTLE_MS = SHARED_DEFAULT_SETTLE_MS
 
 /** A settle above this is almost always a typo (500 → 50000). */
 const LONG_SETTLE_MS = 10_000
@@ -141,7 +144,11 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
   ])
   const power = Number(DEFAULT_POWER)  // fallback if a row is left empty
   const [paMode, setPaMode] = useState<number>(() => snap().paMode ?? 2)
-  const [settleMs, setSettleMs] = useState<number>(() => snap().settleMs ?? DEFAULT_SETTLE_MS)
+  // Clamped on read: a snapshot saved before the floor existed can hold a
+  // value below it, and restoring one would reintroduce the bad readings.
+  const [settleMs, setSettleMs] = useState<number>(
+    () => clampSettleMs(snap().settleMs ?? DEFAULT_SETTLE_MS),
+  )
   const [results, setResults] = useState<ResultRow[]>(() => snap().results ?? [])
   // Mirror state into the page-level snapshot + persist to localStorage so
   // tab switches, sidebar nav and hard refreshes all keep the data. Cleared
@@ -450,6 +457,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
               <LabeledField
                 label="PA Mode" select value={paMode}
                 onChange={(e) => setPaMode(Number(e.target.value))}
+                disabled={running}
               >
                 <MenuItem value={2}>Auto</MenuItem>
                 <MenuItem value={1}>On</MenuItem>
@@ -457,9 +465,11 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
               </LabeledField>
               <Box>
                 <LabeledField
-                  label="Settle" hint="ms" type="number" value={settleMs}
-                  historyKey={`${protocol}.automation.settle_ms`}
+                  label="Settle" hint={`ms · min ${MIN_SETTLE_MS}`} type="number" value={settleMs}
                   onChange={(e) => setSettleMs(Math.max(0, Number(e.target.value) || 0))}
+                  onBlur={() => setSettleMs((v) => clampSettleMs(v))}
+                  disabled={running}
+                  inputProps={{ min: MIN_SETTLE_MS, step: 50 }}
                 />
                 {/* A long settle looks identical to a hung run, so state the
                     cost up front rather than letting the operator guess. */}

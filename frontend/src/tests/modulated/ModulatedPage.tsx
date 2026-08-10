@@ -114,7 +114,6 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
               hint="MHz"
               type="number"
               value={freqMhz}
-              historyKey={`${protocol}.modulated.freqMhz`}
               onChange={(e) => setFreqMhz(Number(e.target.value))}
               inputProps={{ step: 0.1 }}
             />
@@ -134,7 +133,6 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
               hint="dBm"
               type="number"
               value={power}
-              historyKey={`${protocol}.modulated.power_dbm`}
               onChange={(e) => setPower(Number(e.target.value))}
             />
 
@@ -162,7 +160,6 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
               hint={`${DR_MIN}-${DR_MAX}`}
               type="number"
               value={datarate}
-              historyKey={`${protocol}.modulated.datarate`}
               inputProps={{ min: DR_MIN, max: DR_MAX, step: 1 }}
               onChange={(e) => setDatarate(Number(e.target.value))}
             />

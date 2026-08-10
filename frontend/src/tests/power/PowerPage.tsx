@@ -132,11 +132,9 @@ export function PowerPage({ protocol, group }: TestPageProps) {
           <Section title="Transmit" panel>
             <FieldGrid>
               <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
-                historyKey={`${protocol}.power.freqMhz`}
                 onChange={(e) => setFreqMhz(Number(e.target.value))}
                 inputProps={{ step: 0.1 }} />
               <LabeledField label="Power" hint="dBm" type="number" value={power}
-                historyKey={`${protocol}.power.power_dbm`}
                 onChange={(e) => setPower(Number(e.target.value))} />
               <LabeledField
                 label="PA Mode"

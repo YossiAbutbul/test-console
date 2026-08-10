@@ -5,7 +5,12 @@ import {
 import type { ResultRow } from '../../types/models'
 import { fmt } from '../../lib/format'
 
-/** Columns mirror the exported workbook, so a row reads the same in both. */
+/**
+ * Columns mirror the exported workbook, so a row reads the same in both — with
+ * one exception: the workbook also carries `Raw [dBm]`, the uncorrected sensor
+ * reading, which exists so a wrong path loss can be undone after the fact. That
+ * is a job for the file, not for a screen showing corrected numbers.
+ */
 const Row = memo(function Row({ r }: { r: ResultRow }) {
   return (
     <TableRow>
@@ -17,6 +22,9 @@ const Row = memo(function Row({ r }: { r: ResultRow }) {
       <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>
         {fmt(r.current_a == null ? null : r.current_a * 1000, 1)}
       </TableCell>
+      {/* Voltage is supplementary — a point can record current without it — so
+          this is the one numeric cell that is routinely blank. */}
+      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmt(r.voltage_v, 2)}</TableCell>
       <TableCell sx={{ fontSize: 11 }}>
         {r.error
           ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
@@ -50,22 +58,26 @@ export function SweepResultsTable({ rows }: { rows: ResultRow[] }) {
     <Box ref={scrollRef} sx={{ flexGrow: 1, minHeight: 0, overflowY: 'scroll', overflowX: 'auto' }}>
       <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%' }}>
         <colgroup>
-          <col style={{ width: '8%' }} />
-          <col style={{ width: '12%' }} />
-          <col style={{ width: '12%' }} />
-          <col style={{ width: '14%' }} />
-          <col style={{ width: '20%' }} />
-          <col style={{ width: '16%' }} />
+          <col style={{ width: '7%' }} />
+          <col style={{ width: '11%' }} />
+          <col style={{ width: '11%' }} />
+          <col style={{ width: '13%' }} />
           <col style={{ width: '18%' }} />
+          <col style={{ width: '14%' }} />
+          <col style={{ width: '10%' }} />
+          <col style={{ width: '16%' }} />
         </colgroup>
         <TableHead>
           <TableRow>
             <TableCell>#</TableCell>
             <TableCell>HP Max</TableCell>
             <TableCell>PA DC</TableCell>
-            <TableCell>Power (dBm)</TableCell>
+            {/* Same two names the workbook uses. "Power (dBm)" next to
+                "Measured (dBm)" read as though one of them was not commanded. */}
+            <TableCell>Power Set (dBm)</TableCell>
             <TableCell>Measured (dBm)</TableCell>
             <TableCell>CC (mA)</TableCell>
+            <TableCell>V (V)</TableCell>
             <TableCell>Status</TableCell>
           </TableRow>
         </TableHead>

@@ -7,6 +7,7 @@ import { instrumentsApi, type MeasureResponse } from '../api/instruments'
 import { useInstruments } from '../context/InstrumentsContext'
 import { usePathLoss } from '../context/PathLossContext'
 import { describeMeasureError } from '../lib/instrumentError'
+import { DEFAULT_SETTLE_MS } from '../lib/settle'
 import { useAppPalette } from '../context/ThemeModeContext'
 import { StatRow, StatTile } from '../ui'
 
@@ -43,7 +44,7 @@ function num(v: number | null | undefined, digits: number): string {
 }
 
 export function MeasurementCard({
-  freqHz, triggerId, settleMs = 250, onResult, staticData,
+  freqHz, triggerId, settleMs = DEFAULT_SETTLE_MS, onResult, staticData,
   targetDbm, toleranceDb = 1,
 }: Props) {
   const { instruments, connect } = useInstruments()
@@ -58,8 +59,19 @@ export function MeasurementCard({
     : instruments['dc-analyzer'].status === 'connected'
   const anyConnected = ps || dc
 
+  // The target that was actually in force when the current reading was taken.
+  // The error must be computed against this, not against the live `targetDbm`
+  // prop: that one follows the Power field as it is typed, so editing it
+  // recomputed the error from the previous reading against a target that was
+  // never requested — the tile went out of spec without anything being measured.
+  // Captured when the read is dispatched, so it survives the reply.
+  const [readTargetDbm, setReadTargetDbm] = useState<number | null>(null)
+
   const measure = useMutation({
     mutationFn: () => instrumentsApi.measure(freqHz),
+    onMutate: () => {
+      setReadTargetDbm(targetDbm != null && Number.isFinite(targetDbm) ? targetDbm : null)
+    },
     onSuccess: (r) => onResult?.(r),
   })
 
@@ -128,9 +140,18 @@ export function MeasurementCard({
 
   const hasTarget = targetDbm != null && Number.isFinite(targetDbm)
   const measured = ps && power != null && Number.isFinite(power) ? power : null
-  const errDb = hasTarget && measured != null ? measured - targetDbm : null
+  // Static rows carry a matched target/measurement pair from the caller, so
+  // there is nothing to snapshot — anchor those to the prop directly.
+  const errTarget = isStatic ? (hasTarget ? targetDbm : null) : readTargetDbm
+  const errDb = errTarget != null && measured != null ? measured - errTarget : null
+  // The Power field has moved since this reading was taken, so the error below
+  // answers a question the operator is no longer asking. Say so rather than
+  // silently showing a figure that looks current.
+  const errStale = errDb != null && hasTarget && errTarget != null && errTarget !== targetDbm
+  // No pass/fail colour on a stale figure — green here would read as "this
+  // power setting is in spec" when that setting has not been measured.
   const errTone: 'ok' | 'warn' | 'bad' | undefined =
-    errDb == null
+    errDb == null || errStale
       ? undefined
       : Math.abs(errDb) <= toleranceDb
         ? 'ok'
@@ -219,12 +240,14 @@ export function MeasurementCard({
             sub={
               errDb == null
                 ? 'no reading'
-                : errTone === 'ok'
-                  ? `within ±${toleranceDb} dB`
-                  : `outside ±${toleranceDb} dB`
+                : errStale
+                  ? `vs ${num(errTarget, 2)} dBm · read again`
+                  : errTone === 'ok'
+                    ? `within ±${toleranceDb} dB`
+                    : `outside ±${toleranceDb} dB`
             }
             tone={errTone}
-            off={errDb == null}
+            off={errDb == null || errStale}
           />
         )}
         {/* Supply voltage rides along as the current's context rather than its

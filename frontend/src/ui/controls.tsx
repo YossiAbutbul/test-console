@@ -1,4 +1,7 @@
-import { Box, Button, Chip, CircularProgress, Stack, Typography } from '@mui/material'
+import {
+  Box, Button, Chip, CircularProgress, Divider, IconButton, Stack, Tooltip,
+  Typography,
+} from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import PowerIcon from '@mui/icons-material/Power'
 import StopIcon from '@mui/icons-material/Stop'
@@ -71,7 +74,7 @@ export function RunControls({
   onRun, onStop, children,
 }: RunControlsProps) {
   return (
-    <Stack direction="row" spacing={1}>
+    <Stack direction="row" spacing={1} alignItems="center">
       {children}
       <Button
         variant="outlined"
@@ -95,6 +98,65 @@ export function RunControls({
       >
         {running && progress ? `Running ${progress}` : runLabel}
       </Button>
+    </Stack>
+  )
+}
+
+interface EmergencyStopProps {
+  /** Issues every halt the page can perform. Must not throw. */
+  onStop: () => void
+  /** Shows a spinner in place of the icon. Never blocks the click. */
+  busy?: boolean
+  /** Accessible name and tooltip. */
+  title?: string
+}
+
+/**
+ * Always-live emergency halt for the page header, sitting to the left of the
+ * Run/Stop pair behind a divider.
+ *
+ * In the header rather than floating over the page: `PageHeader` lives outside
+ * the scrolling `PageBody`, so this is permanently on screen without covering
+ * any content and without costing layout space. The divider and the round red
+ * shape keep it from reading as a third ordinary button, and put a gap between
+ * it and Run so neither is easy to hit by accident.
+ *
+ * Sized to `CONTROL_H.md` — the same height as every other header action — so
+ * it sits on the shared baseline instead of standing proud of the row.
+ *
+ * Deliberately never disabled. The motor can be travelling from a jog with no
+ * run in progress, which is exactly when a runaway is most likely, so gating
+ * this on `running` would hide it at the moment it is needed. Repeat presses
+ * are harmless and expected.
+ */
+export function EmergencyStop({
+  onStop, busy, title = 'Emergency stop',
+}: EmergencyStopProps) {
+  return (
+    <Stack direction="row" alignItems="center" spacing={1}>
+      <Tooltip title={title} placement="bottom">
+        <IconButton
+          aria-label={title}
+          onClick={onStop}
+          sx={{
+            width: CONTROL_H.md,
+            height: CONTROL_H.md,
+            flexShrink: 0,
+            alignSelf: 'center',
+            p: 0,
+            bgcolor: 'error.main',
+            color: 'common.white',
+            border: '2px solid',
+            borderColor: 'error.dark',
+            '&:hover': { bgcolor: 'error.dark' },
+          }}
+        >
+          {busy
+            ? <CircularProgress size={18} color="inherit" />
+            : <StopIcon sx={{ fontSize: 20, display: 'block' }} />}
+        </IconButton>
+      </Tooltip>
+      <Divider orientation="vertical" flexItem sx={{ my: 0.5 }} />
     </Stack>
   )
 }

@@ -11,6 +11,8 @@ interface RangeRowProps {
   min: number
   max: number
   unit?: string
+  /** Locked while a sweep runs — the plan is fixed once it starts. */
+  disabled?: boolean
 }
 
 const clamp = (v: number, min: number, max: number): number =>
@@ -26,7 +28,7 @@ const clamp = (v: number, min: number, max: number): number =>
  * numbers stay editable for the cases where you know the value you want.
  */
 export function RangeRow({
-  label, lo, hi, setLo, setHi, min, max, unit,
+  label, lo, hi, setLo, setHi, min, max, unit, disabled,
 }: RangeRowProps) {
   const count = Math.max(0, Math.abs(hi - lo) + 1)
 
@@ -62,6 +64,7 @@ export function RangeRow({
 
       <Stack direction="row" alignItems="center" spacing={1.25}>
         <TextField
+          disabled={disabled}
           size="small"
           type="number"
           value={lo}
@@ -70,6 +73,7 @@ export function RangeRow({
           sx={numberSx}
         />
         <Slider
+          disabled={disabled}
           size="small"
           value={[lo, hi]}
           min={min}
@@ -118,6 +122,7 @@ export function RangeRow({
           }}
         />
         <TextField
+          disabled={disabled}
           size="small"
           type="number"
           value={hi}

@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Box, Button, Divider, IconButton, MenuItem, Stack, Table, TableBody,
+  Alert, Box, Button, Divider, IconButton, MenuItem, Stack, Table, TableBody,
   TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
-  Typography,
+  Tooltip, Typography,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import FirstPageIcon from '@mui/icons-material/FirstPage'
 import LastPageIcon from '@mui/icons-material/LastPage'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DownloadIcon from '@mui/icons-material/Download'
+import UploadFileIcon from '@mui/icons-material/UploadFile'
 import ScatterPlotIcon from '@mui/icons-material/ScatterPlot'
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
@@ -28,11 +30,12 @@ import { usePathLoss } from '../../context/PathLossContext'
 import { useLog } from '../../context/LogContext'
 import { useNotify } from '../../context/NotifyContext'
 import { sleep } from '../../lib/async'
+import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import { downloadBlob, exportName, toCsv } from '../../lib/download'
 import { DASH, fmt, num } from '../../lib/format'
 import {
-  ACTION_W, CONTROL_H, FieldGrid, MONO, PageBody, PathLossChip, RunControls,
-  Section, StatRow, StatTile, StatusChip, TEXT, TwoCol,
+  ACTION_W, CONTROL_H, EmergencyStop, FieldGrid, MONO, PageBody, PathLossChip,
+  RunControls, Section, StatRow, StatTile, StatusChip, TEXT, TwoCol,
 } from '../../ui'
 import { useAppPalette } from '../../context/ThemeModeContext'
 import type { TestPageProps } from '../types'
@@ -46,6 +49,7 @@ import { useRunReporter } from '../engine/useRunReporter'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import { planPositions } from './plan'
 import { useTromboneJog } from './useTromboneJog'
+import { parseLoadPullCsv } from './importCsv'
 
 const PULSES_PER_MM = 400
 
@@ -254,10 +258,26 @@ function BoundRow({
           {value == null ? 'not set' : `${(value / PULSES_PER_MM).toFixed(2)} mm`}
         </Typography>
         {value != null && (
-          <Button size="small" onClick={onClear} disabled={clearDisabled}
-            sx={{ minWidth: 0, height: 22, fontSize: 11.5, px: 0.75 }}>
-            clear
-          </Button>
+          // Icon only — the row is already three columns wide and the word
+          // "clear" competed with the captured value beside it. `span` wrapper
+          // so the tooltip still fires while the button is disabled mid-run.
+          <Tooltip title={`Clear ${label.toLowerCase()}`}>
+            <span>
+              <IconButton
+                size="small"
+                onClick={onClear}
+                disabled={clearDisabled}
+                aria-label={`Clear ${label.toLowerCase()}`}
+                sx={{
+                  p: 0.25,
+                  color: 'text.disabled',
+                  '&:hover': { color: 'error.main', bgcolor: 'transparent' },
+                }}
+              >
+                <DeleteOutlineIcon sx={{ fontSize: 16, display: 'block' }} />
+              </IconButton>
+            </span>
+          </Tooltip>
         )}
       </Stack>
     </>
@@ -298,7 +318,11 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const [freqMhz, setFreqMhz] = useState<number>(() => loadPullPageSnapshot.freqMhz ?? 902.3)
   const [powerDbm, setPowerDbm] = useState<number>(() => loadPullPageSnapshot.powerDbm ?? 14)
   const [paMode, setPaMode] = useState<number>(() => loadPullPageSnapshot.paMode ?? 2)
-  const [settleMs, setSettleMs] = useState<number>(() => loadPullPageSnapshot.settleMs ?? 500)
+  // Clamped on read: a snapshot saved before the floor existed can hold a value
+  // below it, and restoring one would quietly reintroduce the bad readings.
+  const [settleMs, setSettleMs] = useState<number>(
+    () => clampSettleMs(loadPullPageSnapshot.settleMs ?? DEFAULT_SETTLE_MS),
+  )
   const [deltaXmm, setDeltaXmm] = useState<number>(() => loadPullPageSnapshot.deltaXmm ?? 1)
   const [jogSpeed, setJogSpeed] = useState<number>(() => loadPullPageSnapshot.jogSpeed ?? 800)
   const [zeroPulses, setZeroPulses] = useState<number | null>(() => loadPullPageSnapshot.zeroPulses ?? null)
@@ -325,6 +349,29 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   // wakes every settle delay immediately.
   const abortRef = useRef(new AbortController())
   const resultsScrollRef = useRef<HTMLDivElement | null>(null)
+  // Set while the table is showing a file rather than a run of this rig.
+  // Cleared by Clear and by starting a run, so it can never outlive the
+  // rows it describes.
+  const [importedName, setImportedName] = useState<string | null>(null)
+  const csvInput = useRef<HTMLInputElement | null>(null)
+
+  const importCsv = async (file: File) => {
+    try {
+      const { rows, meta } = parseLoadPullCsv(await file.text())
+      setResults(rows)
+      setImportedName(file.name)
+      // The preamble's frequency and path loss are reported, not applied:
+      // silently rewriting the run's settings from a file would change what
+      // the next Run does.
+      const at = meta.freqMhz != null ? ` at ${meta.freqMhz} MHz` : ''
+      const pl = meta.pathLossDb != null ? `, path loss ${meta.pathLossDb} dB` : ''
+      log('LoadPull', `Imported ${rows.length} rows from ${file.name}${at}${pl}`)
+    } catch (e) {
+      const message = (e as Error).message
+      log('LoadPull', `Import failed: ${message}`, 'error')
+      notify.error(message, { title: 'Import' })
+    }
+  }
 
   useEffect(() => {
     const el = resultsScrollRef.current
@@ -443,6 +490,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
       abortRef.current = abort
       setRunning(true)
       setResults([])
+      setImportedName(null)
       setProgressIdx(0)
       const freqHz = Math.round(freqMhz * 1_000_000)
       try {
@@ -477,6 +525,25 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
     void motor.stop().catch(() => { /* ignore */ })
   }
 
+  // Emergency halt. Broader than Stop in two ways that matter: it works with no
+  // run in progress (a jog moves the trombone outside a run, which is when a
+  // runaway is most likely), and it clears the local jog state so the UI does
+  // not keep believing the motor is still being jogged.
+  //
+  // `/motor/stop` alone halts both a move and a jog watcher, so it goes first
+  // and is never gated on anything. Everything after it is best-effort: each
+  // call is caught on its own so a failing DUT cannot swallow the motor halt.
+  const onEmergencyStop = () => {
+    void motor.stop().catch((e: Error) => {
+      log('Motor', `emergency stop failed: ${e.message}`, 'error')
+      notify.error(e.message, { title: 'Emergency stop' })
+    })
+    abortRef.current.abort()
+    stopJog()
+    void device.stop().catch(() => { /* ignore */ })
+    log('Motor', 'EMERGENCY STOP — run aborted, motor halted', 'error')
+  }
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
       <PageHeader
@@ -490,7 +557,9 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
             progress={`${progressIdx}/${totalPoints}`}
             onRun={() => runM.mutate()}
             onStop={onStop}
-          />
+          >
+            <EmergencyStop onStop={onEmergencyStop} />
+          </RunControls>
         }
       />
 
@@ -621,27 +690,30 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
           <FieldGrid columns={4}>
             <LabeledField
               label="Frequency" hint="MHz" type="number" value={freqMhz}
-              historyKey="loadPull.freqMhz"
               onChange={(e) => setFreqMhz(Number(e.target.value))}
+              disabled={running}
               inputProps={{ step: 0.1 }}
             />
             <LabeledField
               label="DUT Power" hint="dBm" type="number" value={powerDbm}
-              historyKey="loadPull.powerDbm"
               onChange={(e) => setPowerDbm(Number(e.target.value))}
+              disabled={running}
             />
             <LabeledField
               label="PA Mode" select value={paMode}
               onChange={(e) => setPaMode(Number(e.target.value))}
+              disabled={running}
             >
               <MenuItem value={2}>Auto</MenuItem>
               <MenuItem value={1}>On</MenuItem>
               <MenuItem value={0}>Off</MenuItem>
             </LabeledField>
             <LabeledField
-              label="Settle" hint="ms" type="number" value={settleMs}
-              historyKey="loadPull.settleMs"
+              label="Settle" hint={`ms · min ${MIN_SETTLE_MS}`} type="number" value={settleMs}
               onChange={(e) => setSettleMs(Math.max(0, Number(e.target.value) || 0))}
+              onBlur={() => setSettleMs((v) => clampSettleMs(v))}
+              disabled={running}
+              inputProps={{ min: MIN_SETTLE_MS, step: 50 }}
             />
           </FieldGrid>
         </Section>
@@ -877,7 +949,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               <Button
                 size="small" variant="text" color="inherit"
                 startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
-                onClick={() => setResults([])}
+                onClick={() => { setResults([]); setImportedName(null) }}
                 disabled={results.length === 0 || running}
                 sx={RESULT_ACTION_SX}
               >
@@ -894,6 +966,15 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               </Button>
               <Button
                 size="small" variant="text"
+                startIcon={<UploadFileIcon sx={{ fontSize: 15 }} />}
+                onClick={() => csvInput.current?.click()}
+                disabled={running}
+                sx={RESULT_ACTION_SX}
+              >
+                Import
+              </Button>
+              <Button
+                size="small" variant="text"
                 startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
                 onClick={() => downloadCsv(results, {
                   freqMhz, powerDbm, pathLossDb, mac: bleStatus?.address ?? null,
@@ -906,9 +987,27 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
             </Stack>
           }
         >
+          <input
+            ref={csvInput}
+            type="file"
+            accept=".csv,text/csv"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              // Reset first: re-picking the same file fires no change event
+              // otherwise, so a second import would look ignored.
+              e.target.value = ''
+              if (f) void importCsv(f)
+            }}
+          />
+          {importedName && (
+            <Alert severity="info" sx={{ mb: 1, py: 0.25, fontSize: 12.5 }}>
+              Viewing <strong>{importedName}</strong> — imported rows, not a run of this rig.
+            </Alert>
+          )}
           {results.length === 0 ? (
             <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-              No data yet. Press Run.
+              No data yet. Press Run, or Import a previous CSV.
             </Typography>
           ) : (
             <Box ref={resultsScrollRef} sx={{ maxHeight: 360, overflowY: 'auto' }}>

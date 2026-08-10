@@ -15,7 +15,7 @@ from typing import Any, Callable
 
 import pytest
 
-from backend.sweep.models import RunState, SweepConfig
+from backend.sweep.models import MIN_SETTLE_MS, RunState, SweepConfig
 # Aliased: pytest would otherwise try to collect `TestRunner` as a test class.
 from backend.sweep.runner import TestRunner as SweepRunner
 
@@ -45,11 +45,15 @@ class FakeDevice:
     """Records every command the runner issues."""
 
     calls: list[tuple] = field(default_factory=list)
+    #: Fail the Nth *CW* command (1-based). Counted over CW calls only, so the
+    #: stop the runner now issues before each point cannot shift which point
+    #: fails.
     fail_on_call: int | None = None
 
     async def lora_cw(self, *, freq_hz, power_dbm, pa_duty_cycle, hp_max, pa_mode, timeout):
         self.calls.append(("cw", freq_hz, power_dbm, pa_duty_cycle, hp_max))
-        if self.fail_on_call is not None and len(self.calls) == self.fail_on_call:
+        cw_calls = sum(1 for c in self.calls if c[0] == "cw")
+        if self.fail_on_call is not None and cw_calls == self.fail_on_call:
             raise RuntimeError("device boom")
         return FakeResult()
 
@@ -87,7 +91,10 @@ def config(**over) -> SweepConfig:
         power_values=[14, 20],
         duty_values=[1],
         hp_values=[1, 2],
-        settle_ms=0,
+        # The floor is a real constraint on SweepConfig, so tests cannot ask for
+        # 0 any more. Kept at the minimum and the point count small, since every
+        # point in every test now really does sleep this long.
+        settle_ms=MIN_SETTLE_MS,
         cmd_timeout_s=1.0,
         pa_mode=2,
     )
@@ -180,6 +187,16 @@ class TestSweepRun:
         assert rows[2].error is None, "a bad point must not poison the rest"
 
     @sync
+    async def test_points_are_not_stopped_between_each_other(self) -> None:
+        """Only the teardown stop. Stopping per point cost 1.5s of DUT recovery
+        each and, measured on the bench, changed none of the readings."""
+        device = FakeDevice()
+        runner = SweepRunner()
+        await run_to_completion(runner, config(), device, FakePowerMeter(), FakeCurrentMeter())
+
+        assert [c[0] for c in device.calls].count("stop") == 1
+
+    @sync
     async def test_a_missing_voltage_reading_does_not_fail_the_row(self) -> None:
         cm = FakeCurrentMeter()
         cm.read_voltage_v = lambda: (_ for _ in ()).throw(RuntimeError("no volts"))  # type: ignore[method-assign]
@@ -204,7 +221,7 @@ class TestSweepRun:
     @sync
     async def test_cancel_stops_early_and_reports_cancelled(self) -> None:
         runner = SweepRunner()
-        cfg = config(power_values=list(range(1, 23)), settle_ms=20)
+        cfg = config(power_values=list(range(1, 23)))
         await runner.start(cfg, FakeDevice(), FakePowerMeter(), FakeCurrentMeter())
         await asyncio.sleep(0.05)
         await runner.cancel()
@@ -219,7 +236,7 @@ class TestSweepRun:
     @sync
     async def test_refuses_a_second_concurrent_run(self) -> None:
         runner = SweepRunner()
-        cfg = config(power_values=list(range(1, 23)), settle_ms=20)
+        cfg = config(power_values=list(range(1, 23)))
         await runner.start(cfg, FakeDevice(), FakePowerMeter(), FakeCurrentMeter())
         with pytest.raises(RuntimeError, match="already running"):
             await runner.start(cfg, FakeDevice(), FakePowerMeter(), FakeCurrentMeter())
@@ -254,7 +271,7 @@ class TestClearResults:
         """The rows are the run's own record — dropping them mid-run would
         leave progress counting toward measurements that no longer exist."""
         runner = SweepRunner()
-        cfg = config(power_values=list(range(1, 23)), settle_ms=20)
+        cfg = config(power_values=list(range(1, 23)))
         await runner.start(cfg, FakeDevice(), FakePowerMeter(), FakeCurrentMeter())
         try:
             with pytest.raises(RuntimeError, match="stop the sweep"):

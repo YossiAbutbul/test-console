@@ -1,8 +1,10 @@
-import { useState } from 'react'
-import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
+import { useRef, useState } from 'react'
+import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
+import { Alert, Box, Button, MenuItem, Stack, Typography } from '@mui/material'
 import DownloadIcon from '@mui/icons-material/Download'
 import ShowChartIcon from '@mui/icons-material/ShowChart'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
+import UploadFileIcon from '@mui/icons-material/UploadFile'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tests } from '../../api/tests'
 import { PageHeader } from '../../components/PageHeader'
@@ -32,7 +34,12 @@ const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
  *  heading, matching the automation tab. */
 const resultActionSx = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
 
-/** Sweep bounds. Must match `SweepConfig` in backend/sweep/runner.py. */
+/**
+ * Sweep bounds. Must match HP_MAX_RANGE / PA_DC_RANGE / POWER_RANGE in
+ * backend/sweep/models.py, which rejects anything outside them before the run
+ * starts. All three are 1-based: a 0 on any axis hangs the DUT rather than
+ * being refused by it.
+ */
 const RANGES = {
   power: { min: 1, max: 22 },
   duty: { min: 1, max: 4 },
@@ -60,9 +67,16 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
   const [dutyHi, setDutyHi] = useState(RANGES.duty.max)
   const [hpLo, setHpLo] = useState(RANGES.hp.min)
   const [hpHi, setHpHi] = useState(RANGES.hp.max)
-  const [settle, setSettle] = useState(30)
+  const [settle, setSettle] = useState(DEFAULT_SETTLE_MS)
   const [paMode, setPaMode] = useState(0)
   const [graphOpen, setGraphOpen] = useState(false)
+  // Rows read from a workbook instead of from this backend's run. Kept in
+  // page state rather than pushed into the runner: an imported file is
+  // someone else's finished sweep, and loading it into the run would make
+  // the status line, Export and Clear all describe something that did not
+  // happen here.
+  const [imported, setImported] = useState<{ rows: ResultRow[]; name: string } | null>(null)
+  const fileInput = useRef<HTMLInputElement | null>(null)
 
   // The sweep loop lives in the backend; the page starts it, polls it and
   // reports its transitions. Polling stops as soon as the run leaves 'running'.
@@ -100,7 +114,9 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
           power_values: range(powerLo, powerHi),
           duty_values: range(dutyLo, dutyHi),
           hp_values: range(hpLo, hpHi),
-          settle_ms: settle,
+          // Clamped again here: the field may still hold a typed-but-unblurred
+          // value, and the backend rejects anything under the floor outright.
+          settle_ms: clampSettleMs(settle),
           cmd_timeout_s: 5,
           pa_mode: paMode,
           path_loss_db: pathLossDb,
@@ -130,6 +146,15 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
       void qc.invalidateQueries({ queryKey: ['test-results'] })
     },
     onError: (e: Error) => reporter.note(`Clear failed: ${e.message}`, 'error'),
+  })
+
+  const importXlsx = useMutation({
+    mutationFn: (file: File) => tests.importXlsx(file).then((r) => ({ rows: r, name: file.name })),
+    onSuccess: ({ rows: r, name }) => {
+      setImported({ rows: r, name })
+      reporter.note(`Imported ${r.length} rows from ${name}`)
+    },
+    onError: (e: Error) => reporter.note(`Import failed: ${e.message}`, 'error'),
   })
 
   const exportXlsx = useMutation({
@@ -182,7 +207,9 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
     placeholderData: (prev, prevQuery) =>
       prevQuery?.queryKey[2] === (status?.started_at ?? 0) ? prev : undefined,
   })
-  const rows: ResultRow[] = resultsQ.data ?? []
+  const liveRows: ResultRow[] = resultsQ.data ?? []
+  // While a file is open it is what the table and the graph show.
+  const rows: ResultRow[] = imported?.rows ?? liveRows
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
@@ -232,11 +259,11 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
           >
             <Stack spacing={`${GRID_GAP}px`}>
               <RangeRow label="Power" lo={powerLo} hi={powerHi} setLo={setPowerLo} setHi={setPowerHi}
-                min={RANGES.power.min} max={RANGES.power.max} unit="dBm" />
+                min={RANGES.power.min} max={RANGES.power.max} unit="dBm" disabled={running} />
               <RangeRow label="PA Duty Cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
-                min={RANGES.duty.min} max={RANGES.duty.max} />
+                min={RANGES.duty.min} max={RANGES.duty.max} disabled={running} />
               <RangeRow label="HP Max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
-                min={RANGES.hp.min} max={RANGES.hp.max} />
+                min={RANGES.hp.min} max={RANGES.hp.max} disabled={running} />
             </Stack>
           </Section>
 
@@ -247,23 +274,28 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
                 hint="MHz"
                 type="number"
                 value={freqMhz}
-                historyKey={`${protocol}.modeSweep.freqMhz`}
                 onChange={(e) => setFreqMhz(e.target.value)}
+                disabled={running}
                 inputProps={{ step: 0.1 }}
               />
               <LabeledField
                 label="Settle"
-                hint="ms"
+                hint={`ms · min ${MIN_SETTLE_MS}`}
                 type="number"
                 value={settle}
-                historyKey={`${protocol}.modeSweep.settle`}
+                // Clamped on blur, not per keystroke: raising "4" to "400"
+                // mid-type would make the field impossible to fill in.
                 onChange={(e) => setSettle(Number(e.target.value))}
+                onBlur={() => setSettle((v) => clampSettleMs(v))}
+                disabled={running}
+                inputProps={{ min: MIN_SETTLE_MS, step: 50 }}
               />
               <LabeledField
                 label="PA Mode"
                 select
                 value={paMode}
                 onChange={(e) => setPaMode(Number(e.target.value))}
+                disabled={running}
               >
                 {PA_MODES.map((m) => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
@@ -313,7 +345,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
                 onClick={() => clearResults.mutate()}
                 // Refused mid-run by the backend; disabled here so the refusal
                 // is not the way the operator finds that out.
-                disabled={rows.length === 0 || running || clearResults.isPending}
+                disabled={rows.length === 0 || running || clearResults.isPending || imported != null}
                 sx={resultActionSx}
               >
                 Clear
@@ -331,9 +363,22 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
               <Button
                 size="small"
                 variant="text"
+                startIcon={<UploadFileIcon sx={{ fontSize: 15 }} />}
+                onClick={() => fileInput.current?.click()}
+                disabled={running || importXlsx.isPending}
+                sx={resultActionSx}
+              >
+                {importXlsx.isPending ? 'Reading…' : 'Import'}
+              </Button>
+              <Button
+                size="small"
+                variant="text"
                 startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
                 onClick={() => exportXlsx.mutate()}
-                disabled={!hasSweep || exportXlsx.isPending}
+                // Export always writes the backend's own rows, so offering it
+                // while a file is on screen would hand back something other
+                // than what is being looked at.
+                disabled={!hasSweep || exportXlsx.isPending || imported != null}
                 sx={resultActionSx}
               >
                 Export
@@ -341,7 +386,34 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
             </Stack>
           }
         >
+          {imported && (
+            <Alert
+              severity="info"
+              sx={{ mb: 1, py: 0.25, fontSize: 12.5 }}
+              action={
+                <Button size="small" color="inherit" onClick={() => setImported(null)}>
+                  Show live run
+                </Button>
+              }
+            >
+              Viewing <strong>{imported.name}</strong> — {imported.rows.length} imported rows.
+              Nothing here came from this backend.
+            </Alert>
+          )}
           <SweepResultsTable rows={rows} />
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".xlsx"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              // Reset first: picking the same file twice fires no change event
+              // otherwise, so a re-import after an edit would look ignored.
+              e.target.value = ''
+              if (f) importXlsx.mutate(f)
+            }}
+          />
         </Section>
       </PageBody>
 

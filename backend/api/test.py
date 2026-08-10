@@ -12,14 +12,16 @@ import asyncio
 import logging
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
 from ..ble import manager
 from ..hw.adapters import KeysightDCPowerAnalyzer, MiniCircuitsPowerMeter
 from ..hw.base import CurrentMeter, PowerMeter
-from ..sweep import ResultRow, RunStatus, SweepConfig, build_workbook, runner
+from ..sweep import (
+    ResultRow, RunStatus, SweepConfig, build_workbook, parse_workbook, runner,
+)
 from .errors import handle_driver_errors
 from .instruments._state import state
 
@@ -126,9 +128,15 @@ async def export() -> Response:
     if not rows:
         raise HTTPException(status_code=404, detail="No results to export")
 
+    # Carries the config and timing onto the Run sheet, so a saved workbook says
+    # which path loss and settle time produced its numbers.
+    status = runner.status()
+
     with handle_driver_errors("sweep export"):
         # openpyxl rendering is CPU-bound and grows with the row count.
-        data = await asyncio.to_thread(build_workbook, rows)
+        data = await asyncio.to_thread(
+            build_workbook, rows, status.config, status.started_at, status.finished_at,
+        )
 
     filename = time.strftime("pa_modes_%Y%m%d_%H%M%S.xlsx")
     return Response(
@@ -136,3 +144,34 @@ async def export() -> Response:
         media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+#: Refuse anything implausibly large before openpyxl tries to parse it — a
+#: 600-row sweep workbook is well under a megabyte.
+MAX_IMPORT_BYTES = 25 * 1024 * 1024
+
+
+@router.post("/import", response_model=list[ResultRow])
+async def import_xlsx(request: Request) -> list[ResultRow]:
+    """Read a previously exported workbook back into rows.
+
+    Takes the raw file as the request body rather than a multipart upload: this
+    needs no `python-multipart` dependency, and the client has a single file to
+    send. The rows are returned to the caller and deliberately *not* loaded into
+    the runner — an imported file is someone else's finished run, not this
+    process's, and pushing it into the run state would make Export, Clear and
+    the status line all lie about what the backend just did.
+    """
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=400, detail="No file received")
+    if len(data) > MAX_IMPORT_BYTES:
+        raise HTTPException(status_code=413, detail="File too large")
+
+    try:
+        # openpyxl parsing is CPU-bound and grows with the row count.
+        return await asyncio.to_thread(parse_workbook, data)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not read the workbook: {e}") from e

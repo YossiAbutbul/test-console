@@ -16,6 +16,7 @@ import { useLog } from '../context/LogContext'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
 import type { ScannedDevice } from '../types/models'
+import { STORAGE_KEYS, usePersistedState } from '../store'
 
 function actionSx(c: { bg: string; bgHover: string; fg: string }) {
   return {
@@ -51,7 +52,9 @@ export function ConnectionPanel() {
   const [editMac, setEditMac] = useState<string | null>(null)
   const qc = useQueryClient()
   const [duration, setDuration] = useState(5)
-  const [nameFilter, setNameFilter] = useState('Sonata2IL')
+  // Persisted: the rig is wired for one device type at a time, so resetting to
+  // the default on every reload just meant re-picking it before every scan.
+  const [nameFilter, setNameFilter] = usePersistedState(STORAGE_KEYS.deviceType, 'Sonata2IL')
   const [devices, setDevices] = useState<ScannedDevice[]>([])
   const [acOpen, setAcOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
