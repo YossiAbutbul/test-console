@@ -21,6 +21,7 @@ from ._common import (
     bound_resource,
     discover_visa,
 )
+from ._bus import InstrumentBusy, bus
 from ._state import state
 
 router = APIRouter(prefix="/instruments", tags=["instruments"])
@@ -36,6 +37,34 @@ def _force_free_run(a) -> None:
     try:
         dev.write("TRIG:SOUR INT")
         dev.write("INIT:CONT ON")
+    except Exception:
+        pass
+
+
+def _resync(a) -> None:
+    """Drop whatever is still queued on the instrument after a failed exchange.
+
+    A VISA session is a question-and-answer queue. If a query is abandoned
+    part-way — a timeout, or two callers interleaving on one session — the
+    unread reply stays in the output queue and every later query reads the
+    *previous* answer. That surfaces as nonsense like
+
+        int() argument: '+0.00000000000E+000'
+
+    from `SENS:SWE:POIN?` (a float where a count belongs, because what came
+    back was really the answer to a frequency query), and then as timeouts for
+    everything after it. Clearing the device discards the backlog so the next
+    point starts from a known state instead of the whole run failing.
+    """
+    dev = getattr(a, "_dev", None)
+    if dev is None:
+        return
+    try:
+        dev.clear()
+    except Exception:
+        pass
+    try:
+        dev.write("*CLS")
     except Exception:
         pass
 
@@ -83,14 +112,14 @@ async def discover() -> DiscoverResponse:
 @router.post("/network-analyzer/connect", response_model=ConnectResponse)
 async def connect(req: ConnectRequest) -> ConnectResponse:
     with handle_driver_errors("vna connect"):
-        idn = await asyncio.to_thread(_connect, req.address)
+        idn = await bus("network-analyzer").call(_connect, req.address)
     return ConnectResponse(connected=True, idn=idn)
 
 
 @router.post("/network-analyzer/disconnect", response_model=ConnectResponse)
 async def disconnect() -> ConnectResponse:
     with handle_driver_errors("vna disconnect"):
-        await asyncio.to_thread(_disconnect)
+        await bus("network-analyzer").call(_disconnect)
     return ConnectResponse(connected=False, idn=None)
 
 
@@ -153,10 +182,32 @@ def _read_config() -> ConfigResponse:
     )
 
 
+#: Last successful config read, served to the 5 s poll while the instrument is
+#: busy measuring. Only the poller reads stale values; every write path re-reads.
+_last_config: ConfigResponse | None = None
+
+
 @router.get("/network-analyzer/config", response_model=ConfigResponse)
 async def get_config() -> ConfigResponse:
+    """Read the instrument's settings, yielding to anything else using it.
+
+    This is polled every 5 s by the Network Analyzer page for as long as it is
+    mounted — which is the whole session, including while a Load Pull run is
+    measuring. Those five queries interleaving with a trace read is what
+    desynced the session and failed four points of a run.
+
+    A poll is never worth disturbing a measurement for, so when the instrument
+    is busy this answers from the last good read instead of queueing behind the
+    sweep or failing. Config changes rarely and only from this app.
+    """
+    global _last_config
     with handle_driver_errors("vna read config"):
-        return await asyncio.to_thread(_read_config)
+        try:
+            _last_config = await bus("network-analyzer").call(_read_config)
+        except InstrumentBusy:
+            if _last_config is None:
+                raise
+        return _last_config
 
 
 def _apply_freq(start_hz: float, stop_hz: float, points: int | None) -> None:
@@ -174,8 +225,8 @@ def _apply_freq(start_hz: float, stop_hz: float, points: int | None) -> None:
 @router.post("/network-analyzer/freq", response_model=ConfigResponse)
 async def set_freq(req: FreqRequest) -> ConfigResponse:
     with handle_driver_errors("vna set freq"):
-        await asyncio.to_thread(_apply_freq, req.start_hz, req.stop_hz, req.points)
-        return await asyncio.to_thread(_read_config)
+        await bus("network-analyzer").call(_apply_freq, req.start_hz, req.stop_hz, req.points)
+        return await bus("network-analyzer").call(_read_config)
 
 
 def _apply_markers(markers: list[float]) -> None:
@@ -209,8 +260,8 @@ def _apply_markers(markers: list[float]) -> None:
 @router.post("/network-analyzer/markers", response_model=ConfigResponse)
 async def set_markers(req: MarkersRequest) -> ConfigResponse:
     with handle_driver_errors("vna set markers"):
-        await asyncio.to_thread(_apply_markers, req.markers)
-        return await asyncio.to_thread(_read_config)
+        await bus("network-analyzer").call(_apply_markers, req.markers)
+        return await bus("network-analyzer").call(_read_config)
 
 
 # ---------- Single-shot S11 measurement ----------
@@ -242,7 +293,13 @@ def _measure_s11() -> MeasureResponse:
         raise RuntimeError("network_analyzer not connected")
     # Keep instrument in free-run; just read whatever the latest sweep produced.
     _force_free_run(a)
-    freqs, gamma = a.get_s_parameter_complex("S11")  # type: ignore[attr-defined]
+    try:
+        freqs, gamma = a.get_s_parameter_complex("S11")  # type: ignore[attr-defined]
+    except Exception:
+        # Leave the session usable for the next point rather than letting one
+        # bad exchange poison the rest of the run.
+        _resync(a)
+        raise
     start = float(freqs[0]) if len(freqs) else None
     stop = float(freqs[-1]) if len(freqs) else None
     pts = int(len(freqs))
@@ -283,5 +340,19 @@ class MeasureRequest(BaseModel):
 async def measure(req: MeasureRequest | None = None) -> MeasureResponse:
     with handle_driver_errors("vna measure"):
         if req is not None and req.markers is not None:
-            await asyncio.to_thread(_apply_markers, req.markers)
-        return await asyncio.to_thread(_measure_s11)
+            await bus("network-analyzer").call(_apply_markers, req.markers)
+        # `_query_ascii_data` raises the VISA timeout to 30 s for the trace
+        # read, so the bus has to outlast that: giving up here would abandon a
+        # reply mid-flight and desync the session, which is the failure this
+        # serialisation exists to prevent.
+        # The config poll is short but can still be mid-flight when a point
+        # arrives. Losing a measurement to it would put an error row in the
+        # results, so wait for it rather than reporting a failure.
+        for attempt in range(3):
+            try:
+                return await bus("network-analyzer").call(_measure_s11, timeout=40.0)
+            except InstrumentBusy:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(0.25)
+        raise RuntimeError("unreachable")

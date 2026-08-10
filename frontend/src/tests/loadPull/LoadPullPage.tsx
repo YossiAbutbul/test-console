@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Alert, Box, Button, Divider, IconButton, MenuItem, Stack, Table, TableBody,
+  Box, Button, Divider, IconButton, MenuItem, Stack, Table, TableBody,
   TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
   Tooltip, Typography,
 } from '@mui/material'
@@ -13,15 +13,15 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DownloadIcon from '@mui/icons-material/Download'
 import UploadFileIcon from '@mui/icons-material/UploadFile'
 import ScatterPlotIcon from '@mui/icons-material/ScatterPlot'
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined'
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
-import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import { motor } from '../../api/motor'
 import { servo } from '../../api/servo'
-import { vna } from '../../api/networkAnalyzer'
+import { vna, type VnaMarkerResult } from '../../api/networkAnalyzer'
 import { device } from '../../api/device'
 import { instrumentsApi } from '../../api/instruments'
 import { useInstrumentValue } from '../../context/InstrumentsContext'
@@ -30,6 +30,7 @@ import { usePathLoss } from '../../context/PathLossContext'
 import { useLog } from '../../context/LogContext'
 import { useNotify } from '../../context/NotifyContext'
 import { sleep } from '../../lib/async'
+import { parseRangeSpec } from '../../lib/numericList'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import { downloadBlob, exportName, toCsv } from '../../lib/download'
 import { DASH, fmt, num } from '../../lib/format'
@@ -50,6 +51,7 @@ import type { InstrumentId } from '../../context/InstrumentsContext'
 import { planPositions } from './plan'
 import { useTromboneJog } from './useTromboneJog'
 import { parseLoadPullCsv } from './importCsv'
+import { SetupDiagramModal } from './SetupDiagramModal'
 
 const PULSES_PER_MM = 400
 
@@ -61,9 +63,11 @@ const REQUIRED_INSTRUMENTS: InstrumentId[] = [
 /** Budget for the motor travel, switching and measuring around the delays. */
 const STEP_OVERHEAD_TIMEOUT_MS = 90_000
 
-const blankRow = (pos: number): LoadPullResultRow => ({
+const blankRow = (pos: number, freqMhz: number, powerDbm: number): LoadPullResultRow => ({
   pos_pulses: pos,
   pos_mm: mm(pos),
+  freq_mhz: freqMhz,
+  power_dbm_setting: powerDbm,
   power_dbm: null,
   current_a: null,
   r_ohm: null,
@@ -74,9 +78,17 @@ const blankRow = (pos: number): LoadPullResultRow => ({
 
 const mm = (p: number) => p / PULSES_PER_MM
 
-interface CsvMeta {
+/** One measurement: a trombone position, at a frequency, at a power. */
+interface PlanPoint {
+  pos: number
   freqMhz: number
   powerDbm: number
+}
+
+interface CsvMeta {
+  /** The specs the run was planned from, e.g. "902.3,915" and "10-20:5". */
+  freqSpec: string
+  powerSpec: string
   pathLossDb: number
   mac: string | null
 }
@@ -85,13 +97,15 @@ interface CsvMeta {
  *  so a stray CSV is still self-describing. */
 function downloadCsv(rows: LoadPullResultRow[], meta: CsvMeta): void {
   const header = [
-    '#', 'pos_mm', 'pos_pulses', 'power_dbm', 'cc_ma',
+    '#', 'pos_mm', 'pos_pulses', 'freq_mhz', 'set_power_dbm', 'power_dbm', 'cc_ma',
     'r_ohm', 'x_ohm', 's11_db', 'error',
   ]
   const body = rows.map((r, i) => [
     i + 1,
     num(r.pos_mm),
     r.pos_pulses,
+    num(r.freq_mhz),
+    num(r.power_dbm_setting),
     num(r.power_dbm),
     r.current_a == null ? '' : num(r.current_a * 1000),
     num(r.r_ohm),
@@ -99,8 +113,11 @@ function downloadCsv(rows: LoadPullResultRow[], meta: CsvMeta): void {
     num(r.s11_db),
     r.error ?? '',
   ])
+  // Specs rather than single values — the per-point frequency and power are
+  // columns now, and this line records what the run was asked for.
   const preamble =
-    `# freq_mhz=${meta.freqMhz} power_dbm=${meta.powerDbm} path_loss_db=${meta.pathLossDb}\r\n`
+    `# freq_spec=${meta.freqSpec} power_spec=${meta.powerSpec} `
+    + `path_loss_db=${meta.pathLossDb}\r\n`
   const blob = new Blob([preamble + toCsv(header, body)], { type: 'text/csv;charset=utf-8' })
   downloadBlob(blob, exportName('load-pull', meta.mac, 'csv', '-load-pull'))
 }
@@ -289,8 +306,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const notify = useNotify()
   const reporter = useRunReporter('Load Pull', 'LoadPull')
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
-  const { lossAt } = usePathLoss()
-  const p = useAppPalette()
+  const { lossAt, defaultDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
   const hasBackend = protocol === 'LoRa'
 
@@ -315,11 +331,17 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const allReady = missingRig.length === 0 && dutConnected
   const missingCount = missingRig.length + (dutConnected ? 0 : 1)
 
-  const [freqMhz, setFreqMhz] = useState<number>(() => loadPullPageSnapshot.freqMhz ?? 902.3)
-  const [powerDbm, setPowerDbm] = useState<number>(() => loadPullPageSnapshot.powerDbm ?? 14)
   const [paMode, setPaMode] = useState<number>(() => loadPullPageSnapshot.paMode ?? 2)
   // Clamped on read: a snapshot saved before the floor existed can hold a value
   // below it, and restoring one would quietly reintroduce the bad readings.
+  // Sweep specs. Seeded from the old single values so an existing snapshot
+  // keeps working and reads the same on first load.
+  const [freqSpec, setFreqSpec] = useState<string>(
+    () => loadPullPageSnapshot.freqSpec ?? String(loadPullPageSnapshot.freqMhz ?? 902.3),
+  )
+  const [powerSpec, setPowerSpec] = useState<string>(
+    () => loadPullPageSnapshot.powerSpec ?? String(loadPullPageSnapshot.powerDbm ?? 14),
+  )
   const [settleMs, setSettleMs] = useState<number>(
     () => clampSettleMs(loadPullPageSnapshot.settleMs ?? DEFAULT_SETTLE_MS),
   )
@@ -332,10 +354,11 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const [pathAck, setPathAck] = useState(false)
   const [results, setResults] = useState<LoadPullResultRow[]>(() => loadPullPageSnapshot.results ?? [])
   const [smithOpen, setSmithOpen] = useState(false)
+  const [setupOpen, setSetupOpen] = useState(false)
 
-  useEffect(() => { loadPullPageSnapshot.freqMhz = freqMhz; persistLoadPullPage() }, [freqMhz])
-  useEffect(() => { loadPullPageSnapshot.powerDbm = powerDbm; persistLoadPullPage() }, [powerDbm])
   useEffect(() => { loadPullPageSnapshot.paMode = paMode; persistLoadPullPage() }, [paMode])
+  useEffect(() => { loadPullPageSnapshot.freqSpec = freqSpec; persistLoadPullPage() }, [freqSpec])
+  useEffect(() => { loadPullPageSnapshot.powerSpec = powerSpec; persistLoadPullPage() }, [powerSpec])
   useEffect(() => { loadPullPageSnapshot.settleMs = settleMs; persistLoadPullPage() }, [settleMs])
   useEffect(() => { loadPullPageSnapshot.deltaXmm = deltaXmm; persistLoadPullPage() }, [deltaXmm])
   useEffect(() => { loadPullPageSnapshot.jogSpeed = jogSpeed; persistLoadPullPage() }, [jogSpeed])
@@ -344,8 +367,6 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   useEffect(() => { loadPullPageSnapshot.results = results; persistLoadPullPage() }, [results])
 
   // One frequency per run, so the correction is decided once.
-  const loss = lossAt(freqMhz)
-  const pathLossDb = loss.db
 
   const [running, setRunning] = useState(false)
   const [progressIdx, setProgressIdx] = useState(0)
@@ -353,6 +374,12 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   // wakes every settle delay immediately.
   const abortRef = useRef(new AbortController())
   const resultsScrollRef = useRef<HTMLDivElement | null>(null)
+  // Position the trombone is currently parked at, so the plan's remaining
+  // points at that position skip the move. Reset per run, never read for
+  // rendering — a ref rather than state.
+  const posRef = useRef<number | null>(null)
+  // VNA markers for the current position, keyed by requested frequency (Hz).
+  const markersRef = useRef<Map<number, VnaMarkerResult>>(new Map())
   // Set while the table is showing a file rather than a run of this rig.
   // Cleared by Clear and by starting a run, so it can never outlive the
   // rows it describes.
@@ -403,10 +430,29 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
     },
   })
 
-  // Plan: trombone positions (pulses) from zero -> end stepping by delta.
+  // Plan: trombone positions (pulses) from zero -> end stepping by delta, and
+  // at each one every (frequency, power) combination.
+  //
+  // Position-major on purpose. The trombone is the slow, mechanical axis, so
+  // the plan is ordered to visit each position once and take everything there
+  // before moving on; frequency and power are re-commanded electrically and
+  // cost nothing by comparison.
   const deltaPulses = Math.max(1, Math.round(deltaXmm * PULSES_PER_MM))
   const positions = deltaXmm <= 0 ? [] : planPositions(zeroPulses, endPulses, deltaPulses)
-  const totalPoints = positions.length
+  const freqs = parseRangeSpec(freqSpec).filter((f) => f > 0)
+  const powers = parseRangeSpec(powerSpec)
+  const plan: PlanPoint[] = []
+  for (const pos of positions) {
+    for (const f of freqs) for (const pw of powers) plan.push({ pos, freqMhz: f, powerDbm: pw })
+  }
+  const totalPoints = plan.length
+
+  // The chip covers the whole plan: with several frequencies in a run, one
+  // of them being uncalibrated is what the operator needs to know.
+  const firstFreq = freqs[0] ?? null
+  const loss = lossAt(firstFreq)
+  const pathLossDb = loss.db
+  const allCalibrated = freqs.length > 0 && freqs.every((f) => lossAt(f).calibrated)
 
   // Instruments are deliberately not gated here — the preflight connects them
   // on Run, and gating would make an unconnected rig look like a broken page.
@@ -423,54 +469,70 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   if (zeroPulses == null) blockers.push('capture the zero position')
   if (endPulses == null) blockers.push('capture the end position')
   if (deltaXmm <= 0) blockers.push('set Delta X above 0')
+  if (freqs.length === 0) blockers.push('enter at least one frequency')
+  if (powers.length === 0) blockers.push('enter at least one power')
   const canRun = blockers.length === 0 && !running
 
-  // Measure one trombone position: move → VNA marker (R/J/S11) → PCB → TX →
-  // power+CC. Never throws — failures are recorded in the returned row.
-  const measureAt = async (pos: number, freqHz: number): Promise<LoadPullResultRow> => {
+  // One plan point. The trombone moves only when the position changes, and the
+  // VNA is read once per position for every frequency in the plan — both are
+  // the expensive parts, and repeating them per (freq, power) combination would
+  // multiply a run by the size of the electrical sweep for no new information.
+  //
+  // Never throws: failures are recorded on the returned row.
+  const measurePoint = async (item: PlanPoint): Promise<LoadPullResultRow> => {
     const { signal } = abortRef.current
-    const row = blankRow(pos)
+    const row = blankRow(item.pos, item.freqMhz, item.powerDbm)
+    const freqHz = Math.round(item.freqMhz * 1_000_000)
     try {
-      // 1. trombone -> position
-      await motor.move(pos, true)
-      await waitForMotorIdle()
-      if (signal.aborted) return row
+      if (posRef.current !== item.pos) {
+        // 1. trombone -> position (once per position)
+        await motor.move(item.pos, true)
+        await waitForMotorIdle()
+        if (signal.aborted) return row
 
-      // 2. switch -> VNA, measure marker
-      await servo.goto('VNA')
-      await sleep(settleMs, signal)
-      if (signal.aborted) return row
-      const m = await vna.measure([freqHz])
-      const mk = m.markers?.[0]
+        // 2. switch -> VNA and read every frequency this position needs in one
+        //    acquisition, keyed by the frequency that was asked for.
+        await servo.goto('VNA')
+        await sleep(settleMs, signal)
+        if (signal.aborted) return row
+        const m = await vna.measure(freqs.map((f) => Math.round(f * 1_000_000)))
+        markersRef.current = new Map(
+          (m.markers ?? []).map((mk) => [Math.round(mk.requested_hz), mk]),
+        )
+        if ((m.markers?.length ?? 0) === 0) {
+          // A measure that fails raises, so an empty marker list means the sweep
+          // ran and returned nothing at the requested frequencies. The power and
+          // current here are still valid, so this is not an error row.
+          reporter.note(`no VNA markers at ${mm(item.pos).toFixed(2)} mm`, 'warn')
+        }
+
+        // 3. switch -> PCB, also once per position
+        await servo.goto('PCB')
+        await sleep(settleMs, signal)
+        if (signal.aborted) return row
+        posRef.current = item.pos
+      }
+
+      const mk = markersRef.current.get(freqHz)
       if (mk) {
         row.r_ohm = mk.r_ohm
         row.x_ohm = mk.x_ohm
         row.s11_db = mk.s11_mag_db
-      } else {
-        // A measure that fails raises, so an empty marker list means the sweep
-        // ran but returned nothing at the requested frequency. Leave R/X/S11
-        // blank and note it — the power and current for this position are still
-        // valid, so it is not an error row.
-        reporter.note(`no VNA marker at ${mm(pos).toFixed(2)} mm`, 'warn')
       }
 
-      // 3. switch -> PCB
-      await servo.goto('PCB')
-      await sleep(settleMs, signal)
-      if (signal.aborted) return row
-
-      // 4. TX on
+      // 4. TX on at this frequency and power
       const tx = await device.loraPower(
-        { freq_hz: freqHz, power_dbm: powerDbm, pa_mode: paMode },
+        { freq_hz: freqHz, power_dbm: item.powerDbm, pa_mode: paMode },
         { signal },
       )
       if (!tx.ok) {
         row.error = (row.error ? row.error + '; ' : '') + `tx status=${tx.status}`
       } else {
         await sleep(settleMs, signal)
-        // 5. measure power + CC; apply path loss correction
+        // 5. measure power + CC; correct with the loss for *this* frequency
         const meas = await instrumentsApi.measure(freqHz, { signal })
-        row.power_dbm = meas.power_dbm == null ? null : meas.power_dbm + pathLossDb
+        const pl = lossAt(item.freqMhz)
+        row.power_dbm = meas.power_dbm == null ? null : meas.power_dbm + pl.db
         row.current_a = meas.current_a
         if (meas.error) row.error = (row.error ? row.error + '; ' : '') + meas.error
       }
@@ -496,27 +558,34 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
       setResults([])
       setImportedName(null)
       setProgressIdx(0)
-      if (!loss.calibrated) {
+      posRef.current = null
+      markersRef.current = new Map()
+      // Per frequency now that a run sweeps several: named once each rather
+      // than once per point, which would repeat the same line all run.
+      const uncal = freqs.filter((f) => !lossAt(f).calibrated)
+      if (uncal.length) {
         reporter.note(
-          `path loss not calibrated at ${freqMhz} MHz - using the default `
-          + `${pathLossDb} dB. Measured power is only as good as that figure.`,
+          `path loss not calibrated at ${uncal.join(', ')} MHz - those points `
+          + `use the default ${defaultDb} dB, and their measured power is only `
+          + 'as good as that figure.',
           'warn',
         )
       }
-      const freqHz = Math.round(freqMhz * 1_000_000)
       try {
-        await runSequence<number, LoadPullResultRow>({
-          items: positions,
+        await runSequence<PlanPoint, LoadPullResultRow>({
+          items: plan,
           abort,
-          markRowError: (pos, _i, message) => ({ ...blankRow(pos), error: message }),
+          markRowError: (item, _i, message) => ({
+            ...blankRow(item.pos, item.freqMhz, item.powerDbm), error: message,
+          }),
           // A point moves the trombone and settles three times, so its budget
           // has to cover the motor travel as well as the delays.
           stepTimeoutMs: settleMs * 3 + STEP_OVERHEAD_TIMEOUT_MS,
           before: async () => {
-            try { await vna.setMarkers([freqHz]) }
+            try { await vna.setMarkers(freqs.map((f) => Math.round(f * 1_000_000))) }
             catch (e) { reporter.note(`setMarkers failed: ${(e as Error).message}`, 'warn') }
           },
-          measure: (pos) => measureAt(pos, freqHz),
+          measure: (item) => measurePoint(item),
           after: async () => { try { await device.stop() } catch { /* ignore */ } },
           rowHasError: (r) => !!r.error,
           onRows: setResults,
@@ -529,6 +598,27 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
     },
     onError: (e: Error) => reporter.failed(e.message),
   })
+
+  // Standing conditions go to the notice stack in the corner rather than into
+  // the page: they used to displace the content they described, and the table
+  // jumped whenever one appeared or cleared.
+  useEffect(() => {
+    notify.notice(
+      'loadpull-blockers',
+      'warning',
+      !running && blockers.length > 0 ? blockers.join(' · ') : null,
+      'Before running',
+    )
+  }, [notify, running, blockers.join('|')])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    notify.notice(
+      'loadpull-imported',
+      'info',
+      importedName ? `${importedName} — imported rows, not a run of this rig` : null,
+      'Viewing a file',
+    )
+  }, [notify, importedName])
 
   const onStop = () => {
     abortRef.current.abort()
@@ -577,25 +667,6 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
       {/* What is still missing, by name. The run has several independent
           preconditions and they are spread down the page, so a disabled Run on
           its own left the operator hunting for which one it meant. */}
-      {!running && blockers.length > 0 && (
-        <Stack
-          direction="row"
-          spacing={1}
-          sx={{
-            mt: 0.5, px: 1.25, py: 0.75,
-            border: 1, borderColor: 'divider', borderRadius: 1,
-            bgcolor: p.data.highlight,
-            alignItems: 'flex-start', flexShrink: 0,
-          }}
-        >
-          <ErrorOutlineRoundedIcon sx={{ fontSize: 15, color: p.data.warn, mt: '2px', flexShrink: 0 }} />
-          <Typography sx={{ fontSize: 12, color: 'text.primary' }}>
-            <Box component="span" sx={{ fontWeight: 700 }}>Before running: </Box>
-            {blockers.join(' · ')}
-          </Typography>
-        </Stack>
-      )}
-
       <PageBody width="fluid" scroll>
         {/* Calibration state, which is what the run plan is built from. */}
         <StatRow>
@@ -691,7 +762,23 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
                 >
                   {pathAck ? 'Unconfirm' : 'Confirm path'}
                 </Button>
-                <PathLossChip pathLossDb={pathLossDb} calibrated={loss.calibrated} freqMhz={freqMhz} />
+                {/* Next to the confirmation rather than in the header: this is
+                    the picture of the thing being confirmed, and it is most
+                    wanted by someone who is not sure whether to tick it. */}
+                <Button
+                  size="small"
+                  variant="text"
+                  startIcon={<AccountTreeOutlinedIcon sx={{ fontSize: 16 }} />}
+                  onClick={() => setSetupOpen(true)}
+                  sx={{ height: CONTROL_H.md }}
+                >
+                  View setup
+                </Button>
+                <PathLossChip
+                  pathLossDb={pathLossDb}
+                  calibrated={allCalibrated}
+                  freqMhz={firstFreq ?? undefined}
+                />
               </Stack>
             </Stack>
           </Section>
@@ -700,15 +787,18 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
         <Section title="Test point" step={3} panel>
           <FieldGrid columns={4}>
             <LabeledField
-              label="Frequency" hint="MHz" type="number" value={freqMhz}
-              onChange={(e) => setFreqMhz(Number(e.target.value))}
+              label="Frequency" hint="MHz" value={freqSpec}
+              onChange={(e) => setFreqSpec(e.target.value)}
               disabled={running}
-              inputProps={{ step: 0.1 }}
+              error={freqSpec.trim() !== '' && freqs.length === 0}
+              placeholder="e.g. 915 or 900-930"
             />
             <LabeledField
-              label="DUT Power" hint="dBm" type="number" value={powerDbm}
-              onChange={(e) => setPowerDbm(Number(e.target.value))}
+              label="DUT Power" hint="dBm" value={powerSpec}
+              onChange={(e) => setPowerSpec(e.target.value)}
               disabled={running}
+              error={powerSpec.trim() !== '' && powers.length === 0}
+              placeholder="14"
             />
             <LabeledField
               label="PA Mode" select value={paMode}
@@ -727,6 +817,21 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               inputProps={{ min: MIN_SETTLE_MS, step: 50 }}
             />
           </FieldGrid>
+          {/* The plan multiplies out fast — three positions of a 30-point
+              trombone sweep across four powers is 360 points — so state the
+              total next to the fields that decide it. */}
+          <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 1 }}>
+            Freq / Power: "915" · "900-930" · "900-930:5" · "902.3,915,927.5"
+            {positions.length > 0 && freqs.length > 0 && powers.length > 0 && (
+              <>
+                {' — '}
+                {positions.length} {positions.length === 1 ? 'position' : 'positions'}
+                {' × '}{freqs.length} {freqs.length === 1 ? 'freq' : 'freqs'}
+                {' × '}{powers.length} {powers.length === 1 ? 'power' : 'powers'}
+                {' = '}<b>{totalPoints}</b> points
+              </>
+            )}
+          </Typography>
         </Section>
 
         <Section
@@ -988,7 +1093,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
                 size="small" variant="text"
                 startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
                 onClick={() => downloadCsv(results, {
-                  freqMhz, powerDbm, pathLossDb, mac: bleStatus?.address ?? null,
+                  freqSpec, powerSpec, pathLossDb, mac: bleStatus?.address ?? null,
                 })}
                 disabled={results.length === 0}
                 sx={RESULT_ACTION_SX}
@@ -1011,32 +1116,51 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               if (f) void importCsv(f)
             }}
           />
-          {importedName && (
-            <Alert severity="info" sx={{ mb: 1, py: 0.25, fontSize: 12.5 }}>
-              Viewing <strong>{importedName}</strong> — imported rows, not a run of this rig.
-            </Alert>
-          )}
+
           {results.length === 0 ? (
             <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
               No data yet. Press Run, or Import a previous CSV.
             </Typography>
           ) : (
-            <Box ref={resultsScrollRef} sx={{ maxHeight: 360, overflowY: 'auto' }}>
-              <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%' }}>
+            <Box
+              ref={resultsScrollRef}
+              sx={{
+                maxHeight: 360,
+                overflowY: 'auto',
+                // Only below this does the table stop being readable; above it
+                // the percentages below make every column fit with no sideways
+                // scroll at all.
+                overflowX: 'auto',
+              }}
+            >
+              <Table
+                size="small"
+                stickyHeader
+                sx={{ tableLayout: 'fixed', width: '100%', minWidth: 780 }}
+              >
+                {/* One <col> per column — there were eight for ten columns after
+                    Freq and Set were added, and under `table-layout: fixed` the
+                    two with no width ran off the right-hand edge. */}
                 <colgroup>
-                  <col style={{ width: '6%' }} />
-                  <col style={{ width: '12%' }} />
-                  <col style={{ width: '15%' }} />
-                  <col style={{ width: '12%' }} />
-                  <col style={{ width: '13%' }} />
-                  <col style={{ width: '13%' }} />
-                  <col style={{ width: '13%' }} />
-                  <col style={{ width: '16%' }} />
+                  <col style={{ width: '5%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '9%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '14%' }} />
                 </colgroup>
                 <TableHead>
-                  <TableRow>
+                  <TableRow sx={{ '& th': { whiteSpace: 'nowrap', fontSize: 12 } }}>
                     <TableCell>#</TableCell>
                     <TableCell>Pos (mm)</TableCell>
+                    {/* A row is only identified by position, frequency and
+                        power together now that a run sweeps all three. */}
+                    <TableCell>Freq (MHz)</TableCell>
+                    <TableCell>Set (dBm)</TableCell>
                     <TableCell>Power (dBm)</TableCell>
                     <TableCell>CC (mA)</TableCell>
                     <TableCell>R (Ω)</TableCell>
@@ -1050,6 +1174,8 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
                     <TableRow key={i}>
                       <TableCell>{i + 1}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.pos_mm, 2)}</TableCell>
+                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.freq_mhz ?? null, 2)}</TableCell>
+                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.power_dbm_setting ?? null, 0)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.power_dbm, 2)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.current_a == null ? null : r.current_a * 1000, 1)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.r_ohm, 2)}</TableCell>
@@ -1073,8 +1199,9 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
         open={smithOpen}
         onClose={() => setSmithOpen(false)}
         results={results}
-        freqMhz={freqMhz}
       />
+      <SetupDiagramModal open={setupOpen} onClose={() => setSetupOpen(false)} />
+
       {preflight.dialog}
     </Box>
   )

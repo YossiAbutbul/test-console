@@ -15,8 +15,20 @@ const REQUIRED = ['pos_mm', 'pos_pulses', 'power_dbm', 'cc_ma', 'r_ohm', 'x_ohm'
 
 export interface LoadPullImport {
   rows: LoadPullResultRow[]
-  /** From the `# freq_mhz=… power_dbm=… path_loss_db=…` preamble, when present. */
-  meta: { freqMhz?: number; powerDbm?: number; pathLossDb?: number }
+  /**
+   * From the `#` preamble, when present.
+   *
+   * `freqSpec`/`powerSpec` are what current exports write, since a run sweeps
+   * several of each. `freqMhz`/`powerDbm` are the single values older files
+   * carry and are still read so those files keep importing.
+   */
+  meta: {
+    freqSpec?: string
+    powerSpec?: string
+    freqMhz?: number
+    powerDbm?: number
+    pathLossDb?: number
+  }
 }
 
 /** Split one CSV line, honouring quoted fields and doubled quotes inside them. */
@@ -61,13 +73,16 @@ export function parseLoadPullCsv(text: string): LoadPullImport {
     // The header also starts with '#', so the preamble is only a '#' followed
     // by a space. Matching on '#' alone would swallow the header.
     if (/^#\s/.test(lines[i])) {
+      // A spec value can hold commas, dashes and colons ("900-930:5"), so the
+      // value pattern is "everything up to the next space", not just digits.
       // Skip element 0 — that is the whole `key=value` match, not the key.
-      for (const [, key, value] of lines[i].matchAll(/(\w+)=(-?[\d.]+)/g)) {
+      for (const [, key, value] of lines[i].matchAll(/(\w+)=(\S+)/g)) {
         const n = Number(value)
-        if (!Number.isFinite(n)) continue
-        if (key === 'freq_mhz') meta.freqMhz = n
-        else if (key === 'power_dbm') meta.powerDbm = n
-        else if (key === 'path_loss_db') meta.pathLossDb = n
+        if (key === 'freq_spec') meta.freqSpec = value
+        else if (key === 'power_spec') meta.powerSpec = value
+        else if (key === 'freq_mhz' && Number.isFinite(n)) meta.freqMhz = n
+        else if (key === 'power_dbm' && Number.isFinite(n)) meta.powerDbm = n
+        else if (key === 'path_loss_db' && Number.isFinite(n)) meta.pathLossDb = n
       }
       continue
     }
@@ -96,9 +111,17 @@ export function parseLoadPullCsv(text: string): LoadPullImport {
     if (posPulses == null && posMm == null) continue
     const ccMa = numOrNull(at(cols, 'cc_ma'))
     const error = header.includes('error') ? (at(cols, 'error') ?? '').trim() : ''
+    // Both optional: a file written before the sweep existed has one frequency
+    // and power for the whole run, recorded in the preamble rather than per row.
+    const freq = header.includes('freq_mhz') ? numOrNull(at(cols, 'freq_mhz')) : null
+    const setPower = header.includes('set_power_dbm')
+      ? numOrNull(at(cols, 'set_power_dbm'))
+      : null
     rows.push({
       pos_pulses: posPulses ?? 0,
       pos_mm: posMm ?? 0,
+      ...(freq != null ? { freq_mhz: freq } : {}),
+      ...(setPower != null ? { power_dbm_setting: setPower } : {}),
       power_dbm: numOrNull(at(cols, 'power_dbm')),
       current_a: ccMa == null ? null : ccMa / 1000,
       r_ohm: numOrNull(at(cols, 'r_ohm')),

@@ -41,10 +41,27 @@ interface ToastEntry {
   message: string
   title?: string
   autoHideMs: number | null
+  /**
+   * Set for a *condition* rather than an event.
+   *
+   * A toast announces something that happened and then goes. A notice states
+   * something that is still true — a precondition blocking the run, a table
+   * showing an imported file — so it never fades, and re-stating the same key
+   * replaces it instead of stacking another copy.
+   */
+  noticeKey?: string
 }
 
 interface NotifyApi {
   notify: (severity: NotifySeverity, message: string, opts?: NotifyOptions) => void
+  /**
+   * Show, replace, or clear a standing notice.
+   *
+   * Pass `null` as the message to clear. Never auto-hides: it is showing
+   * because something is still the case, and it goes when that stops being
+   * true or when the operator dismisses it.
+   */
+  notice: (key: string, severity: NotifySeverity, message: string | null, title?: string) => void
   success: (message: string, opts?: NotifyOptions) => void
   info: (message: string, opts?: NotifyOptions) => void
   warning: (message: string, opts?: NotifyOptions) => void
@@ -185,6 +202,20 @@ export function NotifyProvider({ children }: { children: ReactNode }) {
     setToasts((arr) => arr.filter((t) => t.id !== id))
   }, [])
 
+  const notice = useCallback<NotifyApi['notice']>((key, severity, message, title) => {
+    setToasts((arr) => {
+      const without = arr.filter((t) => t.noticeKey !== key)
+      if (message == null) return without
+      const existing = arr.find((t) => t.noticeKey === key)
+      // Same text already up: leave it alone, or a re-render would restart its
+      // entry animation on every parent update.
+      if (existing && existing.message === message && existing.severity === severity) return arr
+      return [...without, {
+        id: nextId++, severity, message, title, autoHideMs: null, noticeKey: key,
+      }]
+    })
+  }, [])
+
   const notify = useCallback<NotifyApi['notify']>((severity, message, opts) => {
     const id = nextId++
     const ms = opts?.autoHideMs === undefined ? DEFAULT_HIDE[severity] : opts.autoHideMs
@@ -197,12 +228,13 @@ export function NotifyProvider({ children }: { children: ReactNode }) {
 
   const api = useMemo<NotifyApi>(() => ({
     notify,
+    notice,
     success: (m, o) => notify('success', m, o),
     info: (m, o) => notify('info', m, o),
     warning: (m, o) => notify('warning', m, o),
     error: (m, o) => notify('error', m, o),
     complete: (opts) => setCompletion(opts),
-  }), [notify])
+  }), [notify, notice])
 
   return (
     <NotifyCtx.Provider value={api}>
@@ -211,7 +243,11 @@ export function NotifyProvider({ children }: { children: ReactNode }) {
         spacing={1}
         sx={{
           position: 'fixed',
-          bottom: 16,
+          // Clears the global footer, which is fixed at bottom: 6 with a ~14px
+          // line. At 16 the toasts sat on top of the copyright line — and a
+          // notice, which stays until its condition ends, covered it for as
+          // long as that took.
+          bottom: 30,
           right: 16,
           zIndex: (t) => t.zIndex.snackbar + 1,
           pointerEvents: 'none',

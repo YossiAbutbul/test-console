@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
-import { Alert, Box, Button, MenuItem, Stack, Typography } from '@mui/material'
+import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
 import DownloadIcon from '@mui/icons-material/Download'
 import ShowChartIcon from '@mui/icons-material/ShowChart'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
@@ -397,20 +397,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
             </Stack>
           }
         >
-          {imported && (
-            <Alert
-              severity="info"
-              sx={{ mb: 1, py: 0.25, fontSize: 12.5 }}
-              action={
-                <Button size="small" color="inherit" onClick={() => setImported(null)}>
-                  Show live run
-                </Button>
-              }
-            >
-              Viewing <strong>{imported.name}</strong> — {imported.rows.length} imported rows.
-              Nothing here came from this backend.
-            </Alert>
-          )}
+
           <SweepResultsTable rows={rows} />
           <input
             ref={fileInput}

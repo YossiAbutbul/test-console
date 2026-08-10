@@ -9,6 +9,16 @@ import { STORAGE_KEYS } from './keys'
 export interface LoadPullResultRow {
   pos_pulses: number
   pos_mm: number
+  /**
+   * The (frequency, power) this point was taken at.
+   *
+   * A run now sweeps several of each at every trombone position, so a row is
+   * only identified by all three together. Optional because rows saved before
+   * the sweep existed - and rows imported from a CSV written then - carry the
+   * run's single frequency in the file header instead of on the row.
+   */
+  freq_mhz?: number
+  power_dbm_setting?: number
   power_dbm: number | null
   current_a: number | null
   r_ohm: number | null
@@ -20,6 +30,9 @@ export interface LoadPullResultRow {
 export interface LoadPullPageSnapshot {
   freqMhz?: number
   powerDbm?: number
+  /** Sweep specs — "915", "900-930", "900-930:5", "902.3,915,927.5". */
+  freqSpec?: string
+  powerSpec?: string
   paMode?: number
   settleMs?: number
   deltaXmm?: number
