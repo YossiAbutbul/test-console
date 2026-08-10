@@ -55,7 +55,7 @@ const PA_MODES = [
 export function PowerSweepPage({ protocol, group }: TestPageProps) {
   const qc = useQueryClient()
   const { instruments } = useInstruments()
-  const { pathLossDb } = usePathLoss()
+  const { lossAt } = usePathLoss()
   const reporter = useRunReporter('Mode Sweep', 'Sweep', 'steps')
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
   const hasBackend = protocol === 'LoRa'
@@ -86,6 +86,10 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
     refetchInterval: (q) => (q.state.data?.state === 'running' ? 500 : false),
     enabled: hasBackend,
   })
+
+  // One frequency per sweep, so the correction is decided once here.
+  const loss = lossAt(Number(freqMhz))
+  const pathLossDb = loss.db
 
   const totalSteps =
     Math.max(0, Math.abs(powerHi - powerLo) + 1) *
@@ -124,6 +128,13 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
         power_sensor_serial: ps.address.trim() || null,
         dc_analyzer_resource: dc.address.trim() || null,
         dc_analyzer_channel: dc.channel ?? 1,
+      }
+      if (!loss.calibrated) {
+        reporter.note(
+          `path loss not calibrated at ${freqMhz} MHz - using the default `
+          + `${pathLossDb} dB. Measured power will be off by the difference.`,
+          'warn',
+        )
       }
       return tests.run(req)
     },
@@ -303,7 +314,7 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
               </LabeledField>
             </FieldGrid>
             <Box sx={{ mt: 1.5 }}>
-              <PathLossChip pathLossDb={pathLossDb} />
+              <PathLossChip pathLossDb={pathLossDb} calibrated={loss.calibrated} freqMhz={Number(freqMhz)} />
             </Box>
           </Section>
         </TwoCol>

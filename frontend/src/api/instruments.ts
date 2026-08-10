@@ -5,6 +5,11 @@ export type InstrumentKind = 'power-sensor' | 'dc-analyzer' | 'spectrum' | 'netw
 export interface DiscoverCandidate {
   resource: string
   idn: string | null
+  /**
+   * Secondary line when there is no IDN to show — the OS's description of a
+   * serial port, say. COM3 and COM4 are indistinguishable as names alone.
+   */
+  detail?: string | null
 }
 
 interface DiscoverResponse {

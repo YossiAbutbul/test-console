@@ -68,13 +68,39 @@ def _open_serial(port: str, timeout: float, write_timeout: float):
 
 # ---------- Discovery ----------
 
-def discover() -> list[str]:
-    """Enumerate available serial ports (e.g. COM3, /dev/ttyUSB0)."""
+def discover_details() -> list[dict]:
+    """Enumerate serial ports with enough detail to tell them apart.
+
+    A bare list of names is not enough on a real PC: this machine reports COM3
+    (Intel AMT Serial-over-LAN, a PCI device that is not an instrument and must
+    not be opened) alongside COM4 (the Arduino's FTDI adapter). They look
+    identical as names.
+
+    `usb` is the discriminator — a USB-serial adapter reports a VID, an
+    on-board PCI port does not. USB ports are listed first so the likely one is
+    the first thing offered.
+    """
     try:
         from serial.tools import list_ports  # type: ignore
     except ImportError as e:
         raise DriverUnavailable(f"pyserial not installed: {e}") from e
-    return [p.device for p in list_ports.comports()]
+
+    out: list[dict] = []
+    for p in list_ports.comports():
+        usb = p.vid is not None
+        # "USB Serial Port (COM4)" repeats the name the UI already shows;
+        # the maker is the part that identifies it.
+        label = p.description or ""
+        if p.manufacturer and p.manufacturer.lower() not in label.lower():
+            label = f"{label} — {p.manufacturer}" if label else p.manufacturer
+        out.append({"port": p.device, "description": label or None, "usb": usb})
+    out.sort(key=lambda d: (not d["usb"], d["port"]))
+    return out
+
+
+def discover() -> list[str]:
+    """Port names only, USB-serial adapters first."""
+    return [d["port"] for d in discover_details()]
 
 
 def _probe_idn(port: str) -> Optional[str]:
@@ -139,11 +165,14 @@ def discover_with_idn() -> list[dict]:
     with _lock:
         own_port = state.port
         own_idn = state.idn
-    for p in discover():
+    for d in discover_details():
+        p = d["port"]
         if own_port == p:
             out.append({"port": p, "idn": own_idn})
             continue
-        out.append({"port": p, "idn": _probe_idn(p)})
+        # Never open a non-USB port to probe it. COM3 here is Intel AMT
+        # Serial-over-LAN; opening it achieves nothing and is not free.
+        out.append({"port": p, "idn": _probe_idn(p) if d["usb"] else None})
     return out
 
 

@@ -39,6 +39,11 @@ class TargetRequest(BaseModel):
 class DiscoverCandidate(BaseModel):
     port: str
     idn: str | None = None
+    #: What Windows calls the port, so COM3 (Intel AMT SOL) and COM4 (the
+    #: Arduino's FTDI adapter) are distinguishable without opening either.
+    description: str | None = None
+    #: True for a USB-serial adapter; on-board PCI ports report no VID.
+    usb: bool = False
 
 
 class DiscoverResponse(BaseModel):
@@ -62,10 +67,16 @@ async def discover() -> DiscoverResponse:
     # scan is what wedges the USB-serial driver (PermissionError 13). The IDN is
     # read once at connect and exposed via status afterwards.
     with handle_driver_errors("servo discover"):
-        ports = await asyncio.to_thread(svc.discover)
+        ports = await asyncio.to_thread(svc.discover_details)
     return DiscoverResponse(
-        candidates=ports,
-        details=[DiscoverCandidate(port=p, idn=None) for p in ports],
+        candidates=[p["port"] for p in ports],
+        details=[
+            DiscoverCandidate(
+                port=p["port"], idn=None,
+                description=p["description"], usb=p["usb"],
+            )
+            for p in ports
+        ],
     )
 
 

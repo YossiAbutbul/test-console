@@ -3,6 +3,7 @@ from .manager import (  # noqa: F401
     connect,
     disconnect,
     discover,
+    discover_details,
     discover_with_idn,
     goto,
     move_angle,

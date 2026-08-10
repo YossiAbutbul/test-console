@@ -15,7 +15,10 @@ export type ServoTarget = 'VNA' | 'PCB'
 
 export const servo = {
   status: () => http<ServoStatus>('/servo/status'),
-  discover: () => http<{ candidates: string[]; details?: { port: string; idn: string | null }[] }>('/servo/discover'),
+  discover: () => http<{
+    candidates: string[]
+    details?: { port: string; idn: string | null; description?: string | null; usb?: boolean }[]
+  }>('/servo/discover'),
   connect: (port: string) =>
     http<ServoStatus>('/servo/connect', {
       method: 'POST',

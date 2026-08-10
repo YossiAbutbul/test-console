@@ -6,9 +6,11 @@ import {
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
+import TuneIcon from '@mui/icons-material/Tune'
 import { useNicknames } from '../context/NicknamesContext'
 import { usePathLoss } from '../context/PathLossContext'
 import { NicknameModal } from './NicknameModal'
+import { PathLossModal } from './PathLossModal'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ble, scanStream } from '../api/ble'
 import { useConnection } from '../context/ConnectionContext'
@@ -48,7 +50,8 @@ export function ConnectionPanel() {
   const { mode } = useThemeMode()
   const a = getAppPalette(mode).actions
   const nicknames = useNicknames()
-  const { pathLossDb, setPathLossDb } = usePathLoss()
+  const { pathLossDb, setPathLossDb, points } = usePathLoss()
+  const [pathLossOpen, setPathLossOpen] = useState(false)
   const [editMac, setEditMac] = useState<string | null>(null)
   const qc = useQueryClient()
   const [duration, setDuration] = useState(5)
@@ -170,6 +173,28 @@ export function ConnectionPanel() {
             onFocus={(e) => (e.target as HTMLInputElement).select()}
             inputProps={{ step: 0.1 }}
             fullWidth
+            InputProps={{
+              // In the field rather than beside it: this number and the table
+              // behind it are the same setting, and a separate control would
+              // read as an unrelated one.
+              endAdornment: (
+                <Tooltip title={
+                  points.length
+                    ? `Per-frequency path loss — ${points.length} calibrated`
+                    : 'Per-frequency path loss'
+                }>
+                  <IconButton
+                    size="small"
+                    edge="end"
+                    onClick={() => setPathLossOpen(true)}
+                    aria-label="Edit path loss per frequency"
+                    sx={{ mr: -0.5, color: points.length ? 'primary.main' : 'text.disabled' }}
+                  >
+                    <TuneIcon sx={{ fontSize: 17 }} />
+                  </IconButton>
+                </Tooltip>
+              ),
+            }}
           />
         </Box>
 
@@ -385,6 +410,7 @@ export function ConnectionPanel() {
           {isConnected ? 'Disconnect' : 'Connect'}
         </Button>
       </Stack>
+      <PathLossModal open={pathLossOpen} onClose={() => setPathLossOpen(false)} />
       <NicknameModal mac={editMac} onClose={() => setEditMac(null)} />
     </Box>
   )

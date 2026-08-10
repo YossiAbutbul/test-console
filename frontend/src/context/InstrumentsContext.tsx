@@ -370,7 +370,12 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
         if (id === 'rf-switch') {
           const r = await servo.discover()
           if (r.details && r.details.length) {
-            return r.details.map((d) => ({ resource: d.port, idn: d.idn }))
+            // The port never answers *IDN? during a scan (opening the
+            // Arduino mid-scan wedges its driver), so the OS description is
+            // the only thing that tells COM4 from COM3.
+            return r.details.map((d) => ({
+              resource: d.port, idn: d.idn, detail: d.description ?? null,
+            }))
           }
           return r.candidates.map((resource) => ({ resource, idn: null }))
         }

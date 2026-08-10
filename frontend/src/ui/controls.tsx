@@ -202,12 +202,32 @@ export function SendStopControls({
  * The value is set once in the Connection panel and applied by every page that
  * reports DUT power, so the chip states where it came from.
  */
-export function PathLossChip({ pathLossDb }: { pathLossDb: number }) {
+export function PathLossChip({
+  pathLossDb, calibrated = true, freqMhz,
+}: {
+  pathLossDb: number
+  /** False when no table entry matched and this is the default. */
+  calibrated?: boolean
+  /** The frequency the figure was looked up for, named in the warning. */
+  freqMhz?: number
+}) {
   return (
     <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', gap: 1 }}>
-      <Chip size="small" label={`Path loss: ${pathLossDb} dB`} sx={{ ...TEXT.hint, fontWeight: 600 }} />
-      <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-        set globally in Connection panel · sensor reading + path loss = DUT power
+      <Chip
+        size="small"
+        color={calibrated ? 'default' : 'warning'}
+        label={`Path loss: ${pathLossDb} dB`}
+        sx={{ ...TEXT.hint, fontWeight: 600 }}
+      />
+      <Typography
+        sx={{ ...TEXT.hint, color: calibrated ? 'text.secondary' : 'warning.main' }}
+      >
+        {calibrated
+          // Saying only "sensor + path loss = DUT power" left no way to tell a
+          // figure measured at this frequency from one carried over.
+          ? 'set in Connection panel · sensor reading + path loss = DUT power'
+          : `not calibrated${freqMhz != null ? ` at ${freqMhz} MHz` : ''} - using the default. `
+            + 'Add a point in the Connection panel.'}
       </Typography>
     </Stack>
   )

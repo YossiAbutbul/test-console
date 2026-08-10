@@ -48,7 +48,11 @@ export function MeasurementCard({
   targetDbm, toleranceDb = 1,
 }: Props) {
   const { instruments, connect } = useInstruments()
-  const { pathLossDb } = usePathLoss()
+  const { lossAt } = usePathLoss()
+  // Per-frequency: the loss of the cable run is not flat across a band, so
+  // the figure that belongs to *this* reading is the one for its frequency.
+  const loss = lossAt(freqHz == null ? null : freqHz / 1e6)
+  const pathLossDb = loss.db
   const p = useAppPalette()
   const isStatic = staticData !== undefined
   const ps = isStatic
@@ -167,10 +171,29 @@ export function MeasurementCard({
         </Typography>
         {/* State where the number came from: a corrected reading that doesn't
             say so looks like the sensor disagrees with the DUT. */}
-        {!isStatic && pathLossDb !== 0 && (
-          <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>
-            incl. {pathLossDb > 0 ? '+' : ''}{pathLossDb} dB path loss
-          </Typography>
+        {!isStatic && (pathLossDb !== 0 || !loss.calibrated) && (
+          <Tooltip
+            title={
+              loss.calibrated
+                ? 'Calibrated for this frequency'
+                : 'No calibration for this frequency - using the default. '
+                  + 'Add a point in the Connection panel to correct it properly.'
+            }
+          >
+            <Typography
+              sx={{
+                fontSize: 11,
+                color: loss.calibrated ? 'text.disabled' : 'warning.main',
+                fontWeight: loss.calibrated ? 400 : 600,
+                cursor: 'default',
+              }}
+            >
+              {/* An uncorrected-for-this-frequency reading looks identical to a
+                  corrected one, so the difference has to be said out loud. */}
+              incl. {pathLossDb > 0 ? '+' : ''}{pathLossDb} dB path loss
+              {loss.calibrated ? '' : ' · uncalibrated'}
+            </Typography>
+          </Tooltip>
         )}
         <Box sx={{ flexGrow: 1 }} />
         {staticData?.subLabel && (

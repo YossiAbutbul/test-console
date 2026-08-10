@@ -77,7 +77,7 @@ const DEFAULT_SETTLE_MS = SHARED_DEFAULT_SETTLE_MS
 const LONG_SETTLE_MS = 10_000
 
 /** Export the results table. Values are rounded for Excel readability. */
-function downloadCsv(rows: ResultRow[], pathLossDb: number, mac: string | null): void {
+function downloadCsv(rows: ResultRow[], mac: string | null): void {
   const header = [
     'freq_mhz', 'set_power_dbm', 'pa_mode',
     'measured_dbm', 'current_ma',
@@ -89,7 +89,11 @@ function downloadCsv(rows: ResultRow[], pathLossDb: number, mac: string | null):
     PA_MODE_LABEL[r.pa_mode] ?? r.pa_mode,
     num(r.measured_dbm, 2),
     r.current_a == null ? '' : num(r.current_a * 1000, 2),
-    num(pathLossDb, 2),
+    // Derived from the row so it is the loss this point was corrected by,
+    // which is not the same for every row once the table has entries.
+    r.measured_dbm == null || r.measured_dbm_raw == null
+      ? ''
+      : num(r.measured_dbm - r.measured_dbm_raw, 2),
     r.ok,
     r.status ?? '',
     r.error ?? '',
@@ -129,7 +133,7 @@ interface AutomationPanelProps {
 }
 
 export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelProps) {
-  const { pathLossDb } = usePathLoss()
+  const { lossAt, defaultDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
   const reporter = useRunReporter('TX Power automation', 'Automation')
   // Every point reads power and current; without these the run completes with
@@ -169,6 +173,10 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
   const [pendingFocusIdx, setPendingFocusIdx] = useState<number | null>(null)
   // Auto-follow the results table to the latest row during a run.
   const resultsScrollRef = useRef<HTMLDivElement | null>(null)
+  // Frequencies this run had no calibration for. Collected rather than
+  // warned per point: a 40-point sweep over one uncalibrated band would
+  // otherwise write the same line forty times.
+  const uncalibrated = useRef<Set<number>>(new Set())
   const [graphOpen, setGraphOpen] = useState(false)
 
   const addRow = () => {
@@ -231,7 +239,11 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
         if (signal.aborted) return row
         const m = await instrumentsApi.measure(fHz, { signal })
         row.measured_dbm_raw = m.power_dbm
-        row.measured_dbm = m.power_dbm == null ? null : m.power_dbm + pathLossDb
+        // Looked up per point: an automation run sweeps frequencies, so a
+        // single figure would be right for at most one of them.
+        const pl = lossAt(item.freq)
+        row.measured_dbm = m.power_dbm == null ? null : m.power_dbm + pl.db
+        if (!pl.calibrated) uncalibrated.current.add(item.freq)
         row.current_a = m.current_a
         row.voltage_v = m.voltage_v
         if (m.error) row.error = m.error
@@ -262,6 +274,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
       setRunning(true)
       setResults([])
       setProgressIdx(0)
+      uncalibrated.current.clear()
       try {
         await runSequence<{ freq: number; pow: number }, ResultRow>({
           items: plan,
@@ -279,6 +292,15 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
         })
       } finally {
         setRunning(false)
+        if (uncalibrated.current.size > 0) {
+          const list = [...uncalibrated.current].sort((a, b) => a - b).join(', ')
+          reporter.note(
+            `path loss not calibrated at ${list} MHz — those points used the `
+            + `default ${defaultDb} dB and their measured power is only as `
+            + 'good as that figure.',
+            'warn',
+          )
+        }
       }
     },
     onError: (e: Error) => reporter.failed(e.message),
@@ -503,7 +525,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
         action={
           <Stack direction="row" alignItems="center" spacing={0.75}>
             <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
-              measured + path loss ({pathLossDb} dB)
+              measured + path loss (per frequency; default {defaultDb} dB)
             </Typography>
             <Button
               size="small"
@@ -530,7 +552,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
               size="small"
               variant="text"
               startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
-              onClick={() => downloadCsv(results, pathLossDb, bleStatus?.address ?? null)}
+              onClick={() => downloadCsv(results, bleStatus?.address ?? null)}
               disabled={results.length === 0}
               sx={resultActionSx}
             >

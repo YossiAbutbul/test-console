@@ -1,7 +1,8 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import {
   Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent,
-  DialogTitle, IconButton, LinearProgress, Stack, TextField, Typography,
+  DialogTitle, IconButton, InputAdornment, LinearProgress, Stack, TextField,
+  Typography,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import RefreshIcon from '@mui/icons-material/Refresh'
@@ -43,7 +44,7 @@ function statusColor(s: InstrumentState['status'], p: ReturnType<typeof getAppPa
 function fieldPlaceholder(id: InstrumentId, placeholder?: boolean): string {
   if (placeholder) return 'not wired yet'
   if (id === 'power-sensor') return 'Serial — e.g., MY50000200'
-  if (id === 'rf-switch') return 'COM port — e.g., COM3'
+  if (id === 'rf-switch') return 'COM port — the USB-serial one, e.g. COM4'
   if (id === 'rf-trombone') return 'Device index — 0'
   return 'VISA — USB0::0x...::INSTR'
 }
@@ -201,12 +202,12 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
                     <Typography
                       sx={{
                         fontSize: 11,
-                        color: o.idn ? 'text.secondary' : 'text.disabled',
-                        fontStyle: o.idn ? 'normal' : 'italic',
+                        color: o.idn || o.detail ? 'text.secondary' : 'text.disabled',
+                        fontStyle: o.idn || o.detail ? 'normal' : 'italic',
                         lineHeight: 1.2,
                       }}
                     >
-                      {o.idn ?? 'no IDN response'}
+                      {o.idn ?? o.detail ?? 'no IDN response'}
                     </Typography>
                   </li>
                 )
@@ -230,11 +231,36 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
               type="number"
               value={inst.channel ?? 1}
               onChange={(e) => setChannel(id, Number(e.target.value))}
-              inputProps={{ min: 1, max: 4 }}
+              // aria-label rather than a visible `label`: a floating MUI label
+              // notches the outline and lifts this box off the baseline of the
+              // unlabelled address field beside it, which is what made the row
+              // look crooked. The prefix below says the same thing in place.
+              inputProps={{ min: 1, max: 4, 'aria-label': 'DC analyzer channel' }}
               disabled={connected || busy}
-              label="Ch"
-              InputLabelProps={{ sx: { fontSize: 11 } }}
-              sx={{ width: 60, flexShrink: 0, '& .MuiInputBase-root': { height: 34, fontSize: 12.5 } }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start" sx={{ mr: 0.5 }}>
+                    <Typography sx={{ fontSize: 11, fontWeight: 600, color: 'text.disabled' }}>
+                      Ch
+                    </Typography>
+                  </InputAdornment>
+                ),
+              }}
+              sx={{
+                width: 78,
+                flexShrink: 0,
+                '& .MuiInputBase-root': { height: 34, fontSize: 12.5 },
+                // The spinners leave almost nothing for the digit at this
+                // width, and a 1-4 value is quicker to type than to step.
+                '& input': {
+                  textAlign: 'center',
+                  '&::-webkit-outer-spin-button, &::-webkit-inner-spin-button': {
+                    WebkitAppearance: 'none',
+                    margin: 0,
+                  },
+                  MozAppearance: 'textfield',
+                },
+              }}
             />
           )}
         </Stack>

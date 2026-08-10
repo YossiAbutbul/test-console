@@ -289,7 +289,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const notify = useNotify()
   const reporter = useRunReporter('Load Pull', 'LoadPull')
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
-  const { pathLossDb } = usePathLoss()
+  const { lossAt } = usePathLoss()
   const p = useAppPalette()
   const { status: bleStatus } = useConnection()
   const hasBackend = protocol === 'LoRa'
@@ -342,6 +342,10 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   useEffect(() => { loadPullPageSnapshot.zeroPulses = zeroPulses; persistLoadPullPage() }, [zeroPulses])
   useEffect(() => { loadPullPageSnapshot.endPulses = endPulses; persistLoadPullPage() }, [endPulses])
   useEffect(() => { loadPullPageSnapshot.results = results; persistLoadPullPage() }, [results])
+
+  // One frequency per run, so the correction is decided once.
+  const loss = lossAt(freqMhz)
+  const pathLossDb = loss.db
 
   const [running, setRunning] = useState(false)
   const [progressIdx, setProgressIdx] = useState(0)
@@ -492,6 +496,13 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
       setResults([])
       setImportedName(null)
       setProgressIdx(0)
+      if (!loss.calibrated) {
+        reporter.note(
+          `path loss not calibrated at ${freqMhz} MHz - using the default `
+          + `${pathLossDb} dB. Measured power is only as good as that figure.`,
+          'warn',
+        )
+      }
       const freqHz = Math.round(freqMhz * 1_000_000)
       try {
         await runSequence<number, LoadPullResultRow>({
@@ -680,7 +691,7 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
                 >
                   {pathAck ? 'Unconfirm' : 'Confirm path'}
                 </Button>
-                <PathLossChip pathLossDb={pathLossDb} />
+                <PathLossChip pathLossDb={pathLossDb} calibrated={loss.calibrated} freqMhz={freqMhz} />
               </Stack>
             </Stack>
           </Section>
