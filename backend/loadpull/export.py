@@ -24,9 +24,11 @@ from .models import LoadPullMeta, LoadPullRow
 #: Columns of the "All" sheet. The per-frequency sheets drop Freq and Set,
 #: which are constant within each of their tables.
 HEADERS = [
-    "#", "Pos [mm]", "Pos [pulses]", "Freq [MHz]", "Set [dBm]", "Power [dBm]",
-    "CC [mA]", "R [Ω]", "J [Ω]", "S11 [dB]", "Status",
+    "#", "Pos [mm]", "Pos [pulses]", "Freq [MHz]", "Set [dBm]", "Att [dB]",
+    "Power [dBm]", "CC [mA]", "R [Ω]", "J [Ω]", "S11 [dB]", "Status",
 ]
+#: The per-frequency tables keep Att: unlike frequency and power it varies
+#: *inside* one table, and it is what those rows are sorted by.
 TABLE_HEADERS = [h for h in HEADERS if h not in ("Freq [MHz]", "Set [dBm]")]
 
 HEADER_FONT = Font(bold=True)
@@ -49,7 +51,10 @@ def _values(idx: int, r: LoadPullRow, *, with_point: bool) -> list[Any]:
     states on a per-frequency sheet."""
     head = [idx, r.pos_mm, r.pos_pulses]
     point = [r.freq_mhz, r.power_dbm_setting] if with_point else []
+    # Attenuation stays on the per-frequency tables: unlike frequency and power
+    # it varies *within* one of them, and it is what those rows are sorted by.
     tail = [
+        r.att_db,
         r.power_dbm, _milliamps(r.current_a), r.r_ohm, r.x_ohm, r.s11_db, _status(r),
     ]
     return head + point + tail
@@ -95,7 +100,15 @@ def _write_frequency_sheet(ws: Worksheet, rows: list[LoadPullRow]) -> None:
     powers = sorted({r.power_dbm_setting for r in rows}, key=lambda p: (p is None, p))
     row_at = 1
     for power in powers:
-        group = [r for r in rows if r.power_dbm_setting == power]
+        # Sorted by attenuation, 0 first — the sweep records a whole trombone
+        # cycle per setting, and a reader compares the cycles against each
+        # other. Rows without one keep their measured order, ahead of any that
+        # have it. Python's sort is stable, so position order survives within a
+        # setting.
+        group = sorted(
+            (r for r in rows if r.power_dbm_setting == power),
+            key=lambda r: (r.att_db is not None, r.att_db or 0.0),
+        )
         label = "Unspecified" if power is None else f"{power:g} dBm"
         ws.cell(row=row_at, column=1, value=f"Set power: {label}").font = TITLE_FONT
         row_at += 1
@@ -158,6 +171,7 @@ def parse_workbook(data: bytes) -> list[LoadPullRow]:
             pos_mm=pos_mm or 0.0,
             freq_mhz=_float_or_none(values[col["Freq [MHz]"]]),
             power_dbm_setting=_float_or_none(values[col["Set [dBm]"]]),
+            att_db=_float_or_none(values[col["Att [dB]"]]),
             power_dbm=_float_or_none(values[col["Power [dBm]"]]),
             current_a=None if cc_ma is None else cc_ma / 1000.0,
             r_ohm=_float_or_none(values[col["R [Ω]"]]),

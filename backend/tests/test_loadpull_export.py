@@ -190,3 +190,46 @@ class TestRunSheet:
         """Sheet titles must stay unique; "Run" is taken before the tabs are made."""
         wb = load_workbook(BytesIO(build_workbook([row(0, 902.3, 0)], LoadPullMeta())))
         assert len(wb.sheetnames) == len(set(wb.sheetnames))
+
+
+class TestAttenuation:
+    """The attenuator is manual, so a run records a whole trombone cycle per
+    setting; the workbook is what lets those cycles be compared."""
+
+    def test_att_rows_sort_ascending_within_a_power_table(self) -> None:
+        rows = []
+        for att in (2, 0, 1):          # deliberately not in order
+            for pos in (0, 1):
+                rows.append(row(pos, 902.3, 14, att_db=att))
+        wb = wb_of(rows)
+
+        data = [r for r in wb["902.3 MHz"].iter_rows(min_row=3, values_only=True)
+                if r[0] is not None]
+        att_col = TABLE_HEADERS.index("Att [dB]")
+        assert [r[att_col] for r in data] == [0, 0, 1, 1, 2, 2]
+
+    def test_position_order_survives_inside_one_att_setting(self) -> None:
+        rows = [row(0, 902.3, 14, att_db=0), row(1, 902.3, 14, att_db=0)]
+        wb = wb_of(rows)
+        data = [r for r in wb["902.3 MHz"].iter_rows(min_row=3, values_only=True)
+                if r[0] is not None]
+        pos_col = TABLE_HEADERS.index("Pos [mm]")
+        assert [r[pos_col] for r in data] == [0, 1]
+
+    def test_rows_without_att_sort_ahead_of_those_with_it(self) -> None:
+        """A run that did not sweep attenuation must not be reordered by it."""
+        rows = [row(0, 902.3, 14, att_db=5), row(1, 902.3, 14)]
+        wb = wb_of(rows)
+        data = [r for r in wb["902.3 MHz"].iter_rows(min_row=3, values_only=True)
+                if r[0] is not None]
+        att_col = TABLE_HEADERS.index("Att [dB]")
+        assert [r[att_col] for r in data] == [None, 5]
+
+    def test_att_survives_the_round_trip(self) -> None:
+        back = parse_workbook(build_workbook([row(0, 902.3, 14, att_db=7)]))
+        assert back[0].att_db == 7
+
+    def test_att_is_kept_on_the_frequency_tables(self) -> None:
+        """Frequency and power are stated by the tab and title; attenuation
+        varies within a table, so it has to stay a column."""
+        assert "Att [dB]" in TABLE_HEADERS

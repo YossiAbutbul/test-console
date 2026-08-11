@@ -19,6 +19,9 @@ class LoadPullRow(BaseModel):
     #: sheet rather than being dropped.
     freq_mhz: Optional[float] = None
     power_dbm_setting: Optional[float] = None
+    #: Manual attenuator on the trombone's second output. Absent when the run
+    #: did not sweep it.
+    att_db: Optional[float] = None
     power_dbm: Optional[float] = None
     current_a: Optional[float] = None
     r_ohm: Optional[float] = None

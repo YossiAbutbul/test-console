@@ -41,6 +41,15 @@ export interface RunSequenceArgs<Item, Row> {
   onProgress?: (current: number) => void
   /** Runs once before the loop (e.g. set VNA markers). May throw → aborts. */
   before?: () => Promise<void>
+  /**
+   * Runs before each point, *outside* the step timeout.
+   *
+   * For work that legitimately takes unbounded time — anything that waits on a
+   * person, like asking the operator to set a manual attenuator. Inside
+   * `measure` that wait counts against `stepTimeoutMs`, and a point was failed
+   * with "timed out after 92s" while the run was simply waiting to be answered.
+   */
+  beforeItem?: (item: Item, index: number) => Promise<void>
   /** Runs once after the loop, always (best-effort cleanup, e.g. TX off). */
   after?: () => Promise<void>
   /** Max wall time for one point. Should exceed the settle delay. */
@@ -68,6 +77,10 @@ export async function runSequence<Item, Row>(
     if (abort.signal.aborted) break
     onProgress?.(i + 1)
 
+    // Deliberately untimed — see `beforeItem`.
+    if (a.beforeItem) await a.beforeItem(items[i], i)
+    if (abort.signal.aborted) break
+
     let row: Row
     try {
       row = await withTimeout(measure(items[i], i), stepTimeoutMs, `point ${i + 1}`)
@@ -78,6 +91,12 @@ export async function runSequence<Item, Row>(
       reporter.note(`point ${i + 1}: ${message}`, 'error')
       row = markRowError(items[i], i, message)
     }
+
+    // Stopped while this point was in flight, so whatever `measure` returned is
+    // partial — it never finished being measured. Recording it would leave a
+    // row of blanks in the results that reads as a failed measurement rather
+    // than as the point the operator interrupted.
+    if (abort.signal.aborted) break
 
     collected.push(row)
     onRows([...collected])

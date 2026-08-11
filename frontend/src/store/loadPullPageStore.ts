@@ -19,6 +19,14 @@ export interface LoadPullResultRow {
    */
   freq_mhz?: number
   power_dbm_setting?: number
+  /**
+   * Attenuator setting the point was taken at, in dB.
+   *
+   * The attenuator on the trombone's second output is set by hand, so this is
+   * what the operator was *asked* to dial in — the app cannot read it back.
+   * Absent when the run did not sweep attenuation.
+   */
+  att_db?: number
   power_dbm: number | null
   current_a: number | null
   r_ohm: number | null
@@ -33,6 +41,8 @@ export interface LoadPullPageSnapshot {
   /** Sweep specs — "915", "900-930", "900-930:5", "902.3,915,927.5". */
   freqSpec?: string
   powerSpec?: string
+  attEnabled?: boolean
+  attMaxDb?: number
   paMode?: number
   settleMs?: number
   deltaXmm?: number

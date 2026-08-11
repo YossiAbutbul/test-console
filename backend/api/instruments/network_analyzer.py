@@ -182,6 +182,11 @@ def _read_config() -> ConfigResponse:
     )
 
 
+#: How long a measurement will wait out a config poll before giving up.
+#: 16 x 0.25 s ~ 4 s, comfortably longer than the five queries a poll makes.
+_MEASURE_BUSY_RETRIES = 16
+_MEASURE_BUSY_WAIT_S = 0.25
+
 #: Last successful config read, served to the 5 s poll while the instrument is
 #: busy measuring. Only the poller reads stale values; every write path re-reads.
 _last_config: ConfigResponse | None = None
@@ -345,14 +350,16 @@ async def measure(req: MeasureRequest | None = None) -> MeasureResponse:
         # read, so the bus has to outlast that: giving up here would abandon a
         # reply mid-flight and desync the session, which is the failure this
         # serialisation exists to prevent.
-        # The config poll is short but can still be mid-flight when a point
-        # arrives. Losing a measurement to it would put an error row in the
-        # results, so wait for it rather than reporting a failure.
-        for attempt in range(3):
+        # A measurement must not lose a race with the 5 s config poll, which
+        # holds the instrument for five queries. Three tries at 250 ms was not
+        # enough for a slow one and a point failed with 409 "not responding to a
+        # previous command"; the window is ~4 s now, and a poll defers to this
+        # rather than the other way round.
+        for attempt in range(_MEASURE_BUSY_RETRIES):
             try:
                 return await bus("network-analyzer").call(_measure_s11, timeout=40.0)
             except InstrumentBusy:
-                if attempt == 2:
+                if attempt == _MEASURE_BUSY_RETRIES - 1:
                     raise
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(_MEASURE_BUSY_WAIT_S)
         raise RuntimeError("unreachable")

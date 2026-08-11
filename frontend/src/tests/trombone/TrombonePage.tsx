@@ -23,6 +23,16 @@ import type { TestPageProps } from '../types'
  *  during a move, so it has to track the motor. */
 const POLL_MS = 500
 
+/**
+ * Polled slowly while disconnected rather than not at all.
+ *
+ * The interval used to return `false` when the status said disconnected, which
+ * switched the poll off — so connecting from the Instruments modal never
+ * reached this page and the operator had to press Connect here as well, on an
+ * instrument that was already up.
+ */
+const IDLE_POLL_MS = 2000
+
 /** Used only to bound a jog when the motor has no soft limits configured. */
 const OPEN_TRAVEL = 1_000_000
 
@@ -39,7 +49,7 @@ export function TrombonePage({ group }: TestPageProps) {
   const statusQ = useQuery({
     queryKey: ['motor', 'status'],
     queryFn: motor.status,
-    refetchInterval: (q) => (q.state.data?.connected ? POLL_MS : false),
+    refetchInterval: (q) => (q.state.data?.connected ? POLL_MS : IDLE_POLL_MS),
     refetchOnWindowFocus: false,
   })
 

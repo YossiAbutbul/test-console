@@ -14,6 +14,10 @@ import { useThemeMode } from './context/ThemeModeContext'
 import { getAppPalette } from './theme'
 import { testRegistry } from './tests/registry'
 import { Sidebar, SIDEBAR_W, TOP_BAR_H } from './components/Sidebar'
+
+/** Band at the bottom of the window owned by the fixed copyright footer.
+ *  Anything that paints under it has to stop short by this much. */
+const FOOTER_CLEARANCE = 26
 import { STORAGE_KEYS, usePersistedState } from './store'
 
 const LOG_MIN_W = 240
@@ -269,6 +273,11 @@ export default function App() {
             border: 0,
             top: TOP_BAR_H,
             height: `calc(100vh - ${TOP_BAR_H}px)`,
+            // The global footer is fixed to the bottom-right of the window and
+            // paints over this drawer. Inset the paper's content so nothing is
+            // ever rendered in that band — at any scroll position — while the
+            // drawer's own background still reaches the bottom of the screen.
+            paddingBottom: `${FOOTER_CLEARANCE}px`,
           },
         }}
       >

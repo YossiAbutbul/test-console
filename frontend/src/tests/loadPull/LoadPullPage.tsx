@@ -51,6 +51,7 @@ import type { InstrumentId } from '../../context/InstrumentsContext'
 import { planPositions } from './plan'
 import { useTromboneJog } from './useTromboneJog'
 import { loadPullApi } from '../../api/loadPull'
+import { useAttPrompt } from './AttPrompt'
 import { parseLoadPullCsv } from './importCsv'
 import { SetupDiagramModal } from './SetupDiagramModal'
 
@@ -64,11 +65,12 @@ const REQUIRED_INSTRUMENTS: InstrumentId[] = [
 /** Budget for the motor travel, switching and measuring around the delays. */
 const STEP_OVERHEAD_TIMEOUT_MS = 90_000
 
-const blankRow = (pos: number, freqMhz: number, powerDbm: number): LoadPullResultRow => ({
-  pos_pulses: pos,
-  pos_mm: mm(pos),
-  freq_mhz: freqMhz,
-  power_dbm_setting: powerDbm,
+const blankRow = (item: PlanPoint): LoadPullResultRow => ({
+  pos_pulses: item.pos,
+  pos_mm: mm(item.pos),
+  freq_mhz: item.freqMhz,
+  power_dbm_setting: item.powerDbm,
+  ...(item.attDb == null ? {} : { att_db: item.attDb }),
   power_dbm: null,
   current_a: null,
   r_ohm: null,
@@ -79,12 +81,19 @@ const blankRow = (pos: number, freqMhz: number, powerDbm: number): LoadPullResul
 
 const mm = (p: number) => p / PULSES_PER_MM
 
-/** One measurement: a trombone position, at a frequency, at a power. */
+/** One measurement: a trombone position, at a frequency, at a power — and, if
+ *  the run sweeps it, at an attenuator setting. */
 interface PlanPoint {
   pos: number
   freqMhz: number
   powerDbm: number
+  /** Null when the run is not sweeping attenuation. */
+  attDb: number | null
 }
+
+/** Attenuator sweep. Fixed 1 dB steps from 0 up to a configurable ceiling. */
+const ATT_STEP_DB = 1
+const ATT_MAX_LIMIT_DB = 20
 
 const RESULT_ACTION_SX = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
 
@@ -310,9 +319,39 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const [powerSpec, setPowerSpec] = useState<string>(
     () => loadPullPageSnapshot.powerSpec ?? String(loadPullPageSnapshot.powerDbm ?? 14),
   )
-  const [settleMs, setSettleMs] = useState<number>(
-    () => clampSettleMs(loadPullPageSnapshot.settleMs ?? DEFAULT_SETTLE_MS),
+  const [attEnabled, setAttEnabled] = useState<boolean>(
+    () => loadPullPageSnapshot.attEnabled ?? false,
   )
+  // Held as text: a number field bound to a number cannot be cleared — the
+  // moment it is empty the parse gives 0 and 0 is written straight back.
+  const [attMaxText, setAttMaxText] = useState<string>(
+    () => String(loadPullPageSnapshot.attMaxDb ?? ATT_MAX_LIMIT_DB),
+  )
+  /** The typed ceiling, or null while the field is empty or out of range. */
+  const attMaxDb: number | null = (() => {
+    const t = attMaxText.trim()
+    if (t === '') return null
+    const n = Number(t)
+    if (!Number.isFinite(n) || n < 0 || n > ATT_MAX_LIMIT_DB) return null
+    return Math.round(n)
+  })()
+
+  // Text for the same reason as Att max: bound to a number, the field cannot
+  // be emptied — a blank parses to 0 and 0 is written straight back.
+  const [settleText, setSettleText] = useState<string>(
+    () => String(clampSettleMs(loadPullPageSnapshot.settleMs ?? DEFAULT_SETTLE_MS)),
+  )
+  /** The typed settle, or null while the field is empty or below the floor. */
+  const settleMs: number | null = (() => {
+    const t = settleText.trim()
+    if (t === '') return null
+    const n = Number(t)
+    if (!Number.isFinite(n) || n < MIN_SETTLE_MS) return null
+    return Math.round(n)
+  })()
+  /** What the run and its timeouts actually use. The blocker below stops a run
+   *  while `settleMs` is null, so the fallback never reaches the hardware. */
+  const settleEffectiveMs = settleMs ?? DEFAULT_SETTLE_MS
   const [deltaXmm, setDeltaXmm] = useState<number>(() => loadPullPageSnapshot.deltaXmm ?? 1)
   const [jogSpeed, setJogSpeed] = useState<number>(() => loadPullPageSnapshot.jogSpeed ?? 800)
   const [zeroPulses, setZeroPulses] = useState<number | null>(() => loadPullPageSnapshot.zeroPulses ?? null)
@@ -327,7 +366,15 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   useEffect(() => { loadPullPageSnapshot.paMode = paMode; persistLoadPullPage() }, [paMode])
   useEffect(() => { loadPullPageSnapshot.freqSpec = freqSpec; persistLoadPullPage() }, [freqSpec])
   useEffect(() => { loadPullPageSnapshot.powerSpec = powerSpec; persistLoadPullPage() }, [powerSpec])
-  useEffect(() => { loadPullPageSnapshot.settleMs = settleMs; persistLoadPullPage() }, [settleMs])
+  useEffect(() => { loadPullPageSnapshot.attEnabled = attEnabled; persistLoadPullPage() }, [attEnabled])
+  useEffect(() => {
+    // Only a usable value is persisted; a half-typed field is not worth
+    // restoring on the next visit.
+    if (attMaxDb != null) { loadPullPageSnapshot.attMaxDb = attMaxDb; persistLoadPullPage() }
+  }, [attMaxDb])
+  useEffect(() => {
+    if (settleMs != null) { loadPullPageSnapshot.settleMs = settleMs; persistLoadPullPage() }
+  }, [settleMs])
   useEffect(() => { loadPullPageSnapshot.deltaXmm = deltaXmm; persistLoadPullPage() }, [deltaXmm])
   useEffect(() => { loadPullPageSnapshot.jogSpeed = jogSpeed; persistLoadPullPage() }, [jogSpeed])
   useEffect(() => { loadPullPageSnapshot.zeroPulses = zeroPulses; persistLoadPullPage() }, [zeroPulses])
@@ -341,11 +388,14 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // Replaced per run. Stop aborts it, which cancels in-flight requests and
   // wakes every settle delay immediately.
   const abortRef = useRef(new AbortController())
+  const attPrompt = useAttPrompt()
   const resultsScrollRef = useRef<HTMLDivElement | null>(null)
   // Position the trombone is currently parked at, so the plan's remaining
   // points at that position skip the move. Reset per run, never read for
   // rendering — a ref rather than state.
   const posRef = useRef<number | null>(null)
+  // Attenuator setting the operator has confirmed for the cycle in progress.
+  const attRef = useRef<number | null>(null)
   // VNA markers for the current position, keyed by requested frequency (Hz).
   const markersRef = useRef<Map<number, VnaMarkerResult>>(new Map())
   // Set while the table is showing a file rather than a run of this rig.
@@ -419,9 +469,21 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const positions = deltaXmm <= 0 ? [] : planPositions(zeroPulses, endPulses, deltaPulses)
   const freqs = parseRangeSpec(freqSpec).filter((f) => f > 0)
   const powers = parseRangeSpec(powerSpec)
+  // Attenuation is the outermost axis: it is set by hand, so the run does a
+  // whole trombone cycle at one setting before asking for the next.
+  const attSteps: Array<number | null> = attEnabled && attMaxDb != null
+    ? Array.from(
+        { length: Math.floor(attMaxDb / ATT_STEP_DB) + 1 },
+        (_v, i) => i * ATT_STEP_DB,
+      )
+    : [null]
   const plan: PlanPoint[] = []
-  for (const pos of positions) {
-    for (const f of freqs) for (const pw of powers) plan.push({ pos, freqMhz: f, powerDbm: pw })
+  for (const attDb of attSteps) {
+    for (const pos of positions) {
+      for (const f of freqs) {
+        for (const pw of powers) plan.push({ pos, freqMhz: f, powerDbm: pw, attDb })
+      }
+    }
   }
   const totalPoints = plan.length
 
@@ -449,6 +511,10 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   if (deltaXmm <= 0) blockers.push('set Delta X above 0')
   if (freqs.length === 0) blockers.push('enter at least one frequency')
   if (powers.length === 0) blockers.push('enter at least one power')
+  if (settleMs == null) blockers.push(`set a settle of at least ${MIN_SETTLE_MS} ms`)
+  if (attEnabled && attMaxDb == null) {
+    blockers.push(`set the attenuator maximum (0–${ATT_MAX_LIMIT_DB} dB)`)
+  }
   const canRun = blockers.length === 0 && !running
 
   // One plan point. The trombone moves only when the position changes, and the
@@ -459,7 +525,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // Never throws: failures are recorded on the returned row.
   const measurePoint = async (item: PlanPoint): Promise<LoadPullResultRow> => {
     const { signal } = abortRef.current
-    const row = blankRow(item.pos, item.freqMhz, item.powerDbm)
+    const row = blankRow(item)
     const freqHz = Math.round(item.freqMhz * 1_000_000)
     try {
       if (posRef.current !== item.pos) {
@@ -471,7 +537,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         // 2. switch -> VNA and read every frequency this position needs in one
         //    acquisition, keyed by the frequency that was asked for.
         await servo.goto('VNA')
-        await sleep(settleMs, signal)
+        await sleep(settleEffectiveMs, signal)
         if (signal.aborted) return row
         const m = await vna.measure(freqs.map((f) => Math.round(f * 1_000_000)))
         markersRef.current = new Map(
@@ -486,7 +552,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
 
         // 3. switch -> PCB, also once per position
         await servo.goto('PCB')
-        await sleep(settleMs, signal)
+        await sleep(settleEffectiveMs, signal)
         if (signal.aborted) return row
         posRef.current = item.pos
       }
@@ -506,7 +572,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       if (!tx.ok) {
         row.error = (row.error ? row.error + '; ' : '') + `tx status=${tx.status}`
       } else {
-        await sleep(settleMs, signal)
+        await sleep(settleEffectiveMs, signal)
         // 5. measure power + CC; correct with the loss for *this* frequency
         const meas = await instrumentsApi.measure(freqHz, { signal })
         const pl = lossAt(item.freqMhz)
@@ -524,6 +590,38 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     return row
   }
 
+  /**
+   * Stop at each attenuator step and wait for the operator.
+   *
+   * Runs outside the per-point timeout: the wait is unbounded by nature, and
+   * inside `measurePoint` it counted against the step budget and failed the
+   * point with "timed out after 92s" while the run was only waiting to be
+   * answered.
+   */
+  const beforeItem = async (item: PlanPoint) => {
+    if (item.attDb == null || attRef.current === item.attDb) return
+    // Park the switch on the VNA before asking. The DUT is not transmitting
+    // between cycles, so the analyzer is the only way to watch the attenuator
+    // take effect while it is being dialled in.
+    try {
+      await servo.goto('VNA')
+    } catch (e) {
+      // Non-fatal: the operator can still set the attenuator blind, and the
+      // next point re-routes the switch itself.
+      reporter.note(`could not park the switch on VNA: ${(e as Error).message}`, 'warn')
+    }
+    const idx = attSteps.indexOf(item.attDb)
+    const ok = await attPrompt.ask(item.attDb, Math.max(0, idx), attSteps.length)
+    if (!ok) {
+      abortRef.current.abort()
+      return
+    }
+    attRef.current = item.attDb
+    // Forget where the trombone is, so the first point of the new cycle drives
+    // it back to the start rather than assuming it is already there.
+    posRef.current = null
+  }
+
   const runM = useMutation({
     mutationFn: async () => {
       if (!(await preflight.run())) {
@@ -537,6 +635,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       setImportedName(null)
       setProgressIdx(0)
       posRef.current = null
+      attRef.current = null
       markersRef.current = new Map()
       // Per frequency now that a run sweeps several: named once each rather
       // than once per point, which would repeat the same line all run.
@@ -553,16 +652,15 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         await runSequence<PlanPoint, LoadPullResultRow>({
           items: plan,
           abort,
-          markRowError: (item, _i, message) => ({
-            ...blankRow(item.pos, item.freqMhz, item.powerDbm), error: message,
-          }),
+          markRowError: (item, _i, message) => ({ ...blankRow(item), error: message }),
           // A point moves the trombone and settles three times, so its budget
           // has to cover the motor travel as well as the delays.
-          stepTimeoutMs: settleMs * 3 + STEP_OVERHEAD_TIMEOUT_MS,
+          stepTimeoutMs: settleEffectiveMs * 3 + STEP_OVERHEAD_TIMEOUT_MS,
           before: async () => {
             try { await vna.setMarkers(freqs.map((f) => Math.round(f * 1_000_000))) }
             catch (e) { reporter.note(`setMarkers failed: ${(e as Error).message}`, 'warn') }
           },
+          beforeItem,
           measure: (item) => measurePoint(item),
           after: async () => { try { await device.stop() } catch { /* ignore */ } },
           rowHasError: (r) => !!r.error,
@@ -604,7 +702,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     mutationFn: () => loadPullApi.exportXlsx(results, {
       freq_spec: freqSpec,
       power_spec: powerSpec,
-      settle_ms: settleMs,
+      settle_ms: settleEffectiveMs,
       pa_mode: paMode,
       delta_x_mm: deltaXmm,
       zero_pulses: zeroPulses,
@@ -629,6 +727,9 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   })
 
   const onStop = () => {
+    // Releases a run waiting on the attenuator prompt, which would otherwise
+    // sit there after the abort.
+    attPrompt.cancel()
     abortRef.current.abort()
     void device.stop().catch(() => { /* ignore */ })
     void motor.stop().catch(() => { /* ignore */ })
@@ -643,6 +744,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // and is never gated on anything. Everything after it is best-effort: each
   // call is caught on its own so a failing DUT cannot swallow the motor halt.
   const onEmergencyStop = () => {
+    attPrompt.cancel()
     void motor.stop().catch((e: Error) => {
       log('Motor', `emergency stop failed: ${e.message}`, 'error')
       notify.error(e.message, { title: 'Emergency stop' })
@@ -818,11 +920,38 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               <MenuItem value={0}>Off</MenuItem>
             </LabeledField>
             <LabeledField
-              label="Settle" hint={`ms · min ${MIN_SETTLE_MS}`} type="number" value={settleMs}
-              onChange={(e) => setSettleMs(Math.max(0, Number(e.target.value) || 0))}
-              onBlur={() => setSettleMs((v) => clampSettleMs(v))}
+              label="Settle" hint={`ms · min ${MIN_SETTLE_MS}`} type="number" value={settleText}
+              onChange={(e) => setSettleText(e.target.value)}
+              // Raise a typed-but-too-low value to the floor on blur; leave an
+              // empty field empty, so it can be cleared and retyped.
+              onBlur={() => setSettleText((t) => (
+                t.trim() === '' ? t : String(clampSettleMs(Number(t)))
+              ))}
               disabled={running}
+              error={settleMs == null}
               inputProps={{ min: MIN_SETTLE_MS, step: 50 }}
+            />
+            {/* The attenuator sits on the trombone's second output and is set
+                by hand, so sweeping it is opt-in — off, the run behaves exactly
+                as it did before. Filed with the other test-point fields rather
+                than in a row of its own, which read as a different kind of
+                setting. */}
+            <LabeledField
+              label="Attenuator" select value={attEnabled ? 1 : 0}
+              onChange={(e) => setAttEnabled(Number(e.target.value) === 1)}
+              disabled={running}
+            >
+              <MenuItem value={0}>Off</MenuItem>
+              <MenuItem value={1}>Sweep</MenuItem>
+            </LabeledField>
+            <LabeledField
+              label="Att max" hint={`dB · 0–${ATT_MAX_LIMIT_DB}`}
+              type="number" value={attMaxText}
+              onChange={(e) => setAttMaxText(e.target.value)}
+              onBlur={() => setAttMaxText((t) => (attMaxDb == null ? t : String(attMaxDb)))}
+              disabled={running || !attEnabled}
+              error={attEnabled && attMaxDb == null}
+              inputProps={{ min: 0, max: ATT_MAX_LIMIT_DB, step: ATT_STEP_DB }}
             />
           </FieldGrid>
           {/* The plan multiplies out fast — three positions of a 30-point
@@ -836,6 +965,9 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                 {positions.length} {positions.length === 1 ? 'position' : 'positions'}
                 {' × '}{freqs.length} {freqs.length === 1 ? 'freq' : 'freqs'}
                 {' × '}{powers.length} {powers.length === 1 ? 'power' : 'powers'}
+                {attEnabled && attMaxDb != null && (
+                  <>{' × '}{attSteps.length} att ({ATT_STEP_DB} dB steps)</>
+                )}
                 {' = '}<b>{totalPoints}</b> points
               </>
             )}
@@ -1163,15 +1295,16 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     two with no width ran off the right-hand edge. */}
                 <colgroup>
                   <col style={{ width: '5%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: '11%' }} />
                   <col style={{ width: '9%' }} />
-                  <col style={{ width: '11%' }} />
                   <col style={{ width: '10%' }} />
+                  <col style={{ width: '8%' }} />
+                  <col style={{ width: '8%' }} />
                   <col style={{ width: '10%' }} />
+                  <col style={{ width: '9%' }} />
+                  <col style={{ width: '9%' }} />
+                  <col style={{ width: '9%' }} />
                   <col style={{ width: '10%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: '14%' }} />
+                  <col style={{ width: '13%' }} />
                 </colgroup>
                 <TableHead>
                   <TableRow sx={{ '& th': { whiteSpace: 'nowrap', fontSize: 12 } }}>
@@ -1181,6 +1314,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                         power together now that a run sweeps all three. */}
                     <TableCell>Freq (MHz)</TableCell>
                     <TableCell>Set (dBm)</TableCell>
+                    <TableCell>Att (dB)</TableCell>
                     <TableCell>Power (dBm)</TableCell>
                     <TableCell>CC (mA)</TableCell>
                     <TableCell>R (Ω)</TableCell>
@@ -1196,6 +1330,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.pos_mm, 2)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.freq_mhz ?? null, 2)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.power_dbm_setting ?? null, 0)}</TableCell>
+                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.att_db ?? null, 0)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.power_dbm, 2)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.current_a == null ? null : r.current_a * 1000, 1)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.r_ohm, 2)}</TableCell>
@@ -1222,6 +1357,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       />
       <SetupDiagramModal open={setupOpen} onClose={() => setSetupOpen(false)} />
 
+      {attPrompt.dialog}
       {preflight.dialog}
     </Box>
   )

@@ -13,6 +13,7 @@ the UI can display a best-effort current position.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -363,13 +364,28 @@ def move_angle(angle: int) -> str:
     return resp
 
 
+#: The sketch answers a preset move with where it went, e.g. "Moved to PCB: 62".
+#: Parsing it is the only way the host learns an angle it did not command - the
+#: protocol has no query, and the saved positions live on the board.
+_ANGLE_IN_REPLY = re.compile(r"(\d{1,3})\s*$")
+
+
+def _angle_from_reply(resp: str) -> Optional[int]:
+    m = _ANGLE_IN_REPLY.search((resp or "").strip())
+    if not m:
+        return None
+    angle = int(m.group(1))
+    return angle if 0 <= angle <= 180 else None
+
+
 def goto(target: str) -> str:
     t = target.strip().upper()
     if t not in ("VNA", "PCB"):
         raise ValueError(f"target {target!r} must be VNA or PCB")
     resp = _send(t)
-    # Angle now unknown (arduino-saved position).
-    state.last_angle = None
+    # The preset's angle is stored on the Arduino, so take it from the reply
+    # rather than reporting "unknown" for every preset move.
+    state.last_angle = _angle_from_reply(resp)
     return resp
 
 

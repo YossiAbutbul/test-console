@@ -21,6 +21,16 @@ import type { TestPageProps } from '../types'
  *  so there is nothing to track mid-move. */
 const POLL_MS = 1000
 
+/**
+ * Polled slowly while disconnected rather than not at all.
+ *
+ * The interval used to return `false` when the status said disconnected, which
+ * switched the poll off — so connecting from the Instruments modal never
+ * reached this page and the operator had to press Connect here as well, on an
+ * instrument that was already up.
+ */
+const IDLE_POLL_MS = 2000
+
 const ANGLE_MIN = 0
 const ANGLE_MAX = 180
 
@@ -46,7 +56,9 @@ function pathOf(lastCommand: string | null): string | null {
 export function SwitchPage({ group }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
-  const reporter = useActionReporter('Switch move', 'Servo')
+  // Quiet: a servo move is instant and the operator is looking straight at the
+  // result, so a modal per nudge is in the way rather than informative.
+  const reporter = useActionReporter('Switch move', 'Servo', { quietSuccess: true })
   const [port, setPort] = useState<string>('')
   const [ports, setPorts] = useState<string[]>([])
   const [angle, setAngle] = useState<number>(90)
@@ -54,7 +66,7 @@ export function SwitchPage({ group }: TestPageProps) {
   const statusQ = useQuery({
     queryKey: ['servo', 'status'],
     queryFn: servo.status,
-    refetchInterval: (q) => (q.state.data?.connected ? POLL_MS : false),
+    refetchInterval: (q) => (q.state.data?.connected ? POLL_MS : IDLE_POLL_MS),
     refetchOnWindowFocus: false,
   })
 

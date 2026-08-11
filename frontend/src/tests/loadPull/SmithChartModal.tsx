@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
-  Box, Dialog, DialogContent, DialogTitle, IconButton, MenuItem, Stack,
+  Box, Button, Dialog, DialogContent, DialogTitle, IconButton, MenuItem, Stack,
   TextField, Typography,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import { useThemeMode } from '../../context/ThemeModeContext'
 import { MONO, TEXT } from '../../ui'
 import type { LoadPullResultRow } from '../../store/loadPullPageStore'
@@ -72,6 +74,8 @@ export function SmithChartModal({
   const { mode } = useThemeMode()
   const dark = mode !== 'light'
   const [hover, setHover] = useState<number | null>(null)
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle')
   // Which slice of the run to plot. A run sweeps frequency and power at every
   // trombone position, and plotting all of them at once would put several
   // unrelated load-pull contours on one chart.
@@ -88,6 +92,8 @@ export function SmithChartModal({
       .sort((a, b) => a - b),
     [results],
   )
+  /** Present only when the run swept the attenuator; drives the extra column. */
+  const hasAtt = useMemo(() => results.some((r) => r.att_db != null), [results])
 
   // Default to the first of each once results arrive, and re-anchor if the
   // current pick is not in the data (a new run, or an imported file).
@@ -99,6 +105,9 @@ export function SmithChartModal({
   const shown = useMemo(
     () => results.filter(
       (r) => (r.freq_mhz == null || freq == null || r.freq_mhz === freq)
+        // Attenuation is deliberately not filtered: sweeping it is what moves
+        // the load, so every setting belongs on the same chart. Frequency and
+        // power are the axes that make one chart mean one thing.
         && (r.power_dbm_setting == null || power == null || r.power_dbm_setting === power),
     ),
     [results, freq, power],
@@ -131,6 +140,23 @@ export function SmithChartModal({
     return { min: Math.min(...vals), max: Math.max(...vals) }
   }, [points])
 
+  /**
+   * Points grouped into the runs that are actually continuous.
+   *
+   * The trombone travels from one end to the other once per attenuator setting,
+   * so consecutive points share a path only while the setting does.
+   */
+  const traces = useMemo(() => {
+    const out: Array<{ key: string; pts: Pt[] }> = []
+    for (const pt of points) {
+      const key = pt.row.att_db == null ? 'single' : `att-${pt.row.att_db}`
+      const last = out[out.length - 1]
+      if (last && last.key === key) last.pts.push(pt)
+      else out.push({ key, pts: [pt] })
+    }
+    return out
+  }, [points])
+
   const effSpan = effDomain ? effDomain.max - effDomain.min : 0
   // Three points that differ only in the noise still print the same figure
   // at both ends, and a full colour ramp between two identical numbers reads
@@ -157,6 +183,81 @@ export function SmithChartModal({
     cx: cx + 1 * R, cy: cy - (1 / x) * R, rr: Math.abs(1 / x) * R,
   }))
 
+  /**
+   * Copy the chart and its efficiency scale to the clipboard as a PNG.
+   *
+   * The point list and the formula card are deliberately left out — they are
+   * reading aids for this dialog, not part of the figure someone pastes into a
+   * report.
+   *
+   * The chart is SVG and the scale is HTML, so the two are composed onto a
+   * canvas here rather than screenshotted: the scale is redrawn from the same
+   * RAMP the dots are coloured from, which keeps them in step.
+   */
+  const copyChart = async () => {
+    const svg = svgRef.current
+    if (!svg) return
+    const SCALE = 2                       // for a legible paste on a HiDPI screen
+    const LEGEND_H = 34
+    try {
+      const xml = new XMLSerializer().serializeToString(svg)
+      const img = new Image()
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = () => reject(new Error('could not rasterise the chart'))
+        img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`
+      })
+
+      const canvas = document.createElement('canvas')
+      canvas.width = S * SCALE
+      canvas.height = (S + LEGEND_H) * SCALE
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('no 2d context')
+      ctx.scale(SCALE, SCALE)
+      // Opaque: a transparent PNG pasted onto a dark slide loses the grid.
+      ctx.fillStyle = dark ? '#111418' : '#ffffff'
+      ctx.fillRect(0, 0, S, S + LEGEND_H)
+      ctx.drawImage(img, 0, 0, S, S)
+
+      // Efficiency scale, mirroring what the dialog shows.
+      const ink = dark ? '#c7cdd6' : '#4b5563'
+      ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, monospace'
+      ctx.textBaseline = 'middle'
+      const y = S + LEGEND_H / 2
+      ctx.fillStyle = ink
+      ctx.fillText('Efficiency', 8, y)
+      if (effDomain == null) {
+        ctx.fillText('not computable', 76, y)
+      } else if (effFlat) {
+        ctx.fillText(`${(effDomain.min * 100).toFixed(1)}% at every point`, 76, y)
+      } else {
+        const lo = `${(effDomain.min * 100).toFixed(1)}%`
+        const hi = `${(effDomain.max * 100).toFixed(1)}%`
+        const barX = 76 + ctx.measureText(lo).width + 8
+        const barW = S - barX - ctx.measureText(hi).width - 16
+        ctx.fillText(lo, 76, y)
+        const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0)
+        RAMP.forEach((c, i) => grad.addColorStop(i / (RAMP.length - 1), c))
+        ctx.fillStyle = grad
+        ctx.beginPath()
+        ctx.roundRect(barX, y - 5, barW, 10, 5)
+        ctx.fill()
+        ctx.fillStyle = ink
+        ctx.fillText(hi, barX + barW + 8, y)
+      }
+
+      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
+      if (!blob) throw new Error('could not encode the image')
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      setCopied('done')
+    } catch {
+      // Clipboard writes need a secure context and permission; say so rather
+      // than looking like nothing happened.
+      setCopied('failed')
+    }
+    window.setTimeout(() => setCopied('idle'), 2000)
+  }
+
   const hp = hover != null ? points.find((p) => p.idx === hover) ?? null : null
   const fmtPct = (e: number | null) => (e == null ? '—' : `${(e * 100).toFixed(1)} %`)
 
@@ -171,6 +272,20 @@ export function SmithChartModal({
           </Typography>
         </Stack>
         <Box sx={{ flexGrow: 1 }} />
+        <Button
+          size="small"
+          startIcon={
+            copied === 'done'
+              ? <CheckRoundedIcon sx={{ fontSize: 16 }} />
+              : <ContentCopyIcon sx={{ fontSize: 15 }} />
+          }
+          onClick={() => void copyChart()}
+          disabled={points.length === 0}
+          color={copied === 'failed' ? 'error' : 'inherit'}
+          sx={{ mr: 1, fontSize: 12.5 }}
+        >
+          {copied === 'done' ? 'Copied' : copied === 'failed' ? 'Copy failed' : 'Copy chart'}
+        </Button>
         <IconButton size="small" onClick={onClose}><CloseIcon sx={{ fontSize: 18 }} /></IconButton>
       </DialogTitle>
 
@@ -200,6 +315,7 @@ export function SmithChartModal({
               options={powers} onChange={setPickedPower}
             />
           )}
+
           <Box sx={{ flexGrow: 1 }} />
 
         </Stack>
@@ -246,6 +362,7 @@ export function SmithChartModal({
                 >
                   <Box sx={{ width: 26 }}>#</Box>
                   <Box sx={{ flex: 1, textAlign: 'right' }}>Pos</Box>
+                  {hasAtt && <Box sx={{ flex: 0.8, textAlign: 'right' }}>Att</Box>}
                   <Box sx={{ flex: 1.2, textAlign: 'right' }}>Z (Ω)</Box>
                   <Box sx={{ flex: 1, textAlign: 'right' }}>Pout</Box>
                   <Box sx={{ flex: 0.9, textAlign: 'right' }}>Eff</Box>
@@ -279,6 +396,13 @@ export function SmithChartModal({
                           {pt.idx + 1}
                         </Box>
                         <Box sx={{ flex: 1, textAlign: 'right' }}>{pt.row.pos_mm.toFixed(1)}</Box>
+                        {/* Every attenuation is on the chart at once, so the
+                            list is where a dot says which cycle it came from. */}
+                        {hasAtt && (
+                          <Box sx={{ flex: 0.8, textAlign: 'right' }}>
+                            {pt.row.att_db == null ? '—' : pt.row.att_db}
+                          </Box>
+                        )}
                         <Box sx={{ flex: 1.2, textAlign: 'right' }}>
                           {pt.row.r_ohm == null || pt.row.x_ohm == null
                             ? '—'
@@ -300,6 +424,8 @@ export function SmithChartModal({
             {/* Chart + legend */}
             <Box sx={{ flexShrink: 0 }}>
               <svg
+                ref={svgRef}
+                xmlns="http://www.w3.org/2000/svg"
                 width={S} height={S} viewBox={`0 0 ${S} ${S}`}
                 style={{ maxWidth: '100%' }}
                 onMouseLeave={() => setHover(null)}
@@ -314,11 +440,17 @@ export function SmithChartModal({
                 </g>
                 <circle cx={cx} cy={cy} r={R} fill="none" stroke={axis} strokeWidth={1.75} />
 
-                {/* trajectory */}
-                <polyline
-                  points={points.map((p) => `${p.x},${p.y}`).join(' ')}
-                  fill="none" stroke={pathC} strokeWidth={1.25} strokeOpacity={0.6}
-                />
+                {/* Trajectory — one line per attenuator setting.
+                    Each setting is its own trombone cycle, so a single polyline
+                    joined the end of one cycle to the start of the next and drew
+                    a chord straight across the chart that no measurement made. */}
+                {traces.map((trace) => (
+                  <polyline
+                    key={trace.key}
+                    points={trace.pts.map((p) => `${p.x},${p.y}`).join(' ')}
+                    fill="none" stroke={pathC} strokeWidth={1.25} strokeOpacity={0.6}
+                  />
+                ))}
 
                 {/* points colored by efficiency */}
                 {points.map((p) => {
@@ -396,6 +528,9 @@ export function SmithChartModal({
                         : `${hp.row.r_ohm.toFixed(1)} ${hp.row.x_ohm >= 0 ? '+' : '−'} j${Math.abs(hp.row.x_ohm).toFixed(1)} Ω`} />
                       <Row label="|S11|" value={hp.row.s11_db == null ? '—' : `${hp.row.s11_db.toFixed(2)} dB`} />
                       <Row label="Γ" value={`${hp.gr.toFixed(3)} ${hp.gi >= 0 ? '+' : '−'} j${Math.abs(hp.gi).toFixed(3)}`} />
+                      {hp.row.att_db != null && (
+                        <Row label="Attenuator" value={`${hp.row.att_db} dB`} />
+                      )}
                       <Row label="Pos (pulses)" value={hp.row.pos_pulses.toLocaleString()} />
                     </Stack>
                     {hp.row.error && (

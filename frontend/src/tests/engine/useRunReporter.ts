@@ -153,17 +153,40 @@ export interface ActionReporter {
  * Same shape of feedback as `useRunReporter` (toast on start, modal at the
  * end) so instrument pages behave like test pages.
  */
-export function useActionReporter(name: string, source: LogSource): ActionReporter {
+export function useActionReporter(
+  name: string,
+  source: LogSource,
+  opts?: {
+    /**
+     * Report success with a toast instead of the centred modal.
+     *
+     * The modal exists to catch the end of something long that ran unattended.
+     * An operation the operator just clicked and is watching — nudging a servo
+     * a few degrees — does not need one, and a dialog per keystroke on the
+     * angle field is worse than no feedback at all.
+     */
+    quietSuccess?: boolean
+  },
+): ActionReporter {
+  const quietSuccess = opts?.quietSuccess ?? false
   const { log } = useLog()
   const notify = useNotify()
 
   return useMemo<ActionReporter>(() => ({
     started: (detail) => {
       log(source, detail ? `${name} — ${detail}` : `${name} started`)
+      // Quiet actions finish in the time it takes to read a "starting" toast,
+      // so announcing both ends would put two notifications on screen for one
+      // click. The log still records the start.
+      if (quietSuccess) return
       notify.info(detail ?? 'Running…', { title: name })
     },
     succeeded: (detail) => {
       log(source, detail ? `${name} ok — ${detail}` : `${name} ok`)
+      if (quietSuccess) {
+        notify.success(detail ? `${name} — ${detail}` : `${name} ok`)
+        return
+      }
       notify.complete({
         severity: 'success',
         title: `${name} complete`,
@@ -174,5 +197,5 @@ export function useActionReporter(name: string, source: LogSource): ActionReport
       log(source, `${name} failed: ${message}`, 'error')
       notify.complete({ severity: 'error', title: `${name} failed`, message })
     },
-  }), [log, notify, name, source])
+  }), [log, notify, name, source, quietSuccess])
 }

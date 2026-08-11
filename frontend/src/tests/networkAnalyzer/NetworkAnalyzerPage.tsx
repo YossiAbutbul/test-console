@@ -42,7 +42,9 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
   const configQ = useQuery({
     queryKey: ['vna', 'config'],
     queryFn: vna.config,
-    refetchInterval: (q) => (q.state.data?.connected ? 5000 : false),
+    // Slower while disconnected, but never off: a connection made from the
+    // Instruments modal has to reach this page without a second Connect.
+    refetchInterval: (q) => (q.state.data?.connected ? 5000 : 2000),
     refetchOnWindowFocus: false,
   })
 
