@@ -33,25 +33,37 @@ interface SidebarProps {
 }
 
 type ProtocolTree = Array<{
-  protocol: 'LoRa' | 'LTE' | 'BLE'
+  /** `null` for rig-level pages, which render at the top with no protocol row. */
+  protocol: 'LoRa' | 'LTE' | 'BLE' | null
   groups: Array<{ group: string; mods: TestModule[] }>
 }>
 
+function byGroup(mods: TestModule[]): Array<{ group: string; mods: TestModule[] }> {
+  const groupMap = new Map<string, TestModule[]>()
+  for (const m of mods) {
+    const k = m.group ?? '_'
+    if (!groupMap.has(k)) groupMap.set(k, [])
+    groupMap.get(k)!.push(m)
+  }
+  return Array.from(groupMap.entries()).map(([group, mods]) => ({ group, mods }))
+}
+
 function useProtocolTree(): ProtocolTree {
   return useMemo(() => {
-    return PROTOCOLS.map((protocol) => {
-      const mods = testRegistry.filter((m) => m.protocol === protocol)
-      const groupMap = new Map<string, TestModule[]>()
-      for (const m of mods) {
-        const k = m.group ?? '_'
-        if (!groupMap.has(k)) groupMap.set(k, [])
-        groupMap.get(k)!.push(m)
-      }
-      return {
+    // Rig-level pages sit below the protocols: they are not part of any
+    // protocol's menu, and filing them under LoRa implied they were. Last
+    // rather than first so the protocol a session starts from stays at the top.
+    const rootMods = testRegistry.filter((m) => m.root)
+    const rootEntry = rootMods.length
+      ? [{ protocol: null, groups: byGroup(rootMods) }]
+      : []
+    return [
+      ...PROTOCOLS.map((protocol) => ({
         protocol,
-        groups: Array.from(groupMap.entries()).map(([group, mods]) => ({ group, mods })),
-      }
-    })
+        groups: byGroup(testRegistry.filter((m) => !m.root && m.protocol === protocol)),
+      })),
+      ...rootEntry,
+    ] as ProtocolTree
   }, [])
 }
 
@@ -279,7 +291,12 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
   )
   const [expandedGroup, setExpandedGroup] = useState<Record<string, boolean>>(() => {
     const out: Record<string, boolean> = {}
-    for (const p of tree) for (const g of p.groups) out[`${p.protocol}/${g.group}`] = g.group !== 'Other'
+    // Root groups start open; a protocol's 'Other' drawer starts closed.
+    for (const p of tree) {
+      for (const g of p.groups) {
+        out[`${p.protocol ?? 'root'}/${g.group}`] = p.protocol == null || g.group !== 'Other'
+      }
+    }
     return out
   })
   return (
@@ -328,20 +345,24 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
           </ListItemButton>
         </Box>
         {tree.map(({ protocol, groups }) => {
-          const protoExp = expandedProto[protocol] ?? true
+          // Root entry: no protocol row to expand, and always open.
+          const isRoot = protocol == null
+          const pkey = protocol ?? 'root'
+          const protoExp = isRoot ? true : (expandedProto[pkey] ?? true)
           const protoActive = groups.some((g) => g.mods.some((m) => m.id === activeId))
           const empty = groups.length === 0
           return (
-            <Box key={protocol} sx={{ mb: 0.5 }}>
+            <Box key={pkey} sx={{ mb: 0.5 }}>
+              {!isRoot && (
               <Stack
                 direction="row"
                 alignItems="center"
                 onClick={() => setExpandedProto((st) => {
-                  const isOpen = st[protocol]
-                  if (isOpen) return { ...st, [protocol]: false }
+                  const isOpen = st[pkey]
+                  if (isOpen) return { ...st, [pkey]: false }
                   const next: Record<string, boolean> = {}
                   for (const k of Object.keys(st)) next[k] = false
-                  next[protocol] = true
+                  next[pkey] = true
                   return next
                 })}
                 sx={{
@@ -372,19 +393,24 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
                     : <ChevronRightIcon sx={{ fontSize: 16, color: s.textDim }} />
                 )}
               </Stack>
+              )}
               <Collapse in={protoExp && !empty} unmountOnExit>
-                <Box sx={{ pl: 1.5, position: 'relative' }}>
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      left: 18, top: 4, bottom: 4,
-                      width: '1px',
-                      bgcolor: s.border,
-                    }}
-                  />
+                <Box sx={{ pl: isRoot ? 0 : 1.5, position: 'relative' }}>
+                  {/* The guide line marks nesting under a protocol; at the root
+                      there is nothing to nest under. */}
+                  {!isRoot && (
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        left: 18, top: 4, bottom: 4,
+                        width: '1px',
+                        bgcolor: s.border,
+                      }}
+                    />
+                  )}
                   {groups.map(({ group, mods }) => {
                     const hasGroup = group !== '_'
-                    const key = `${protocol}/${group}`
+                    const key = `${pkey}/${group}`
                     const groupExp = expandedGroup[key] ?? true
                     const groupActive = mods.some((m) => m.id === activeId)
                     return (

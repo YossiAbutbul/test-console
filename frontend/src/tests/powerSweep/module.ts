@@ -7,7 +7,7 @@ export const powerSweepModule: TestModule = {
   id: 'power-sweep',
   label: 'Mode Sweep',
   protocol: 'LoRa',
-  group: 'Other',
+  group: 'TX',
   icon: createElement(SsidChartIcon, { fontSize: 'small' }),
   Page: PowerSweepPage,
   requiresConnection: true,

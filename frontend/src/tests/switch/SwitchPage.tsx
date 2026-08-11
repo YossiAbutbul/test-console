@@ -43,7 +43,7 @@ function pathOf(lastCommand: string | null): string | null {
   return null
 }
 
-export function SwitchPage({ protocol, group }: TestPageProps) {
+export function SwitchPage({ group }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
   const reporter = useActionReporter('Switch move', 'Servo')
@@ -127,7 +127,6 @@ export function SwitchPage({ protocol, group }: TestPageProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
       <PageHeader
-        protocol={protocol}
         group={group}
         label="Switch"
         actions={

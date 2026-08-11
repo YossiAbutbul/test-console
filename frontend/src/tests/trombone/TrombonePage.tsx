@@ -26,7 +26,7 @@ const POLL_MS = 500
 /** Used only to bound a jog when the motor has no soft limits configured. */
 const OPEN_TRAVEL = 1_000_000
 
-export function TrombonePage({ protocol, group }: TestPageProps) {
+export function TrombonePage({ group }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
   const reporter = useActionReporter('Trombone move', 'Motor')
@@ -117,7 +117,6 @@ export function TrombonePage({ protocol, group }: TestPageProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
       <PageHeader
-        protocol={protocol}
         group={group}
         label="Trombone"
         actions={

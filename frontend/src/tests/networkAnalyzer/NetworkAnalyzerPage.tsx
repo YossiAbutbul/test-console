@@ -27,7 +27,7 @@ const MAX_MARKERS = 9
 const selectOnFocus = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) =>
   e.target.select()
 
-export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
+export function NetworkAnalyzerPage({ group }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
   const reporter = useActionReporter('VNA sweep', 'VNA')
@@ -153,7 +153,6 @@ export function NetworkAnalyzerPage({ protocol, group }: TestPageProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
       <PageHeader
-        protocol={protocol}
         group={group}
         label="Network Analyzer"
         actions={

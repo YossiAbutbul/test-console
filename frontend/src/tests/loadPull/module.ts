@@ -7,6 +7,7 @@ export const loadPullModule: TestModule = {
   id: 'load-pull',
   label: 'Load Pull Test',
   protocol: 'LoRa',
+  group: 'Other',
   icon: createElement(ScienceIcon, { fontSize: 'small' }),
   Page: LoadPullPage,
   requiresConnection: false,

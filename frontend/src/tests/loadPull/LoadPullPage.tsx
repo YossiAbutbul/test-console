@@ -124,6 +124,10 @@ function downloadCsv(rows: LoadPullResultRow[], meta: CsvMeta): void {
 
 const RESULT_ACTION_SX = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
 
+/** Fixed height for the results area, so the panel is the same size empty,
+ *  mid-run and full. */
+const RESULTS_H = 240
+
 /** One height for every control in the drive column. Four kinds of control —
  *  buttons, a jog pad, a toggle group — at three different sizes read as
  *  unrelated widgets rather than one panel for one motor. */
@@ -1117,16 +1121,30 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
             }}
           />
 
+          {/* One height, whatever is in it. `maxHeight` let the panel grow with
+              the first rows and collapse again on Clear, so everything below —
+              and the page's scroll position — moved on its own. */}
           {results.length === 0 ? (
-            <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-              No data yet. Press Run, or Import a previous CSV.
-            </Typography>
+            <Box
+              sx={{
+                height: RESULTS_H,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
+                No data yet. Press Run, or Import a previous CSV.
+              </Typography>
+            </Box>
           ) : (
             <Box
               ref={resultsScrollRef}
               sx={{
-                maxHeight: 360,
-                overflowY: 'auto',
+                height: RESULTS_H,
+                // `scroll`, not `auto`: a scrollbar that appears with the ninth
+                // row would resize the columns under the cursor.
+                overflowY: 'scroll',
                 // Only below this does the table stop being readable; above it
                 // the percentages below make every column fit with no sideways
                 // scroll at all.
