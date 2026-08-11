@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
 import DownloadIcon from '@mui/icons-material/Download'
@@ -13,6 +13,7 @@ import { TopProgress } from '../../components/TopProgress'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { useInstruments, type InstrumentId } from '../../context/InstrumentsContext'
 import { usePathLoss } from '../../context/PathLossContext'
+import { useNotify } from '../../context/NotifyContext'
 import { downloadBlob } from '../../lib/download'
 import { range } from '../../lib/numericList'
 import {
@@ -52,10 +53,11 @@ const PA_MODES = [
   { value: 2, label: 'Auto' },
 ]
 
-export function PowerSweepPage({ protocol, group }: TestPageProps) {
+export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   const qc = useQueryClient()
   const { instruments } = useInstruments()
   const { lossAt } = usePathLoss()
+  const notify = useNotify()
   const reporter = useRunReporter('Mode Sweep', 'Sweep', 'steps')
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
   const hasBackend = protocol === 'LoRa'
@@ -176,6 +178,20 @@ export function PowerSweepPage({ protocol, group }: TestPageProps) {
     },
     onError: (e: Error) => reporter.note(`Export failed: ${e.message}`, 'error'),
   })
+
+  // Says the table is a file rather than this backend's run. Gated on `active`
+  // because every page stays mounted, so an ungated notice would follow the
+  // operator onto pages that have nothing to do with it.
+  useEffect(() => {
+    notify.notice(
+      'sweep-imported',
+      'info',
+      active && imported
+        ? `${imported.name} — ${imported.rows.length} imported rows, not a run of this backend`
+        : null,
+      'Viewing a file',
+    )
+  }, [notify, active, imported])
 
   const status = statusQ.data
   const running = status?.state === 'running'

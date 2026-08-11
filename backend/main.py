@@ -21,8 +21,8 @@ from fastapi.staticfiles import StaticFiles
 from uvicorn.logging import AccessFormatter, DefaultFormatter
 
 from .api import (
-    ble_router, device_router, instruments_router, motor_router, servo_router,
-    test_router,
+    ble_router, device_router, instruments_router, load_pull_router,
+    motor_router, servo_router, test_router,
 )
 from .ble import manager as ble_manager
 
@@ -97,6 +97,7 @@ app.add_middleware(
 app.include_router(ble_router)
 app.include_router(device_router)
 app.include_router(instruments_router)
+app.include_router(load_pull_router)
 app.include_router(motor_router)
 app.include_router(servo_router)
 app.include_router(test_router)

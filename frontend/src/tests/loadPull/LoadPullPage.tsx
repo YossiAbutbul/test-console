@@ -32,8 +32,8 @@ import { useNotify } from '../../context/NotifyContext'
 import { sleep } from '../../lib/async'
 import { parseRangeSpec } from '../../lib/numericList'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
-import { downloadBlob, exportName, toCsv } from '../../lib/download'
-import { DASH, fmt, num } from '../../lib/format'
+import { downloadBlob } from '../../lib/download'
+import { DASH, fmt } from '../../lib/format'
 import {
   ACTION_W, CONTROL_H, EmergencyStop, FieldGrid, MONO, PageBody, PathLossChip,
   RunControls, Section, StatRow, StatTile, StatusChip, TEXT, TwoCol,
@@ -50,6 +50,7 @@ import { useRunReporter } from '../engine/useRunReporter'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import { planPositions } from './plan'
 import { useTromboneJog } from './useTromboneJog'
+import { loadPullApi } from '../../api/loadPull'
 import { parseLoadPullCsv } from './importCsv'
 import { SetupDiagramModal } from './SetupDiagramModal'
 
@@ -83,43 +84,6 @@ interface PlanPoint {
   pos: number
   freqMhz: number
   powerDbm: number
-}
-
-interface CsvMeta {
-  /** The specs the run was planned from, e.g. "902.3,915" and "10-20:5". */
-  freqSpec: string
-  powerSpec: string
-  pathLossDb: number
-  mac: string | null
-}
-
-/** Export the sweep. The run's fixed parameters go in a leading comment line
- *  so a stray CSV is still self-describing. */
-function downloadCsv(rows: LoadPullResultRow[], meta: CsvMeta): void {
-  const header = [
-    '#', 'pos_mm', 'pos_pulses', 'freq_mhz', 'set_power_dbm', 'power_dbm', 'cc_ma',
-    'r_ohm', 'x_ohm', 's11_db', 'error',
-  ]
-  const body = rows.map((r, i) => [
-    i + 1,
-    num(r.pos_mm),
-    r.pos_pulses,
-    num(r.freq_mhz),
-    num(r.power_dbm_setting),
-    num(r.power_dbm),
-    r.current_a == null ? '' : num(r.current_a * 1000),
-    num(r.r_ohm),
-    num(r.x_ohm),
-    num(r.s11_db),
-    r.error ?? '',
-  ])
-  // Specs rather than single values — the per-point frequency and power are
-  // columns now, and this line records what the run was asked for.
-  const preamble =
-    `# freq_spec=${meta.freqSpec} power_spec=${meta.powerSpec} `
-    + `path_loss_db=${meta.pathLossDb}\r\n`
-  const blob = new Blob([preamble + toCsv(header, body)], { type: 'text/csv;charset=utf-8' })
-  downloadBlob(blob, exportName('load-pull', meta.mac, 'csv', '-load-pull'))
 }
 
 const RESULT_ACTION_SX = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
@@ -305,7 +269,7 @@ function BoundRow({
   )
 }
 
-export function LoadPullPage({ protocol, group }: TestPageProps) {
+export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const { log } = useLog()
   const notify = useNotify()
   const reporter = useRunReporter('Load Pull', 'LoadPull')
@@ -390,9 +354,19 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   const [importedName, setImportedName] = useState<string | null>(null)
   const csvInput = useRef<HTMLInputElement | null>(null)
 
-  const importCsv = async (file: File) => {
+  /**
+   * Read a results file back in.
+   *
+   * Workbooks are parsed on the backend, where openpyxl is; CSVs in the
+   * browser. Both are still accepted because the CSVs exported before the
+   * workbook existed are real data someone may still want to look at.
+   */
+  const importFile = async (file: File) => {
     try {
-      const { rows, meta } = parseLoadPullCsv(await file.text())
+      const isWorkbook = file.name.toLowerCase().endsWith('.xlsx')
+      const { rows, meta } = isWorkbook
+        ? { rows: await loadPullApi.importXlsx(file), meta: {} as { freqMhz?: number; pathLossDb?: number } }
+        : parseLoadPullCsv(await file.text())
       setResults(rows)
       setImportedName(file.name)
       // The preamble's frequency and path loss are reported, not applied:
@@ -607,22 +581,52 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
   // the page: they used to displace the content they described, and the table
   // jumped whenever one appeared or cleared.
   useEffect(() => {
+    // Cleared when the page is left, or it would follow the operator around
+    // the app announcing preconditions for a test they are not looking at.
     notify.notice(
       'loadpull-blockers',
       'warning',
-      !running && blockers.length > 0 ? blockers.join(' · ') : null,
+      active && !running && blockers.length > 0 ? blockers.join(' · ') : null,
       'Before running',
     )
-  }, [notify, running, blockers.join('|')])   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [notify, active, running, blockers.join('|')])   // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     notify.notice(
       'loadpull-imported',
       'info',
-      importedName ? `${importedName} — imported rows, not a run of this rig` : null,
+      active && importedName ? `${importedName} — imported rows, not a run of this rig` : null,
       'Viewing a file',
     )
-  }, [notify, importedName])
+  }, [notify, active, importedName])
+
+  const exportXlsx = useMutation({
+    mutationFn: () => loadPullApi.exportXlsx(results, {
+      freq_spec: freqSpec,
+      power_spec: powerSpec,
+      settle_ms: settleMs,
+      pa_mode: paMode,
+      delta_x_mm: deltaXmm,
+      zero_pulses: zeroPulses,
+      end_pulses: endPulses,
+      path_loss_default_db: defaultDb,
+      // Per frequency, and flagged when the figure was the default rather than
+      // a measured one — the file should not hide that.
+      path_loss_points: freqs.map((f) => {
+        const l = lossAt(f)
+        return { freq_mhz: f, db: l.db, calibrated: l.calibrated }
+      }),
+      dut_mac: bleStatus?.address ?? null,
+    }),
+    onSuccess: ({ blob, filename }) => {
+      downloadBlob(blob, filename)
+      log('LoadPull', `Exported ${filename}`)
+    },
+    onError: (e: Error) => {
+      log('LoadPull', `Excel export failed: ${e.message}`, 'error')
+      notify.error(e.message, { title: 'Export' })
+    },
+  })
 
   const onStop = () => {
     abortRef.current.abort()
@@ -1096,13 +1100,11 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
               <Button
                 size="small" variant="text"
                 startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
-                onClick={() => downloadCsv(results, {
-                  freqSpec, powerSpec, pathLossDb, mac: bleStatus?.address ?? null,
-                })}
-                disabled={results.length === 0}
+                onClick={() => exportXlsx.mutate()}
+                disabled={results.length === 0 || exportXlsx.isPending}
                 sx={RESULT_ACTION_SX}
               >
-                Export
+                {exportXlsx.isPending ? 'Building…' : 'Export'}
               </Button>
             </Stack>
           }
@@ -1110,14 +1112,14 @@ export function LoadPullPage({ protocol, group }: TestPageProps) {
           <input
             ref={csvInput}
             type="file"
-            accept=".csv,text/csv"
+            accept=".xlsx,.csv"
             hidden
             onChange={(e) => {
               const f = e.target.files?.[0]
               // Reset first: re-picking the same file fires no change event
               // otherwise, so a second import would look ignored.
               e.target.value = ''
-              if (f) void importCsv(f)
+              if (f) void importFile(f)
             }}
           />
 

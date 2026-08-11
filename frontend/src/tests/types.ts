@@ -5,6 +5,14 @@ export type Protocol = 'LoRa' | 'LTE' | 'BLE'
 export interface TestPageProps {
   protocol: Protocol
   group?: string
+  /**
+   * True only for the page currently on screen.
+   *
+   * Every page stays mounted so navigation is instant, which means an effect
+   * that publishes to an app-wide surface — the notice stack — runs on all of
+   * them at once. Anything global must be gated on this.
+   */
+  active?: boolean
 }
 
 export interface TestModule {

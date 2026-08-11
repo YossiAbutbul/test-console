@@ -180,7 +180,7 @@ export function ConnectionPanel() {
               endAdornment: (
                 <Tooltip title={
                   points.length
-                    ? `Per-frequency path loss — ${points.length} calibrated`
+                    ? `Per-frequency path loss - ${points.length} calibrated`
                     : 'Per-frequency path loss'
                 }>
                   <IconButton

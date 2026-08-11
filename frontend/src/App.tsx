@@ -55,7 +55,7 @@ function TestArea({ activeId }: { activeId: string }) {
               flexDirection: 'column',
             }}
           >
-            <Page protocol={mod.protocol} group={mod.group} />
+            <Page protocol={mod.protocol} group={mod.group} active={isActive} />
           </Box>
         )
       })}
