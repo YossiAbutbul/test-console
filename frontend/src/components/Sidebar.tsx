@@ -76,7 +76,8 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 
 function DcSupplySection() {
   const { mode } = useThemeMode()
-  const s = getAppPalette(mode).sidebar
+  const p = getAppPalette(mode)
+  const s = p.sidebar
   const { instruments } = useInstrumentsState()
   const dcConnected = instruments['dc-analyzer']?.status === 'connected'
   const [enabled, setEnabled] = usePersistedState<boolean>(STORAGE_KEYS.dcSupplyEnabled, false)
@@ -156,7 +157,7 @@ function DcSupplySection() {
         </Typography>
       )}
       {err && (
-        <Typography sx={{ fontSize: 11, color: '#f87171', mt: 0.5 }}>{err}</Typography>
+        <Typography sx={{ fontSize: 11, color: p.data.bad, mt: 0.5 }}>{err}</Typography>
       )}
     </Box>
   )

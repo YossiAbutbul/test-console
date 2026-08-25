@@ -51,104 +51,142 @@ export interface AppPalette {
   }
 }
 
+/**
+ * Anodized — the aluminium rack.
+ *
+ * There is deliberately no accent *hue*. Selection, focus and the Run button
+ * are graphite and brushed metal, which leaves the ok/warn/bad triad as the
+ * only colour anywhere on the page: if something is coloured, it is a
+ * measurement telling you something. `sidebar.accent` survives as a token
+ * because the whole app reads it, but here it holds a metal, not a hue.
+ *
+ * The three modes are ambient light levels rather than arbitrary shades —
+ * `light` for daylight on the bench, `mid` (the default) for a lit lab, `dark`
+ * for a dim room and unattended overnight runs. The triad holds its hue across
+ * all three and shifts only lightness, so switching mode mid-shift never
+ * re-teaches the operator what a colour means.
+ *
+ * Two rules worth not breaking:
+ *
+ *  - `data.warn` is an annunciator lamp, not a brand colour. Notices and log
+ *    lines only, never a surface or a button, so seeing it always means
+ *    something wants attention.
+ *  - `actions.scan` stays a quiet outline. With no accent hue, Connect and Run
+ *    are the only fills carrying any weight and a filled Scan would outrank
+ *    both.
+ *
+ * Neutrals are a near-true grey with a very slight cool cast — aluminium
+ * rather than paper. They were warm taupe under a cool blue accent, which read
+ * as two unrelated systems.
+ */
 const PALETTES: Record<ThemeMode, AppPalette> = {
+  // Daylight and overheads. White paper on a faintly cool grey ground, so
+  // panel edges read without a heavy border.
   light: {
-    appBar: '#FDFDFC',
-    appBarBorder: '#E8E7E4',
-    contentBg: '#FDFDFC',
+    appBar: '#FFFFFF',
+    appBarBorder: '#DDDFE1',
+    contentBg: '#F4F5F6',
     paper: '#FFFFFF',
-    logBg: '#F7F7F6',
+    logBg: '#EEEFF1',
     data: {
-      ok: '#15803D',
-      warn: '#B45309',
-      bad: '#B91C1C',
-      highlight: 'rgba(61,107,196,0.07)',
+      ok: '#1D7A43',
+      warn: '#9A5B00',
+      bad: '#B02A20',
+      highlight: 'rgba(58,66,73,0.07)',
     },
     sidebar: {
-      bg: '#F3F3F2',
-      bg2: '#F3F3F2',
-      border: '#E8E7E4',
-      text: '#1F1D1A',
-      textDim: '#6B665C',
-      accent: '#5B9FD9',
-      accentSoft: 'rgba(31,29,26,0.06)',
-      accentSoftHover: 'rgba(31,29,26,0.10)',
-      hover: 'rgba(0,0,0,0.04)',
-      success: '#5B8C5A',
-      successOff: '#9C9485',
+      bg: '#EAECEE',
+      bg2: '#EAECEE',
+      border: '#DDDFE1',
+      text: '#1B1F23',
+      textDim: '#5C646B',
+      accent: '#3A4249',
+      accentSoft: 'rgba(27,31,35,0.08)',
+      accentSoftHover: 'rgba(27,31,35,0.14)',
+      hover: 'rgba(27,31,35,0.05)',
+      success: '#1D7A43',
+      successOff: '#A2A9AF',
     },
     actions: {
-      scan: { bg: '#3D6BC4', bgHover: '#2F58A8', fg: '#FFFFFF', border: '#3D6BC4' },
-      connect: { bg: '#16A34A', bgHover: '#15803D', fg: '#FFFFFF', border: '#16A34A' },
-      disconnect: { bg: '#DC2626', bgHover: '#B91C1C', fg: '#FFFFFF', border: '#DC2626' },
-      primary: { bg: '#7C3AED', bgHover: '#6D28D9', fg: '#FFFFFF', border: '#7C3AED' },
-      danger: { bg: '#DC2626', bgHover: '#B91C1C', fg: '#FFFFFF', border: '#DC2626' },
+      scan: { bg: '#FFFFFF', bgHover: '#EAECEE', fg: '#2B3238', border: '#C6CACE' },
+      connect: { bg: '#1D7A43', bgHover: '#166035', fg: '#FFFFFF', border: '#1D7A43' },
+      disconnect: { bg: '#B02A20', bgHover: '#8D211A', fg: '#FFFFFF', border: '#B02A20' },
+      primary: { bg: '#3A4249', bgHover: '#2A3137', fg: '#FFFFFF', border: '#3A4249' },
+      danger: { bg: '#B02A20', bgHover: '#8D211A', fg: '#FFFFFF', border: '#B02A20' },
     },
   },
+  // The default. Aluminium panels a step above the ground, the way an
+  // instrument front panel sits above its bezel. Run is a light graphite fill
+  // with dark text — a metal key rather than a lit control. Bright fills carry
+  // near-black glyphs, as high-visibility controls do on real hardware: white
+  // on these would not clear 4.5:1, dark does.
   mid: {
-    appBar: '#262626',
-    appBarBorder: '#363635',
-    contentBg: '#262626',
-    paper: '#2C2C2C',
-    logBg: '#232322',
+    appBar: '#2E3236',
+    appBarBorder: '#41464B',
+    contentBg: '#2E3236',
+    paper: '#35393E',
+    logBg: '#26292D',
     data: {
-      ok: '#5FBF74',
-      warn: '#E0A02A',
-      bad: '#EF6B6B',
-      highlight: 'rgba(91,159,217,0.10)',
+      ok: '#58C07A',
+      warn: '#E2A63F',
+      bad: '#F07068',
+      highlight: 'rgba(198,206,213,0.10)',
     },
     sidebar: {
-      bg: '#1F1F1E',
-      bg2: '#1F1F1E',
-      border: '#363635',
-      text: '#E8E6E1',
-      textDim: '#8E8C87',
-      accent: '#5B9FD9',
-      accentSoft: 'rgba(255,255,255,0.06)',
-      accentSoftHover: 'rgba(255,255,255,0.10)',
-      hover: 'rgba(255,255,255,0.04)',
-      success: '#7BAE7C',
-      successOff: '#5C5C5A',
+      bg: '#24272B',
+      bg2: '#24272B',
+      border: '#41464B',
+      text: '#E4E7EA',
+      textDim: '#949AA0',
+      accent: '#C6CED5',
+      accentSoft: 'rgba(255,255,255,0.08)',
+      accentSoftHover: 'rgba(255,255,255,0.13)',
+      hover: 'rgba(255,255,255,0.05)',
+      success: '#58C07A',
+      successOff: '#5D646A',
     },
     actions: {
-      scan: { bg: '#5380D6', bgHover: '#3D6BC4', fg: '#FFFFFF', border: '#5380D6' },
-      connect: { bg: '#22C55E', bgHover: '#16A34A', fg: '#0A0A0A', border: '#22C55E' },
-      disconnect: { bg: '#EF4444', bgHover: '#DC2626', fg: '#FFFFFF', border: '#EF4444' },
-      primary: { bg: '#A78BFA', bgHover: '#8B5CF6', fg: '#1A1A1A', border: '#A78BFA' },
-      danger: { bg: '#EF4444', bgHover: '#DC2626', fg: '#FFFFFF', border: '#EF4444' },
+      scan: { bg: '#35393E', bgHover: '#3E4348', fg: '#CBD1D6', border: '#4B5157' },
+      connect: { bg: '#4CC17C', bgHover: '#66CE92', fg: '#0E1411', border: '#4CC17C' },
+      disconnect: { bg: '#F07068', bgHover: '#F4867F', fg: '#180A09', border: '#F07068' },
+      primary: { bg: '#C6CED5', bgHover: '#DCE2E7', fg: '#1B1F23', border: '#C6CED5' },
+      danger: { bg: '#F07068', bgHover: '#F4867F', fg: '#180A09', border: '#F07068' },
     },
   },
+  // Dim room, long runs. Borders reduced to the minimum that still separates
+  // panels, and the graphite accent lifted nearly to white so selection is
+  // still legible against the near-black ground.
   dark: {
-    appBar: '#121212',
-    appBarBorder: '#222222',
-    contentBg: '#121212',
-    paper: '#181818',
-    logBg: '#111111',
+    appBar: '#141618',
+    appBarBorder: '#24282B',
+    contentBg: '#141618',
+    paper: '#1B1E21',
+    logBg: '#101214',
     data: {
-      ok: '#5FBF74',
-      warn: '#E0A02A',
-      bad: '#F87171',
-      highlight: 'rgba(91,159,217,0.10)',
+      ok: '#5EC880',
+      warn: '#E7AE4B',
+      bad: '#F57C74',
+      highlight: 'rgba(214,221,227,0.10)',
     },
     sidebar: {
-      bg: '#0D0D0D',
-      bg2: '#0D0D0D',
-      border: '#222222',
-      text: '#D4D2CD',
-      textDim: '#7A7874',
-      accent: '#5B9FD9',
-      accentSoft: 'rgba(255,255,255,0.05)',
-      accentSoftHover: 'rgba(255,255,255,0.09)',
+      bg: '#0E1012',
+      bg2: '#0E1012',
+      border: '#24282B',
+      text: '#D8DCE0',
+      textDim: '#838A90',
+      accent: '#D6DDE3',
+      accentSoft: 'rgba(255,255,255,0.06)',
+      accentSoftHover: 'rgba(255,255,255,0.11)',
       hover: 'rgba(255,255,255,0.04)',
-      success: '#7BAE7C',
-      successOff: '#3A3A38',
+      success: '#5EC880',
+      successOff: '#3C4145',
     },
     actions: {
-      scan: { bg: '#6595E0', bgHover: '#5380D6', fg: '#FFFFFF', border: '#6595E0' },
-      connect: { bg: '#4ADE80', bgHover: '#22C55E', fg: '#0A0A0A', border: '#4ADE80' },
-      disconnect: { bg: '#EF4444', bgHover: '#F87171', fg: '#0A0A0A', border: '#EF4444' },
-      primary: { bg: '#C4B5FD', bgHover: '#A78BFA', fg: '#0A0A0A', border: '#C4B5FD' },
-      danger: { bg: '#F87171', bgHover: '#EF4444', fg: '#0A0A0A', border: '#F87171' },
+      scan: { bg: '#1B1E21', bgHover: '#23272A', fg: '#C2C8CD', border: '#2E3337' },
+      connect: { bg: '#52CE84', bgHover: '#6FD99A', fg: '#08120B', border: '#52CE84' },
+      disconnect: { bg: '#F57C74', bgHover: '#F8918B', fg: '#1A0908', border: '#F57C74' },
+      primary: { bg: '#D6DDE3', bgHover: '#E9EEF2', fg: '#101214', border: '#D6DDE3' },
+      danger: { bg: '#F57C74', bgHover: '#F8918B', fg: '#1A0908', border: '#F57C74' },
     },
   },
 }
@@ -166,9 +204,13 @@ export function makeTheme(mode: ThemeMode): Theme {
       primary: { main: p.sidebar.text, contrastText: isLight ? '#ffffff' : p.contentBg },
       secondary: { main: p.sidebar.accent },
       success: { main: p.sidebar.success },
-      warning: { main: '#B7791F' },
-      error: { main: '#B83A35' },
-      info: { main: '#4A6B82' },
+      // Taken from the palette rather than fixed, so an MUI Alert, a helper
+      // text and a hand-coloured result cell are the same red on the same
+      // ground. These used to be three warm hardcoded values that drifted from
+      // `data.*` as the modes changed.
+      warning: { main: p.data.warn },
+      error: { main: p.data.bad },
+      info: { main: p.sidebar.accent },
       background: { default: p.contentBg, paper: p.paper },
       text: { primary: p.sidebar.text, secondary: p.sidebar.textDim },
       divider: p.appBarBorder,

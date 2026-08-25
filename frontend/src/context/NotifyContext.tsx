@@ -20,6 +20,8 @@ import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
 import WarningRoundedIcon from '@mui/icons-material/WarningRounded'
 import ErrorRoundedIcon from '@mui/icons-material/ErrorRounded'
 import CloseIcon from '@mui/icons-material/Close'
+import { useAppPalette } from './ThemeModeContext'
+import type { AppPalette } from '../theme'
 
 export type NotifySeverity = 'success' | 'info' | 'warning' | 'error'
 
@@ -87,18 +89,26 @@ const ICONS: Record<NotifySeverity, typeof CheckCircleRoundedIcon> = {
   error: ErrorRoundedIcon,
 }
 
-const ICON_COLOR: Record<NotifySeverity, string> = {
-  success: '#16A34A',
-  info: '#2563EB',
-  warning: '#D97706',
-  error: '#DC2626',
+/**
+ * Severity colours come from the active palette rather than being fixed, so a
+ * toast, an inline notice and a failed cell in a results table are the same
+ * colour on the same ground. Fixed values drifted from `data.*` as the modes
+ * were retuned, which left a bright generic red floating over a slate page.
+ */
+function iconColor(p: AppPalette): Record<NotifySeverity, string> {
+  return {
+    success: p.data.ok,
+    info: p.sidebar.accent,
+    warning: p.data.warn,
+    error: p.data.bad,
+  }
 }
 
 let nextId = 1
 
 function Toast({ entry, onClose }: { entry: ToastEntry; onClose: () => void }) {
   const Icon = ICONS[entry.severity]
-  const color = ICON_COLOR[entry.severity]
+  const color = iconColor(useAppPalette())[entry.severity]
   return (
     <Fade in timeout={100} appear>
       <Box
@@ -158,7 +168,7 @@ function Toast({ entry, onClose }: { entry: ToastEntry; onClose: () => void }) {
 function CompletionModal({ entry, onClose }: { entry: CompleteOptions; onClose: () => void }) {
   const severity = entry.severity ?? 'success'
   const Icon = ICONS[severity]
-  const color = ICON_COLOR[severity]
+  const color = iconColor(useAppPalette())[severity]
   return (
     <Dialog
       open

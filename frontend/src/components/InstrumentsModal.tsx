@@ -36,7 +36,7 @@ function statusColor(s: InstrumentState['status'], p: ReturnType<typeof getAppPa
   switch (s) {
     case 'connected': return p.sidebar.success
     case 'connecting': return p.sidebar.textDim
-    case 'error': return '#EF4444'
+    case 'error': return p.data.bad
     default: return p.sidebar.successOff
   }
 }

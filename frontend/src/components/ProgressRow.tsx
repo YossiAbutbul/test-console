@@ -1,6 +1,8 @@
 import { Box, Chip, Stack, Typography } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import { useEffect, useState } from 'react'
 import type { RunStatus } from '../types/models'
+import { useAppPalette } from '../context/ThemeModeContext'
 
 const STATE_COLOR: Record<string, 'default' | 'info' | 'success' | 'warning' | 'error'> = {
   idle: 'default',
@@ -45,6 +47,7 @@ export function ProgressRow({
   status,
   cancelling = false,
 }: { status: RunStatus | undefined; cancelling?: boolean }) {
+  const p = useAppPalette()
   const [, setTick] = useState(0)
   useEffect(() => {
     if (status?.state !== 'running') return
@@ -62,14 +65,15 @@ export function ProgressRow({
       ? ((status.finished_at ?? Date.now() / 1000) - status.started_at) * 1000
       : 0
 
+  // Each bar runs from the state's colour into a lighter cast of it, so the
+  // fill reads as one hue at a glance rather than as two. Palette-derived: a
+  // fixed blue-into-navy sat oddly on the slate ground.
   const barGradient =
-    cancelling
-      ? 'linear-gradient(90deg,#b45309,#f59e0b)'
+    cancelling || state === 'cancelled'
+      ? `linear-gradient(90deg,${p.data.warn},${alpha(p.data.warn, 0.62)})`
       : state === 'error'
-        ? 'linear-gradient(90deg,#b91c1c,#ef4444)'
-        : state === 'cancelled'
-          ? 'linear-gradient(90deg,#b45309,#f59e0b)'
-          : 'linear-gradient(90deg,#0f172a,#2563eb)'
+        ? `linear-gradient(90deg,${p.data.bad},${alpha(p.data.bad, 0.62)})`
+        : `linear-gradient(90deg,${p.sidebar.accent},${alpha(p.sidebar.accent, 0.55)})`
 
   return (
     <Box
@@ -126,7 +130,7 @@ export function ProgressRow({
           position: 'relative',
           height: 10,
           borderRadius: 999,
-          bgcolor: '#cbd5e1',
+          bgcolor: p.appBarBorder,
           overflow: 'hidden',
           mb: 2,
         }}
