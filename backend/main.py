@@ -9,10 +9,11 @@ lifespan hook that drops the BLE link on shutdown.
 # DLL is imported, so this import stays first and must not be reordered.
 from .hw import dll_setup  # noqa: F401  (import for side effect)
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,7 +25,10 @@ from .api import (
     ble_router, device_router, instruments_router, load_pull_router,
     motor_router, servo_router, test_router,
 )
+from .api.instruments import close_all as instruments_close_all
 from .ble import manager as ble_manager
+from .motor import manager as motor_manager
+from .servo import manager as servo_manager
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
@@ -75,12 +79,46 @@ def _setup_logging() -> None:
 _setup_logging()
 
 
+async def _release_hardware() -> None:
+    """Hand every device back before the process exits.
+
+    Anything still held when the process dies can refuse the next connect: the
+    BLE stack keeps a stale link, an instrument keeps its session, a COM port
+    stays claimed. That is what makes a backend restart turn into a round of
+    unplugging things.
+
+    Each step is independent — one device failing to release must not strand
+    the rest — and the whole thing is best effort, because the alternative to a
+    failed close is not a working close, it is no close at all.
+    """
+    # Thunks, not coroutines: built eagerly, a step that is never reached
+    # would be an un-awaited coroutine warning at exit, and it should read as
+    # "nothing has started yet".
+    steps: tuple[tuple[str, Callable[[], Awaitable[Any]]], ...] = (
+        # BLE first: it is the slowest and the one the OS will not clean up on
+        # its own, so it should not be the step that runs out of shutdown time.
+        ("BLE", ble_manager.disconnect),
+        ("instruments", instruments_close_all),
+        ("servo", lambda: asyncio.to_thread(servo_manager.disconnect)),
+        ("motor", lambda: asyncio.to_thread(motor_manager.disconnect)),
+    )
+    for label, start in steps:
+        try:
+            await start()
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "releasing %s failed: %s: %s", label, type(e).__name__, e
+            )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
-    # Leaving the DUT connected across a server restart leaves the BLE stack
-    # holding a stale link that the next connect cannot reuse.
-    await ble_manager.disconnect()
+    # Only runs on a *graceful* stop — Ctrl-C, SIGTERM, uvicorn's own reload.
+    # A force-kill skips it entirely and leaves the devices in exactly the
+    # state this exists to prevent, which is why the docs say to stop the
+    # server rather than kill it.
+    await _release_hardware()
 
 
 app = FastAPI(title="Test Console Backend", version="0.1.0", lifespan=lifespan)

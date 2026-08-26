@@ -11,6 +11,7 @@ endpoints (`/instruments/status`, `/instruments/measure`).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -202,4 +203,60 @@ async def measure(freq_hz: int | None = None) -> MeasureResponse:
 
 router.include_router(_aggregate)
 
-__all__ = ["router"]
+
+# ---------- Shutdown ----------
+
+#: Per-instrument ceiling on closing. A wedged vendor call cannot be cancelled,
+#: so this bounds the *wait*, not the thread — enough to stop one stuck
+#: instrument from eating the whole graceful-shutdown window.
+CLOSE_TIMEOUT_S = 1.0
+
+#: (state attribute, log label) for every session the process can hold.
+_SESSIONS = (
+    ("power_sensor", "power sensor"),
+    ("dc_analyzer", "DC analyzer"),
+    ("spectrum", "spectrum analyzer"),
+    ("network_analyzer", "network analyzer"),
+)
+
+
+def _close(inst: object) -> None:
+    closer = getattr(inst, "close", None)
+    if callable(closer):
+        closer()
+
+
+async def close_all() -> None:
+    """Hand every open instrument session back, best effort.
+
+    These used to be left for process exit to reclaim. That is fine for handles
+    the OS owns, but an instrument that tracks the session at its own end — or a
+    vendor layer holding the device past the process — refuses the next connect,
+    which is what turns "restart the backend" into "and now nothing reconnects".
+
+    Closes run concurrently and each is bounded, so one wedged instrument
+    cannot stop the others being released.
+    """
+
+    async def shut(attr: str, label: str) -> None:
+        inst = getattr(state, attr, None)
+        if inst is None:
+            return
+        try:
+            await asyncio.wait_for(asyncio.to_thread(_close, inst), CLOSE_TIMEOUT_S)
+            log.info("closed %s", label)
+        except Exception as e:
+            # Nothing to recover here: the process is going away either way, and
+            # the point of the log line is the next person wondering why the
+            # instrument would not reopen.
+            log.warning("closing %s failed: %s: %s", label, type(e).__name__, e)
+        finally:
+            setattr(state, attr, None)
+            setattr(state, f"{attr}_idn", None)
+            if hasattr(state, f"{attr}_resource"):
+                setattr(state, f"{attr}_resource", None)
+
+    await asyncio.gather(*(shut(a, lbl) for a, lbl in _SESSIONS))
+
+
+__all__ = ["router", "close_all"]
