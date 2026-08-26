@@ -287,9 +287,22 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
     () => Object.values(instruments).some((i) => i.status === 'connected'),
     [instruments],
   )
-  const [expandedProto, setExpandedProto] = useState<Record<string, boolean>>(
-    () => ({ LoRa: true, LTE: false, BLE: false }),
-  )
+  // The page on screen at mount. After a reload that is whichever one was last
+  // used, so the tree has to open around it — a selected page inside a closed
+  // protocol reads as nothing being selected at all. Read once, not tracked:
+  // this only seeds the initial state, and reopening a branch the operator
+  // deliberately collapsed would be worse than leaving it shut.
+  const [initialMod] = useState(() => testRegistry.find((m) => m.id === activeId))
+
+  const [expandedProto, setExpandedProto] = useState<Record<string, boolean>>(() => {
+    const out: Record<string, boolean> = {}
+    for (const p of PROTOCOLS) out[p] = false
+    // Root pages belong to no protocol, so fall back to the old default of
+    // opening the first one rather than leaving every branch shut.
+    if (initialMod && !initialMod.root) out[initialMod.protocol] = true
+    else out[PROTOCOLS[0]] = true
+    return out
+  })
   const [expandedGroup, setExpandedGroup] = useState<Record<string, boolean>>(() => {
     const out: Record<string, boolean> = {}
     // Root groups start open; a protocol's 'Other' drawer starts closed.
@@ -297,6 +310,12 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
       for (const g of p.groups) {
         out[`${p.protocol ?? 'root'}/${g.group}`] = p.protocol == null || g.group !== 'Other'
       }
+    }
+    // ...except the one holding the page on screen, which opens even if it is
+    // an 'Other' drawer.
+    if (initialMod) {
+      const proto = initialMod.root ? 'root' : initialMod.protocol
+      out[`${proto}/${initialMod.group ?? '_'}`] = true
     }
     return out
   })

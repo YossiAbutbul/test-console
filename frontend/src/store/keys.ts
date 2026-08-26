@@ -7,6 +7,7 @@ export const STORAGE_KEYS = {
   themePref: 'app-theme-pref',
   nicknames: 'mac-nicknames-v1',
   logWidth: 'log-panel-width-v1',
+  activePage: 'active-page-v1',
   pathLossDb: 'path-loss-db-v1',
   pathLossTable: 'path-loss-table-v1',
   deviceType: 'device-type-v1',

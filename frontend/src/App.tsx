@@ -70,7 +70,22 @@ function TestArea({ activeId }: { activeId: string }) {
 export default function App() {
   const [logOpen, setLogOpen] = useState(true)
   const [logW, setLogW] = usePersistedState<number>(STORAGE_KEYS.logWidth, LOG_DEFAULT_W)
-  const [activeId, setActiveId] = useState(testRegistry[0]?.id ?? '')
+  /**
+   * The test page on screen, remembered across reloads.
+   *
+   * Read back through the registry rather than used directly: pages get
+   * renamed and refiled between releases, and a stored id that no longer
+   * resolves would leave the sidebar with nothing highlighted and the content
+   * area falling back on its own. Resolving here keeps the two agreeing. The
+   * stale value stays in storage until the next selection overwrites it, which
+   * costs nothing.
+   */
+  const [storedId, setActiveId] = usePersistedState<string>(
+    STORAGE_KEYS.activePage, testRegistry[0]?.id ?? '',
+  )
+  const activeId = testRegistry.some((m) => m.id === storedId)
+    ? storedId
+    : (testRegistry[0]?.id ?? '')
   const { mode } = useThemeMode()
   const p = getAppPalette(mode)
   const s = p.sidebar
