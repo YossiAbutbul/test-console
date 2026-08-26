@@ -14,6 +14,7 @@ export const STORAGE_KEYS = {
   dcSupplyEnabled: 'dc-supply-enabled-v1',
   dcSupplyVoltage: 'dc-supply-voltage-v1',
   powerPage: 'power-page-snapshot-v1',
+  modulatedPage: 'modulated-page-snapshot-v1',
   lteCwPage: 'lte-cw-page-snapshot-v1',
   lteBands: 'lte-bands-v1',
   loadPullPage: 'load-pull-page-snapshot-v1',

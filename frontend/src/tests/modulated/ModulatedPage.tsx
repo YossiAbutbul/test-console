@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Box, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { Box, MenuItem, Tab, Tabs } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
@@ -9,8 +9,12 @@ import { useLog } from '../../context/LogContext'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import {
-  FieldGrid, LastFrameSection, PageBody, Section, SendStopControls, TEXT,
+  FieldGrid, LastFrameSection, PageBody, RunControls, Section, SendStopControls,
 } from '../../ui'
+import { AutomationPanel, type AutomationControls } from './AutomationPanel'
+import {
+  modulatedPageSnapshot, persistModulatedPage, type ModulatedPageTab,
+} from '../../store/modulatedPageStore'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
 
@@ -41,6 +45,13 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
+  // The automation tab owns its run; it publishes just enough for the header
+  // to render the buttons in the same slot the manual tab uses.
+  const [autoCtl, setAutoCtl] = useState<AutomationControls | null>(null)
+  const [tab, setTab] = useState<ModulatedPageTab>(
+    () => modulatedPageSnapshot.tab ?? 'manual',
+  )
+  useEffect(() => { modulatedPageSnapshot.tab = tab; persistModulatedPage() }, [tab])
 
   useEffect(() => {
     if (modem === 'FSK' && bandwidth !== 0) setBandwidth(0)
@@ -96,52 +107,79 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
         group={group}
         label="Modulated"
         actions={
-          <SendStopControls
-            busy={busy}
-            sending={send.isPending}
-            stopping={stop.isPending}
-            onSend={() => send.mutate()}
-            onStop={() => stop.mutate()}
-          />
+          // Both tabs put their primary action in the same place, so switching
+          // tabs does not move Run/Send to a different part of the screen.
+          tab === 'manual' ? (
+            <SendStopControls
+              busy={busy}
+              sending={send.isPending}
+              stopping={stop.isPending}
+              onSend={() => send.mutate()}
+              onStop={() => stop.mutate()}
+            />
+          ) : autoCtl ? (
+            <RunControls
+              running={autoCtl.running}
+              canRun={autoCtl.canRun}
+              progress={autoCtl.progress}
+              onRun={autoCtl.onRun}
+              onStop={autoCtl.onStop}
+            />
+          ) : null
         }
       />
 
-      <PageBody width="fluid">
-        <Section title="Transmit" panel>
-          <FieldGrid>
-            <LabeledField
-              label="Frequency"
-              hint="MHz"
-              type="number"
-              value={freqMhz}
-              onChange={(e) => setFreqMhz(Number(e.target.value))}
-              inputProps={{ step: 0.1 }}
-            />
+      <Tabs
+        value={tab}
+        onChange={(_, v) => setTab(v)}
+        sx={{
+          minHeight: 36, mt: -0.5,
+          borderBottom: 1, borderColor: 'divider',
+          '& .MuiTab-root': { minHeight: 36, py: 0.25, fontSize: 13 },
+        }}
+      >
+        <Tab value="manual" label="Manual" />
+        <Tab value="automation" label="Automation" />
+      </Tabs>
 
-            <LabeledField
-              label="Modem"
-              select
-              value={modem}
-              onChange={(e) => setModem(e.target.value as ModemName)}
-            >
-              <MenuItem value="LoRa">LoRa</MenuItem>
-              <MenuItem value="FSK">FSK</MenuItem>
-            </LabeledField>
+      {/* Both panels stay mounted; toggle via display so switching is instant
+          and a run keeps going while the manual tab is on screen. */}
+      <Box sx={{ display: tab === 'manual' ? 'block' : 'none' }}>
+        <PageBody width="fluid">
+          <Section title="Transmit" panel>
+            <FieldGrid>
+              <LabeledField
+                label="Frequency"
+                hint="MHz"
+                type="number"
+                value={freqMhz}
+                onChange={(e) => setFreqMhz(Number(e.target.value))}
+                inputProps={{ step: 0.1 }}
+              />
 
-            <LabeledField
-              label="Power"
-              hint="dBm"
-              type="number"
-              value={power}
-              onChange={(e) => setPower(Number(e.target.value))}
-            />
+              <LabeledField
+                label="Modem"
+                select
+                value={modem}
+                onChange={(e) => setModem(e.target.value as ModemName)}
+              >
+                <MenuItem value="LoRa">LoRa</MenuItem>
+                <MenuItem value="FSK">FSK</MenuItem>
+              </LabeledField>
 
-            <Stack spacing={0.5}>
-              <Typography component="span" sx={{ ...TEXT.label, color: 'text.primary' }}>
-                Bandwidth
-              </Typography>
-              <TextField
-                size="small"
+              <LabeledField
+                label="Power"
+                hint="dBm"
+                type="number"
+                value={power}
+                onChange={(e) => setPower(Number(e.target.value))}
+              />
+
+              {/* A LabeledField like its neighbours, not a hand-rolled label +
+                  select: the two markups put the label on a different baseline,
+                  so Bandwidth sat a few pixels off from Datarate beside it. */}
+              <LabeledField
+                label="Bandwidth"
                 select
                 value={bandwidth}
                 disabled={modem === 'FSK'}
@@ -152,28 +190,37 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
                     {bw.code} - {bw.label}
                   </MenuItem>
                 ))}
-              </TextField>
-            </Stack>
+              </LabeledField>
 
-            <LabeledField
-              label="Datarate"
-              hint={`${DR_MIN}-${DR_MAX}`}
-              type="number"
-              value={datarate}
-              inputProps={{ min: DR_MIN, max: DR_MAX, step: 1 }}
-              onChange={(e) => setDatarate(Number(e.target.value))}
-            />
-          </FieldGrid>
-        </Section>
+              <LabeledField
+                label="Datarate"
+                hint={`${DR_MIN}-${DR_MAX}`}
+                type="number"
+                value={datarate}
+                inputProps={{ min: DR_MIN, max: DR_MAX, step: 1 }}
+                onChange={(e) => setDatarate(Number(e.target.value))}
+              />
+            </FieldGrid>
+          </Section>
 
-        <MeasurementCard
-          freqHz={Math.round(freqMhz * 1_000_000)}
-          triggerId={measureTrigger}
-          targetDbm={power}
-        />
+          <MeasurementCard
+            freqHz={Math.round(freqMhz * 1_000_000)}
+            triggerId={measureTrigger}
+            targetDbm={power}
+          />
 
-        <LastFrameSection result={last} />
-      </PageBody>
+          <LastFrameSection result={last} />
+        </PageBody>
+      </Box>
+
+      <Box
+        sx={{
+          mt: 2, flexGrow: 1, minHeight: 0, flexDirection: 'column',
+          display: tab === 'automation' ? 'flex' : 'none',
+        }}
+      >
+        <AutomationPanel protocol={protocol} onControlsChange={setAutoCtl} />
+      </Box>
 
       {preflight.dialog}
     </Box>
