@@ -1,15 +1,15 @@
-"""HTTP routes for device-under-test RF commands over the BLE transport."""
+"""HTTP routes for LoRa / FSK RF commands over the BLE transport."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from ..ble import manager
-from ..device import CommandResult, Modem, PaMode
-from .errors import handle_driver_errors
+from ...device import Modem, PaMode
+from ..errors import handle_driver_errors
+from ._common import CommandResponse, get_device
 
-router = APIRouter(prefix="/device", tags=["device"])
+router = APIRouter()
 
 
 class LoraCwRequest(BaseModel):
@@ -41,39 +41,9 @@ class StopRequest(BaseModel):
     timeout: float = Field(default=5.0, ge=0.1, le=30.0)
 
 
-class CommandResponse(BaseModel):
-    ok: bool
-    status: int
-    tx_hex: str
-    rx_hex: str
-    reply_opcode_hex: str
-    reply_payload_hex: str
-
-    @classmethod
-    def from_result(cls, r: CommandResult) -> CommandResponse:
-        return cls(
-            ok=r.ok,
-            status=r.status,
-            tx_hex=r.tx.hex(" "),
-            rx_hex=r.rx.hex(" "),
-            reply_opcode_hex=r.reply.opcode.hex(" "),
-            reply_payload_hex=r.reply.payload.hex(" "),
-        )
-
-
-def _device():
-    dev = manager.device
-    if dev is None:
-        raise HTTPException(
-            status_code=409,
-            detail="Device not ready (not connected or transport unavailable)",
-        )
-    return dev
-
-
 @router.post("/lora-cw", response_model=CommandResponse)
 async def lora_cw(req: LoraCwRequest) -> CommandResponse:
-    dev = _device()
+    dev = get_device()
     with handle_driver_errors("device lora cw"):
         result = await dev.lora_cw(
             freq_hz=req.freq_hz,
@@ -88,7 +58,7 @@ async def lora_cw(req: LoraCwRequest) -> CommandResponse:
 
 @router.post("/lora-power", response_model=CommandResponse)
 async def lora_power(req: LoraPowerRequest) -> CommandResponse:
-    dev = _device()
+    dev = get_device()
     with handle_driver_errors("device lora power"):
         result = await dev.lora_power(
             freq_hz=req.freq_hz,
@@ -101,7 +71,7 @@ async def lora_power(req: LoraPowerRequest) -> CommandResponse:
 
 @router.post("/lora-modulated", response_model=CommandResponse)
 async def lora_modulated(req: LoraModulatedRequest) -> CommandResponse:
-    dev = _device()
+    dev = get_device()
     with handle_driver_errors("device lora modulated"):
         result = await dev.lora_modulated(
             bandwidth=req.bandwidth,
@@ -116,7 +86,7 @@ async def lora_modulated(req: LoraModulatedRequest) -> CommandResponse:
 
 @router.post("/stop", response_model=CommandResponse)
 async def stop(req: StopRequest | None = None) -> CommandResponse:
-    dev = _device()
+    dev = get_device()
     timeout = req.timeout if req else 5.0
     with handle_driver_errors("device stop"):
         result = await dev.stop_test(timeout=timeout)

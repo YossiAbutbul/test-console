@@ -259,7 +259,14 @@ export function NotifyProvider({ children }: { children: ReactNode }) {
           // long as that took.
           bottom: 30,
           right: 16,
-          zIndex: (t) => t.zIndex.snackbar + 1,
+          // Below the modal layer, not above it. A completion dialog dims the
+          // page precisely to say "this is the thing to read now"; a toast
+          // sitting on top of that dimming — often the *start* notice for the
+          // run the dialog is reporting the end of — contradicts it.
+          //
+          // Still above the app chrome: the log drawer and top progress bar
+          // sit on the drawer layer, well under this.
+          zIndex: (t) => t.zIndex.modal - 1,
           pointerEvents: 'none',
         }}
       >

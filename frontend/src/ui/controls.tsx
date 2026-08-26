@@ -166,19 +166,28 @@ interface SendStopControlsProps {
   sending: boolean
   stopping: boolean
   canSend?: boolean
+  /**
+   * Whether stopping is possible at all.
+   *
+   * Defaults to true, because on most pages the DUT can always be told to
+   * stop. Pass false only where there is genuinely nothing to stop — an LTE
+   * modem that is powered down cannot be running a test — and make sure some
+   * other control can still cut transmission, since this hides the obvious one.
+   */
+  canStop?: boolean
   onSend: () => void
   onStop: () => void
 }
 
 /** Send/Stop pair for the one-shot DUT command pages (Power, Debug, Modulated). */
 export function SendStopControls({
-  busy, sending, stopping, canSend = true, onSend, onStop,
+  busy, sending, stopping, canSend = true, canStop = true, onSend, onStop,
 }: SendStopControlsProps) {
   return (
     <Stack direction="row" spacing={1}>
       <Button
         variant="outlined"
-        disabled={busy}
+        disabled={busy || !canStop}
         onClick={onStop}
         sx={actionSx(ACTION_W.compact)}
       >

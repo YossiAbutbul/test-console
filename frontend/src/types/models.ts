@@ -33,6 +33,24 @@ export interface LoraCwRequest {
   timeout?: number
 }
 
+/**
+ * HWTP_MODEM_TEST_RF_CW.
+ *
+ * Units match the wire: `time_ms` in milliseconds, `offset_hz` in Hz. The page
+ * takes the duration in seconds because a test runs for tens of them, and
+ * converts on the way out. `tx_power_dbm` is real dBm — the backend scales it
+ * to the 0.01 dBm the wire carries, and caps it at the modem's 23 dBm.
+ */
+export interface LteCwRequest {
+  earfcn: number
+  time_ms: number
+  tx_power_dbm: number
+  offset_hz?: number
+  /** true = START_TX_TEST, false = ABORT_TEST */
+  start?: boolean
+  timeout?: number
+}
+
 export interface LoraPowerRequest {
   freq_hz: number
   power_dbm: number

@@ -36,9 +36,19 @@ export function ValidationAdornment({ show, message }: { show: boolean; message:
           color: '#fff',
           fontSize: 11.5,
           fontWeight: 600,
-          whiteSpace: 'nowrap',
+          lineHeight: 1.35,
+          // Wraps inside a fixed width rather than running off on one line.
+          // The bubble is a local element, not a portaled tooltip (see above),
+          // so it is clipped by whichever panel scrolls — a long single-line
+          // message simply disappears off the edge, which is how it was found.
+          whiteSpace: 'normal',
+          width: 'max-content',
+          maxWidth: 190,
+          textAlign: 'right',
           boxShadow: 3,
-          zIndex: 5,
+          // Above the fields it overlaps. It cannot escape an ancestor's
+          // overflow whatever this is set to, hence the width cap above.
+          zIndex: 20,
           pointerEvents: 'none',
           // little downward arrow
           '&::after': {

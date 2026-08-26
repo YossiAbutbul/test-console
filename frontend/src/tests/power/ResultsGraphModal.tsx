@@ -22,13 +22,26 @@ import {
   CartesianGrid, LabelList, Legend, Line, LineChart, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts'
-import type { AutomationResultRow } from '../../store/powerPageStore'
 import { useConnection } from '../../context/ConnectionContext'
+
+/**
+ * The only fields this chart plots.
+ *
+ * Declared structurally rather than taking one page's row type, because the
+ * LTE automation produces a different row that graphs identically. Both the
+ * LoRa `AutomationResultRow` and the LTE one both satisfy this.
+ */
+export interface GraphableRow {
+  freq_mhz: number
+  set_power_dbm: number
+  measured_dbm: number | null
+  current_a: number | null
+}
 
 interface Props {
   open: boolean
   onClose: () => void
-  results: AutomationResultRow[]
+  results: GraphableRow[]
 }
 
 const PALETTE = [
@@ -77,14 +90,14 @@ function uniqueSorted<T extends number>(values: T[]): T[] {
  *  `xKey` picks the X axis (set power or frequency); `groupKey` picks the
  *  series labels (the other dimension). */
 function buildSeries(
-  results: AutomationResultRow[],
-  pick: (r: AutomationResultRow) => number | null,
+  results: GraphableRow[],
+  pick: (r: GraphableRow) => number | null,
   xKey: Axis,
 ): { series: string[]; data: SeriesPoint[]; xLabel: string } {
-  const xPicker = xKey === 'set' ? (r: AutomationResultRow) => r.set_power_dbm
-                                 : (r: AutomationResultRow) => r.freq_mhz
-  const groupPicker = xKey === 'set' ? (r: AutomationResultRow) => r.freq_mhz
-                                     : (r: AutomationResultRow) => r.set_power_dbm
+  const xPicker = xKey === 'set' ? (r: GraphableRow) => r.set_power_dbm
+                                 : (r: GraphableRow) => r.freq_mhz
+  const groupPicker = xKey === 'set' ? (r: GraphableRow) => r.freq_mhz
+                                     : (r: GraphableRow) => r.set_power_dbm
   const groupLabel = xKey === 'set' ? freqLabel : powerLabel
 
   const xs = uniqueSorted(results.map(xPicker))
@@ -185,8 +198,8 @@ export function ResultsGraphModal({ open, onClose, results }: Props) {
 
   const yPick = useMemo(
     () => (mode === 'power'
-      ? (r: AutomationResultRow) => r.measured_dbm
-      : (r: AutomationResultRow) => (r.current_a == null ? null : r.current_a * 1000)),
+      ? (r: GraphableRow) => r.measured_dbm
+      : (r: GraphableRow) => (r.current_a == null ? null : r.current_a * 1000)),
     [mode],
   )
 

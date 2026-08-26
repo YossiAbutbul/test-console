@@ -7,6 +7,8 @@
 export { Section, Card } from './Section'
 export { PageBody, TwoCol } from './PageBody'
 export { FieldGrid } from './FieldGrid'
+export { LatchingKey } from './LatchingKey'
+export { SegmentedChoice, type ChoiceOption } from './SegmentedChoice'
 export { StatTile, StatRow, StatGrid } from './StatTile'
 export { Eyebrow, Readout, StatusChip, StatusDot, MonoText } from './Readout'
 export {
