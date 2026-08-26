@@ -12,14 +12,19 @@
 
 export type LteCwPageTab = 'manual' | 'automation'
 
-/** Whether channel inputs are read as EARFCNs or as MHz. */
-export type ChannelUnit = 'earfcn' | 'mhz'
-
 export interface LteAutomationRow {
-  /** Range spec — "18900", "18900-18910", "18900,20175". */
+  /** Range spec in whichever unit is selected — "18900", "1850-1910". */
   earfcn: string
   /** Range spec in dBm. */
   power: string
+  /**
+   * Tolerance around the set power, in dB, as typed.
+   *
+   * A margin rather than absolute limits, because one row can sweep several
+   * powers: a fixed band would be right for one of them and wrong for the rest.
+   * Blank means this row's points are not judged.
+   */
+  marginDb: string
 }
 
 export interface LteAutomationResultRow {
@@ -33,6 +38,16 @@ export interface LteAutomationResultRow {
   measured_dbm_raw: number | null
   current_a: number | null
   voltage_v: number | null
+  /** Tolerance this point was judged against, or null when unjudged. */
+  margin_db: number | null
+  /**
+   * Whether the measured power met the tolerance.
+   *
+   * Null when there was nothing to judge — no tolerance set, or no reading.
+   * Kept separate from `ok`/`error`, which say whether the *measurement*
+   * worked: a point can be measured perfectly and still fail its spec.
+   */
+  verdict: 'pass' | 'fail' | null
   ok: boolean
   status: number | null
   error: string | null
@@ -40,13 +55,13 @@ export interface LteAutomationResultRow {
 
 export interface LteCwPageSnapshot {
   tab?: LteCwPageTab
-  channelUnit?: ChannelUnit
   /**
    * The manual tab's fields, as typed.
    *
-   * Kept alongside `channelUnit` rather than left to reset: the unit survived a
-   * reload while the channel did not, so the page came back in MHz holding an
-   * EARFCN and flagged itself invalid before anyone had touched it.
+   * Kept even though the channel unit lives elsewhere (see `tests/lte/channel`)
+   * rather than left to reset: the unit survived a reload while the channel did
+   * not, so the page came back in MHz holding an EARFCN and flagged itself
+   * invalid before anyone had touched it.
    */
   manual?: {
     channel?: string
@@ -55,7 +70,9 @@ export interface LteCwPageSnapshot {
     offset?: string
   }
   automation?: {
-    rows?: LteAutomationRow[]
+    /** Rows may predate the per-row tolerance, so they are read back
+     *  partially and filled in — see `normaliseRow` in the panel. */
+    rows?: Array<Partial<LteAutomationRow>>
     settleMs?: number
     results?: LteAutomationResultRow[]
   }

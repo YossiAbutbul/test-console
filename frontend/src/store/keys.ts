@@ -16,7 +16,9 @@ export const STORAGE_KEYS = {
   powerPage: 'power-page-snapshot-v1',
   modulatedPage: 'modulated-page-snapshot-v1',
   lteCwPage: 'lte-cw-page-snapshot-v1',
+  lteModulatedPage: 'lte-modulated-page-snapshot-v1',
   lteBands: 'lte-bands-v1',
+  lteChannelUnit: 'lte-channel-unit-v1',
   loadPullPage: 'load-pull-page-snapshot-v1',
 } as const
 

@@ -1,7 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Box, CircularProgress, Dialog, DialogContent, Stack, Tab, Tabs, Typography,
-} from '@mui/material'
+import { useEffect, useState } from 'react'
+import { Box, Stack, Tab, Tabs } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
@@ -9,9 +7,7 @@ import { MeasurementCard } from '../../components/MeasurementCard'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
-import {
-  DEFAULT_BANDS, uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch,
-} from '../../lib/earfcn'
+import { uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch } from '../../lib/earfcn'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import type { CommandResponse, LteCwRequest } from '../../types/models'
@@ -22,14 +18,12 @@ import {
   FieldGrid, LastFrameSection, LatchingKey, PageBody, RunControls, Section,
   SegmentedChoice, SendStopControls,
 } from '../../ui'
-import { BandsModal } from './BandsModal'
-import { STORAGE_KEYS } from '../../store/keys'
-import { usePersistedState } from '../../store/persistent'
+import { BandsModal } from '../lte/BandsModal'
+import { useLteBands, useLteChannelUnit, type ChannelUnit } from '../lte/channel'
+import { useLteModem, type LiveTest } from '../lte/useLteModem'
+import { LteAutomationPanel, type AutomationControls } from './LteAutomationPanel'
 import {
-  LteAutomationPanel, type AutomationControls, type ModemControl,
-} from './LteAutomationPanel'
-import {
-  lteCwPageSnapshot, persistLteCwPage, type ChannelUnit, type LteCwPageTab,
+  lteCwPageSnapshot, persistLteCwPage, type LteCwPageTab,
 } from '../../store/lteCwPageStore'
 
 /**
@@ -53,14 +47,10 @@ import {
  * place that can afford the ~10 s, and starting a sweep from a known modem is
  * worth more than starting it ten seconds sooner.
  *
- * The abort in the middle of Send is not optional: the modem takes one test at
- * a time and drops a START that arrives while another is running, which looks
- * like a command that succeeded but changed nothing.
- *
- * Modem power and the live test are held here rather than in either tab,
- * because they describe one piece of hardware that both tabs drive. A panel
- * with its own copy would send a MODEM_ON the other tab had already sent, and
- * the modem refuses that.
+ * Modem power and the live test are held by `useLteModem` at page level rather
+ * than in either tab, because they describe one piece of hardware that both
+ * tabs drive. A panel with its own copy would send a MODEM_ON the other tab
+ * had already sent, and the modem refuses that.
  */
 
 /** Both tabs measure what they transmit, so both need these up. */
@@ -87,10 +77,17 @@ function man(): NonNullable<typeof lteCwPageSnapshot.manual> {
 
 export function LteCwPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
+  /**
+   * Whether channel inputs are read as EARFCNs or as MHz, and which bands a
+   * MHz value is allowed to mean. Both are rig-wide rather than per-page — see
+   * `tests/lte/channel`.
+   */
+  const [unit, setUnit] = useLteChannelUnit()
+  const [bands, setBands] = useLteBands()
   // Read once, for the initialisers below: the field defaults depend on which
   // unit the page is coming back in, and a channel default of 18900 makes no
   // sense to a page that reopens in MHz.
-  const [initialUnit] = useState<ChannelUnit>(() => lteCwPageSnapshot.channelUnit ?? 'earfcn')
+  const [initialUnit] = useState<ChannelUnit>(unit)
   const [earfcn, setEarfcn] = useState(
     () => man().channel ?? (initialUnit === 'mhz' ? DEFAULTS.mhz : DEFAULTS.earfcn),
   )
@@ -109,61 +106,12 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
   const [tab, setTab] = useState<LteCwPageTab>(() => lteCwPageSnapshot.tab ?? 'manual')
   useEffect(() => { lteCwPageSnapshot.tab = tab; persistLteCwPage() }, [tab])
 
-  /**
-   * Whether channel inputs are read as EARFCNs or as MHz, and which bands a
-   * MHz value is allowed to mean.
-   *
-   * The bands setting is what makes the MHz direction possible at all: uplink
-   * bands overlap, so 1880 MHz is a channel in bands 2, 25 and 39 with a
-   * different EARFCN in each. Narrowing to the bands this rig tests leaves one
-   * answer. Both tabs share it — it describes the lab, not a tab.
-   */
-  const [unit, setUnit] = useState<ChannelUnit>(initialUnit)
-  useEffect(() => { lteCwPageSnapshot.channelUnit = unit; persistLteCwPage() }, [unit])
-  const [bands, setBands] = usePersistedState<number[]>(STORAGE_KEYS.lteBands, DEFAULT_BANDS)
   const [bandsOpen, setBandsOpen] = useState(false)
   // The automation tab owns its run; it publishes just enough for the header
   // to render the buttons in the same slot the manual tab uses.
   const [autoCtl, setAutoCtl] = useState<AutomationControls | null>(null)
 
-  /**
-   * What we believe the modem's power state to be.
-   *
-   * Only ever a belief: the DUT will not report it, and this resets on every
-   * page load while the hardware keeps running, so drift is routine rather
-   * than exceptional. A redundant MODEM_ON is *not* free — the modem refuses
-   * it — so when a power command fails the belief moves to `true`, which is
-   * the state the operator can act on: the key then offers MODEM_OFF, and off
-   * then on is a way back to somewhere known.
-   *
-   * Mirrored into a ref because an automation run spans many renders and reads
-   * it long after the one it started in.
-   */
-  const [modemOn, setModemOnState] = useState(false)
-  const modemOnRef = useRef(false)
-  const setModemOn = useCallback((v: boolean) => {
-    modemOnRef.current = v
-    setModemOnState(v)
-  }, [])
-
-  /**
-   * Parameters of the test currently running, or null if none is.
-   *
-   * A ref, not state: nothing renders from it, and a run reads it across many
-   * renders. Holding the parameters rather than a bare flag means an abort can
-   * name the test it is stopping, even if the form has been edited since.
-   */
-  const runningRef = useRef<LteCwRequest | null>(null)
-
-  /**
-   * True only while a MODEM_ON frame is actually in flight.
-   *
-   * Set explicitly rather than derived from the mutations' pending flags:
-   * those are also true while Send is still in its instrument preflight, and
-   * `!modemOn` is briefly true midway through a power-*off* — either would put
-   * "Turning on modem" on screen when nothing is being turned on.
-   */
-  const [startingModem, setStartingModem] = useState(false)
+  const modem = useLteModem({ onFrame: setLast })
 
   const focusBind = (key: string) => ({
     onFocus: () => setFocusKey(key),
@@ -245,9 +193,8 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
    * Switch units, carrying the channel across.
    *
    * The manual field holds one value, so it can be converted exactly. The
-   * automation rows hold range specs and are deliberately left alone — a MHz
-   * range stepping by 1 is not the same set of channels as an EARFCN range
-   * stepping by 1, so "converting" one would quietly change the sweep.
+   * automation rows hold range specs, and the panel rewrites those itself on
+   * the same edge.
    */
   const switchUnit = (next: ChannelUnit) => {
     if (channel) {
@@ -263,78 +210,10 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
     offset_hz: asNum(offset),
   })
 
-  /** Power the modem up and record it. Shared by the key, Send and a run. */
-  const startModem = useCallback(async () => {
-    setStartingModem(true)
-    try {
-      const on = await device.lteModemOn()
-      setLast(on)
-      log('DUT', `LTE modem on: ok=${on.ok} status=${on.status} · rx ${on.rx_hex}`)
-      // Held on even when it refuses.
-      //
-      // We cannot read the modem's power state back from the DUT, and a
-      // refusal tells us nothing about which state it is in — the likeliest
-      // reasons are that it is already up, or busy with a test that outlived
-      // the page. Recording it as off would leave the key offering the one
-      // command that just failed, with no way to send MODEM_OFF and get back
-      // to a known state. On is the state the operator can act on.
-      setModemOn(true)
-      runningRef.current = null
-      if (!on.ok) {
-        throw new Error(
-          `modem on rejected (status ${on.status}). `
-          + 'It may already be on, or still running a test — power it off and on again.',
-        )
-      }
-    } finally {
-      setStartingModem(false)
-    }
-  }, [log, setModemOn])
-
-  /**
-   * Power-cycle the modem, for the start of an automation run.
-   *
-   * Down first and unconditionally, rather than skipping the boot when we
-   * think it is already up. Our idea of the power state is only a belief — it
-   * resets on every page load while the hardware keeps running — and a test
-   * left over from the manual tab or an earlier session would otherwise
-   * survive into the run and swallow the first point's START. A ~10 s boot
-   * once per run is a cheap price for starting from a known modem.
-   */
-  const cycleModem = useCallback(async () => {
-    try {
-      const off = await device.lteModemOff()
-      log('DUT', `LTE modem off (run start): ok=${off.ok} status=${off.status}`)
-    } catch (e) {
-      // Ignored on purpose: the likeliest reason it refused is that the modem
-      // was already down, which is where this was trying to get to.
-      log('DUT', `LTE modem off (run start) failed: ${(e as Error).message}`, 'warn')
-    }
-    setModemOn(false)
-    runningRef.current = null
-    await startModem()
-  }, [log, setModemOn, startModem])
-
-  const modem: ModemControl = useMemo(() => ({
-    on: modemOn,
-    cycle: cycleModem,
-    getRunning: () => runningRef.current,
-    setRunning: (r: LteCwRequest | null) => { runningRef.current = r },
-  }), [modemOn, cycleModem])
-
-  const toggle = useMutation({
-    mutationFn: async (next: boolean) => {
-      if (next) return startModem()
-      const off = await device.lteModemOff()
-      setLast(off)
-      log('DUT', `LTE modem off: ok=${off.ok} status=${off.status} · rx ${off.rx_hex}`)
-      // Recorded as off even on a non-zero status: the frame went out, and
-      // claiming it is still on would make the next Send skip a MODEM_ON it
-      // may well need.
-      setModemOn(false)
-      runningRef.current = null
-    },
-    onError: (e: Error) => log('DUT', `LTE modem toggle failed: ${e.message}`, 'error'),
+  /** How to stop a CW test once it has been started. */
+  const cwTest = (params: LteCwRequest): LiveTest => ({
+    label: 'CW',
+    abort: () => device.lteCw({ ...params, start: false }),
   })
 
   const send = useMutation({
@@ -344,20 +223,10 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
         log('DUT', 'Send cancelled — instruments not ready', 'warn')
         return null
       }
-      // Sending with the modem down is a normal way to work, not a mistake, so
-      // bring it up rather than refusing. The dialog covers the ~10 s wait.
-      if (!modemOnRef.current) await startModem()
-      // The modem takes one test at a time: a START arriving while another is
-      // running is ignored, and the symptom is a command that reports fine
-      // while the radio stays on the old parameters. So retune by aborting
-      // first. Aborted with the *running* test's parameters rather than
-      // whatever is in the form now, since those are what it was started with.
-      const live = runningRef.current
-      if (live) {
-        const prev = await device.lteCw({ ...live, start: false })
-        log('DUT', `LTE CW abort (previous test): ok=${prev.ok} status=${prev.status}`)
-        runningRef.current = null
-      }
+      // Powers the modem up if it is down, and aborts whatever is already
+      // running on it — the modem takes one test at a time and silently drops
+      // a START that arrives while another is live.
+      await modem.prepare()
       const params = req()
       const started = await device.lteCw({ ...params, start: true })
       return { started, params }
@@ -369,7 +238,7 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
       if (!r.started.ok) return
       // Remembered so the next Send knows to abort, and so Stop aborts what is
       // actually running even if the form has been edited since.
-      runningRef.current = r.params
+      modem.setRunning(cwTest(r.params))
       setMeasureTrigger((n) => n + 1)
     },
     // No power-down here. The modem may well be up with the command having
@@ -381,16 +250,16 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
   const stop = useMutation({
     // Falls back to the form when nothing is known to be running — Stop is a
     // safety control, so it stays useful even if our idea of the state is off.
-    mutationFn: () => device.lteCw({ ...(runningRef.current ?? req()), start: false }),
+    mutationFn: () => (modem.getRunning() ?? cwTest(req())).abort(),
     onSuccess: (r) => {
       setLast(r)
-      runningRef.current = null
+      modem.setRunning(null)
       log('DUT', `LTE CW abort: ok=${r.ok} status=${r.status}`)
     },
     onError: (e: Error) => log('DUT', `LTE stop failed: ${e.message}`, 'error'),
   })
 
-  const busy = send.isPending || stop.isPending || toggle.isPending
+  const busy = send.isPending || stop.isPending || modem.busy
   const autoRunning = autoCtl?.running ?? false
 
   // `msg` is the whole message, blank case included — the channel field's
@@ -420,11 +289,11 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
                 both tabs need, so it stays put when they switch. Locked during
                 a run — pulling power mid-sweep would fail every point after. */}
             <LatchingKey
-              value={modemOn}
+              value={modem.on}
               disabled={busy || autoRunning}
               offLabel="Modem off"
               onLabel="Modem on"
-              onChange={(next) => toggle.mutate(next)}
+              onChange={modem.toggle}
             />
             {/* Both tabs put their primary action in the same place, so
                 switching tabs does not move Run/Send across the screen. */}
@@ -437,7 +306,7 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
                 // A powered-down modem cannot be running a test, so aborting is
                 // meaningless. Cutting transmission still has a route: the
                 // modem key, which is the harder stop anyway.
-                canStop={modemOn}
+                canStop={modem.on}
                 onSend={() => send.mutate()}
                 onStop={() => stop.mutate()}
               />
@@ -547,21 +416,7 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
         />
       </Box>
 
-      <Dialog open={startingModem} maxWidth="xs">
-        <DialogContent>
-          <Stack direction="row" spacing={2} alignItems="center" sx={{ py: 1 }}>
-            <CircularProgress size={22} />
-            <Box>
-              <Typography sx={{ fontSize: 15, fontWeight: 600 }}>
-                Turning on modem
-              </Typography>
-              <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-                A radio boot takes a few seconds.
-              </Typography>
-            </Box>
-          </Stack>
-        </DialogContent>
-      </Dialog>
+      {modem.dialog}
 
       <BandsModal
         open={bandsOpen}
