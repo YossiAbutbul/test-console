@@ -5,7 +5,7 @@ import { PowerPage } from './PowerPage'
 
 export const powerModule: TestModule = {
   id: 'power',
-  label: 'Power',
+  label: 'CW',
   protocol: 'LoRa',
   group: 'TX',
   icon: createElement(BoltIcon, { fontSize: 'small' }),

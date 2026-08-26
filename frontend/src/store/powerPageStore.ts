@@ -1,5 +1,5 @@
 /**
- * Module-level snapshot for the TX Power page.
+ * Module-level snapshot for the TX CW page (folder still `power/`).
  *
  * Pattern: hold ephemeral per-page state outside the React tree so navigation
  * away and back doesn't reset what the user typed. Cleared on hard refresh

@@ -84,7 +84,7 @@ export function PowerPage({ protocol, group }: TestPageProps) {
       <PageHeader
         protocol={protocol}
         group={group}
-        label="Power"
+        label="CW"
         actions={
           // Both tabs put their primary action in the same place, so switching
           // tabs does not move Run/Send to a different part of the screen.

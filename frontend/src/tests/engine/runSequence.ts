@@ -1,6 +1,6 @@
 /**
  * Generic measurement-sweep driver for tests whose loop runs in the browser
- * (Load Pull, TX Power automation). It owns the boilerplate every sweep
+ * (Load Pull, TX CW automation). It owns the boilerplate every sweep
  * repeats:
  *
  *   announce start → optional pre-step → for each item { abort-check,

@@ -125,7 +125,7 @@ describe('parsePowerCsv', () => {
 
   it('rejects a file that is not one of ours', () => {
     expect(() => parsePowerCsv('pos_mm,power_dbm\n1,2'))
-      .toThrow(/Not a TX Power export/)
+      .toThrow(/Not a TX CW export/)
   })
 
   it('rejects an empty file and a header with no rows', () => {

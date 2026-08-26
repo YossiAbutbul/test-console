@@ -186,7 +186,7 @@ const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i:
 /** Export the results table. The column list and the row mapping live in
  *  `./csv`, alongside the parser that reads them back. */
 function downloadCsv(rows: ResultRow[], mac: string | null): void {
-  saveCsv([...CSV_HEADER], toCsvBody(rows), exportName('tx-power-automation', mac, 'csv'))
+  saveCsv([...CSV_HEADER], toCsvBody(rows), exportName('tx-cw-automation', mac, 'csv'))
 }
 
 /** Nested snapshot — auto-created on first write so the page-level store stays
@@ -221,7 +221,7 @@ interface AutomationPanelProps {
 export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelProps) {
   const { lossAt, defaultDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
-  const reporter = useRunReporter('TX Power automation', 'Automation')
+  const reporter = useRunReporter('TX CW automation', 'Automation')
   // Every point reads power and current; without these the run completes with
   // a table of blanks.
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)

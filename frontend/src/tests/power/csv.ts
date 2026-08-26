@@ -1,5 +1,5 @@
 /**
- * The TX Power automation's results, written out and read back.
+ * The TX CW automation's results, written out and read back.
  *
  * Both directions live here so they cannot disagree: an exporter and an
  * importer that each keep their own column list stay in step exactly until
@@ -75,7 +75,7 @@ export function parsePowerCsv(text: string): AutomationResultRow[] {
   const missing = REQUIRED.filter((c) => !header.includes(c))
   if (missing.length) {
     throw new Error(
-      `Not a TX Power export — missing ${missing.join(', ')}. `
+      `Not a TX CW export — missing ${missing.join(', ')}. `
       + `Found: ${header.join(', ')}`,
     )
   }
