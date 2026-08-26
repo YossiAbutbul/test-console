@@ -70,15 +70,37 @@ const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
 const MAX_POWER_DBM = 23
 
 /** Defaults are the values from the captured frames, so the page opens on
- *  something known to be well-formed rather than on zeros. */
-const DEFAULTS = { earfcn: '18900', seconds: '200', power: '23', offset: '0' }
+ *  something known to be well-formed rather than on zeros. `earfcn` and `mhz`
+ *  are the same channel either way round, so switching units on a fresh page
+ *  does not change what it is pointed at. */
+const DEFAULTS = {
+  earfcn: '18900', mhz: '1880', seconds: '200', power: '23', offset: '0',
+}
+
+/** Nested snapshot for the manual tab — auto-created on first write, so the
+ *  page-level store stays one object. Mirrors `snap()` in the automation
+ *  panel. */
+function man(): NonNullable<typeof lteCwPageSnapshot.manual> {
+  if (!lteCwPageSnapshot.manual) lteCwPageSnapshot.manual = {}
+  return lteCwPageSnapshot.manual
+}
 
 export function LteCwPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
-  const [earfcn, setEarfcn] = useState(DEFAULTS.earfcn)
-  const [seconds, setSeconds] = useState(DEFAULTS.seconds)
-  const [power, setPower] = useState(DEFAULTS.power)
-  const [offset, setOffset] = useState(DEFAULTS.offset)
+  // Read once, for the initialisers below: the field defaults depend on which
+  // unit the page is coming back in, and a channel default of 18900 makes no
+  // sense to a page that reopens in MHz.
+  const [initialUnit] = useState<ChannelUnit>(() => lteCwPageSnapshot.channelUnit ?? 'earfcn')
+  const [earfcn, setEarfcn] = useState(
+    () => man().channel ?? (initialUnit === 'mhz' ? DEFAULTS.mhz : DEFAULTS.earfcn),
+  )
+  const [seconds, setSeconds] = useState(() => man().seconds ?? DEFAULTS.seconds)
+  const [power, setPower] = useState(() => man().power ?? DEFAULTS.power)
+  const [offset, setOffset] = useState(() => man().offset ?? DEFAULTS.offset)
+  useEffect(() => { man().channel = earfcn; persistLteCwPage() }, [earfcn])
+  useEffect(() => { man().seconds = seconds; persistLteCwPage() }, [seconds])
+  useEffect(() => { man().power = power; persistLteCwPage() }, [power])
+  useEffect(() => { man().offset = offset; persistLteCwPage() }, [offset])
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
   const [focusKey, setFocusKey] = useState<string | null>(null)
@@ -96,7 +118,7 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
    * different EARFCN in each. Narrowing to the bands this rig tests leaves one
    * answer. Both tabs share it — it describes the lab, not a tab.
    */
-  const [unit, setUnit] = useState<ChannelUnit>(() => lteCwPageSnapshot.channelUnit ?? 'earfcn')
+  const [unit, setUnit] = useState<ChannelUnit>(initialUnit)
   useEffect(() => { lteCwPageSnapshot.channelUnit = unit; persistLteCwPage() }, [unit])
   const [bands, setBands] = usePersistedState<number[]>(STORAGE_KEYS.lteBands, DEFAULT_BANDS)
   const [bandsOpen, setBandsOpen] = useState(false)

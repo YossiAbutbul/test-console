@@ -41,6 +41,19 @@ export interface LteAutomationResultRow {
 export interface LteCwPageSnapshot {
   tab?: LteCwPageTab
   channelUnit?: ChannelUnit
+  /**
+   * The manual tab's fields, as typed.
+   *
+   * Kept alongside `channelUnit` rather than left to reset: the unit survived a
+   * reload while the channel did not, so the page came back in MHz holding an
+   * EARFCN and flagged itself invalid before anyone had touched it.
+   */
+  manual?: {
+    channel?: string
+    power?: string
+    seconds?: string
+    offset?: string
+  }
   automation?: {
     rows?: LteAutomationRow[]
     settleMs?: number

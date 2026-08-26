@@ -222,8 +222,11 @@ export function LteAutomationPanel({
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
 
   const DEFAULT_POWER = '23'
+  // The starting row follows the unit the panel opens in — the same channel
+  // either way round, so a page reopening in MHz does not greet the operator
+  // with an EARFCN flagged invalid.
   const [rows, setRows] = useState<ConfigRow[]>(() => snap().rows ?? [
-    { earfcn: '18900', power: DEFAULT_POWER },
+    { earfcn: unit === 'mhz' ? '1880' : '18900', power: DEFAULT_POWER },
   ])
   // Clamped on read: a snapshot saved before the floor existed can hold a
   // value below it, and restoring one would reintroduce the bad readings.
