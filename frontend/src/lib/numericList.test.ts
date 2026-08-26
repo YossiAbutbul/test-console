@@ -48,4 +48,23 @@ describe('parseRangeSpec', () => {
   it('drops non-numeric tokens', () => {
     expect(parseRangeSpec('1,abc,3')).toEqual([1, 3])
   })
+
+  /**
+   * A list being typed is a list with a trailing separator for as long as it
+   * takes to type the next value. `Number('')` is 0 rather than NaN, so the
+   * empty segment used to survive as a real data point — and in a power spec
+   * that is a transmission at 0 dBm nobody asked for.
+   */
+  it('ignores a trailing separator instead of reading it as 0', () => {
+    expect(parseRangeSpec('1880,')).toEqual([1880])
+    expect(parseRangeSpec('14,')).toEqual([14])
+    expect(parseRangeSpec('1880, ')).toEqual([1880])
+    expect(parseRangeSpec('1,,3')).toEqual([1, 3])
+    expect(parseRangeSpec(',1880')).toEqual([1880])
+  })
+
+  it('still reads a real zero', () => {
+    expect(parseRangeSpec('0')).toEqual([0])
+    expect(parseRangeSpec('0,10,23')).toEqual([0, 10, 23])
+  })
 })

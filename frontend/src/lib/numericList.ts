@@ -44,5 +44,9 @@ export function parseRangeSpec(raw: string, fallback: number | null = null): num
     return out
   }
 
-  return s.split(/[,\s]+/).map(Number).filter(Number.isFinite)
+  // Empty segments are dropped *before* Number() sees them. `Number('')` is 0,
+  // not NaN, so a half-typed list — "915," — otherwise parses as [915, 0] and
+  // the 0 survives the isFinite filter. Harmless-looking, but in a power spec
+  // it silently adds a 0 dBm point to the sweep.
+  return s.split(/[,\s]+/).filter((x) => x !== '').map(Number).filter(Number.isFinite)
 }
