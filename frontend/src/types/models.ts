@@ -51,6 +51,24 @@ export interface LteCwRequest {
   timeout?: number
 }
 
+export interface LteModulatedRequest {
+  earfcn: number
+  time_ms: number
+  tx_power_dbm: number
+  /** 0=1.4, 1=3, 2=5, 3=10, 4=15, 5=20 MHz */
+  bandwidth: number
+  mcs: number
+  rb_count: number
+  /** Both default to 0 on the backend, and the automation never sends
+   *  anything else — the byte order of these two is the one part of the frame
+   *  the captures do not pin. */
+  rb_start?: number
+  nb_index?: number
+  /** true = START_TX_TEST, false = ABORT_TEST */
+  start?: boolean
+  timeout?: number
+}
+
 export interface LoraPowerRequest {
   freq_hz: number
   power_dbm: number

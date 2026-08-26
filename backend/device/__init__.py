@@ -18,9 +18,10 @@ from .lora import (
     LoraCwParams, LoraModulatedParams, LoraPowerParams, Modem, PaMode,
 )
 from .lte import (
-    MAX_TX_POWER_DBM, MODEM_ON_TIMEOUT_S, OPCODE_LTE_CW, OPCODE_LTE_MODEM_OFF,
-    OPCODE_LTE_MODEM_ON, OPCODE_LTE_MODULATED, TX_POWER_SCALE,
-    LteCwParams, LteTstrfCmd,
+    MAX_MCS, MAX_TX_POWER_DBM, MODEM_ON_TIMEOUT_S, OPCODE_LTE_CW,
+    OPCODE_LTE_MODEM_OFF, OPCODE_LTE_MODEM_ON, OPCODE_LTE_MODULATED,
+    RB_COUNT_FOR_BW, TX_POWER_SCALE, LteBandwidth, LteCwParams,
+    LteModulatedParams, LteTstrfCmd,
 )
 
 __all__ = [
@@ -29,8 +30,11 @@ __all__ = [
     "LoraCwParams",
     "LoraModulatedParams",
     "LoraPowerParams",
+    "LteBandwidth",
     "LteCwParams",
+    "LteModulatedParams",
     "LteTstrfCmd",
+    "MAX_MCS",
     "MAX_TX_POWER_DBM",
     "MODEM_ON_TIMEOUT_S",
     "Modem",
@@ -43,6 +47,7 @@ __all__ = [
     "OPCODE_LTE_MODULATED",
     "OPCODE_STOP_TEST",
     "POST_STOP_RECOVERY_S",
+    "RB_COUNT_FOR_BW",
     "PaMode",
     "TX_POWER_SCALE",
 ]

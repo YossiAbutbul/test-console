@@ -20,7 +20,8 @@ from .lora import (
 )
 from .lte import (
     MODEM_ON_TIMEOUT_S, OPCODE_LTE_CW, OPCODE_LTE_MODEM_OFF,
-    OPCODE_LTE_MODEM_ON, LteCwParams, LteTstrfCmd,
+    OPCODE_LTE_MODEM_ON, OPCODE_LTE_MODULATED, LteBandwidth, LteCwParams,
+    LteModulatedParams, LteTstrfCmd,
 )
 
 
@@ -157,3 +158,32 @@ class Device:
         tx = params.encode()
         reply = await self._t.send(tx, timeout=timeout)
         return make_result(tx, reply, expected_opcode=OPCODE_LTE_CW)
+
+    async def lte_modulated(
+        self,
+        earfcn: int,
+        time_ms: int,
+        tx_power: int,
+        bandwidth: LteBandwidth,
+        mcs: int,
+        rb_count: int,
+        rb_start: int = 0,
+        nb_index: int = 0,
+        tstrf_cmd: LteTstrfCmd = LteTstrfCmd.START_TX_TEST,
+        timeout: float = 5.0,
+    ) -> CommandResult:
+        await self._await_ready()
+        params = LteModulatedParams(
+            earfcn=earfcn,
+            time_ms=time_ms,
+            tx_power=tx_power,
+            bandwidth=bandwidth,
+            mcs=mcs,
+            rb_count=rb_count,
+            rb_start=rb_start,
+            nb_index=nb_index,
+            tstrf_cmd=tstrf_cmd,
+        )
+        tx = params.encode()
+        reply = await self._t.send(tx, timeout=timeout)
+        return make_result(tx, reply, expected_opcode=OPCODE_LTE_MODULATED)

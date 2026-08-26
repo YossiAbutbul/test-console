@@ -9,10 +9,11 @@ down is a request of its own and never a side effect of aborting.
 from __future__ import annotations
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ...device import (
-    MAX_TX_POWER_DBM, MODEM_ON_TIMEOUT_S, TX_POWER_SCALE, LteTstrfCmd,
+    MAX_MCS, MAX_TX_POWER_DBM, MODEM_ON_TIMEOUT_S, RB_COUNT_FOR_BW,
+    TX_POWER_SCALE, LteBandwidth, LteTstrfCmd,
 )
 from ..errors import handle_driver_errors
 from ._common import CommandResponse, get_device
@@ -79,6 +80,77 @@ async def lte_cw(req: LteCwRequest) -> CommandResponse:
             time_ms=req.time_ms,
             tx_power=req.tx_power_raw,
             offset_hz=req.offset_hz,
+            tstrf_cmd=(
+                LteTstrfCmd.START_TX_TEST if req.start else LteTstrfCmd.ABORT_TEST
+            ),
+            timeout=req.timeout,
+        )
+    return CommandResponse.from_result(result)
+
+
+class LteModulatedRequest(BaseModel):
+    """A modulated test point.
+
+    Carries the CW fields plus the signal itself. `offset_hz` has no
+    counterpart here — the modulated frame has no such field — so a caller
+    porting a CW request across drops it rather than seeing it ignored.
+    """
+
+    earfcn: int = Field(..., ge=0, le=0xFFFFFFFF, description="E-UTRA channel number")
+    time_ms: int = Field(..., ge=0, le=0xFFFFFFFF, description="Test duration in ms")
+    tx_power_dbm: float = Field(
+        ..., ge=0, le=MAX_TX_POWER_DBM,
+        description="Transmit power in dBm; encoded as 0.01 dBm",
+    )
+    bandwidth: int = Field(
+        ..., ge=0, le=5,
+        description="Channel bandwidth: 0=1.4, 1=3, 2=5, 3=10, 4=15, 5=20 MHz",
+    )
+    mcs: int = Field(..., ge=0, le=MAX_MCS, description="PUSCH modulation and coding scheme")
+    rb_count: int = Field(..., ge=1, le=100, description="Resource blocks allocated")
+    # Both default to 0, the only value either has ever been seen carrying.
+    # The byte order of these two is the one part of the frame the captures do
+    # not pin — see LteModulatedParams — so a non-zero value here is
+    # unverified against hardware.
+    rb_start: int = Field(default=0, ge=0, le=99, description="First allocated resource block")
+    nb_index: int = Field(default=0, ge=0, le=255, description="Narrowband index")
+    start: bool = Field(
+        default=True, description="True = START_TX_TEST, False = ABORT_TEST",
+    )
+    timeout: float = Field(default=5.0, ge=0.1, le=30.0)
+
+    @property
+    def tx_power_raw(self) -> int:
+        return round(self.tx_power_dbm * TX_POWER_SCALE)
+
+    @model_validator(mode="after")
+    def _allocation_fits(self) -> "LteModulatedRequest":
+        # Checked here as well as in the encoder so an over-wide allocation is
+        # a 422 naming the field, rather than a 500 from a ValueError raised
+        # three layers down.
+        available = RB_COUNT_FOR_BW[LteBandwidth(self.bandwidth)]
+        if self.rb_start + self.rb_count > available:
+            raise ValueError(
+                f"rb_start {self.rb_start} + rb_count {self.rb_count} runs past the "
+                f"{available} resource blocks in a "
+                f"{LteBandwidth(self.bandwidth).name.removeprefix('BW_')} channel"
+            )
+        return self
+
+
+@router.post("/modulated", response_model=CommandResponse)
+async def lte_modulated(req: LteModulatedRequest) -> CommandResponse:
+    dev = get_device()
+    with handle_driver_errors("device lte modulated"):
+        result = await dev.lte_modulated(
+            earfcn=req.earfcn,
+            time_ms=req.time_ms,
+            tx_power=req.tx_power_raw,
+            bandwidth=LteBandwidth(req.bandwidth),
+            mcs=req.mcs,
+            rb_count=req.rb_count,
+            rb_start=req.rb_start,
+            nb_index=req.nb_index,
             tstrf_cmd=(
                 LteTstrfCmd.START_TX_TEST if req.start else LteTstrfCmd.ABORT_TEST
             ),

@@ -1,7 +1,7 @@
 import { http } from './client'
 import type {
   CommandResponse, LoraCwRequest, LoraModulatedRequest, LoraPowerRequest,
-  LteCwRequest,
+  LteCwRequest, LteModulatedRequest,
 } from '../types/models'
 
 /** Passed by sweeps so Stop cancels the request in flight, not just after it. */
@@ -56,6 +56,12 @@ export const device = {
     }),
   lteCw: (req: LteCwRequest, opts?: Cancel) =>
     http<CommandResponse>('/device/lte/cw', {
+      method: 'POST',
+      body: JSON.stringify({ timeout: 5, start: true, ...req }),
+      signal: opts?.signal,
+    }),
+  lteModulated: (req: LteModulatedRequest, opts?: Cancel) =>
+    http<CommandResponse>('/device/lte/modulated', {
       method: 'POST',
       body: JSON.stringify({ timeout: 5, start: true, ...req }),
       signal: opts?.signal,
