@@ -151,6 +151,19 @@ async def index() -> FileResponse:
     return FileResponse(SPA_INDEX)
 
 
+@app.get("/favicon.svg")
+async def favicon() -> FileResponse:
+    """Serve the tab icon.
+
+    Needs a route of its own. Only /assets is mounted, so without this the SPA
+    fallback below answers with index.html and the browser gets HTML where it
+    asked for an image -- which is why the tab has been blank under the bundled
+    build while looking fine under the Vite dev server, which serves public/
+    itself. Registered above the catch-all, which is what gives it priority.
+    """
+    return FileResponse(FRONTEND_DIST / "favicon.svg")
+
+
 if FRONTEND_DIST.is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="spa-assets")
 
