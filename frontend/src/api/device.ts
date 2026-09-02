@@ -1,13 +1,45 @@
 import { http } from './client'
 import type {
   CommandResponse, LoraCwRequest, LoraModulatedRequest, LoraPowerRequest,
-  LteCwRequest, LteModulatedRequest,
+  AppModesResponse, ChannelOptionsResponse, LteCwRequest, LteModulatedRequest,
+  MeterInfoResponse, SaveResetResponse, SetAppModeResponse, SetChannelsResponse,
 } from '../types/models'
 
 /** Passed by sweeps so Stop cancels the request in flight, not just after it. */
 type Cancel = { signal?: AbortSignal }
 
 export const device = {
+  /** Read-only identity read; nine queries, so it is slower than one command. */
+  info: (opts?: Cancel) =>
+    http<MeterInfoResponse>('/device/info', { signal: opts?.signal }),
+
+  /** The mode list. Fixed for a given backend, so it is cached indefinitely. */
+  appModes: () => http<AppModesResponse>('/device/app-modes'),
+
+  /** Writes the mode and reboots the unit — see SetAppModeResponse. */
+  setAppMode: (mode: number, timeout = 5) =>
+    http<SetAppModeResponse>('/device/app-mode', {
+      method: 'POST',
+      body: JSON.stringify({ mode, timeout }),
+    }),
+
+  /** Primary/secondary channel options. Fixed per backend, cached like modes. */
+  channelOptions: () => http<ChannelOptionsResponse>('/device/channel-options'),
+
+  /** Both channels go together — the command takes the pair, not one of them. */
+  setChannels: (primary: number, secondary: number, timeout = 5) =>
+    http<SetChannelsResponse>('/device/channels', {
+      method: 'POST',
+      body: JSON.stringify({ primary, secondary, timeout }),
+    }),
+
+  /** Persists staged settings and reboots the unit — the link drops after. */
+  saveReset: (timeout = 5) =>
+    http<SaveResetResponse>('/device/save-reset', {
+      method: 'POST',
+      body: JSON.stringify({ timeout }),
+    }),
+
   loraCw: (req: LoraCwRequest, opts?: Cancel) =>
     http<CommandResponse>('/device/lora-cw', {
       method: 'POST',

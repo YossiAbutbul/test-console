@@ -145,3 +145,90 @@ export interface RunStatus {
   config?: SweepConfig | null
   last_row?: ResultRow | null
 }
+
+/** One row of the Meter Information read.
+ *
+ *  `ok: false` is an answer, not a transport failure — a unit that declines a
+ *  query (status != 0) is what the dialog shows as "Not Supported". `raw_hex`
+ *  travels even on success: these layouts were decoded from a single capture,
+ *  so the bytes are worth keeping next to the value. Mirrors
+ *  `MeterInfoField` in backend/api/device/info.py.
+ */
+export interface MeterInfoField {
+  key: string
+  label: string
+  ok: boolean
+  status: number
+  raw_hex: string
+  value?: string | null
+  error?: string | null
+}
+
+export interface MeterInfoResponse {
+  fields: MeterInfoField[]
+}
+
+/** App mode options, served from the backend so the names have one home.
+ *  Mirrors `APP_MODES` in backend/device/info.py. */
+export interface AppModeOption {
+  mode: number
+  label: string
+}
+
+export interface AppModesResponse {
+  modes: AppModeOption[]
+}
+
+/** Result of a mode change.
+ *
+ *  `acknowledged` and `ok` are separate questions: the unit saves the mode and
+ *  resets, so a reply can go missing because the link dropped underneath it.
+ *  `acknowledged: false` is neither success nor failure. Mirrors
+ *  `SetAppModeResponse` in backend/api/device/info.py. */
+export interface SetAppModeResponse {
+  mode: number
+  label: string
+  acknowledged: boolean
+  ok: boolean
+  status: number
+  tx_hex: string
+  rx_hex: string
+  error?: string | null
+}
+
+/** Primary/secondary channel options. Same {mode,label} shape as app modes.
+ *  Mirrors `ChannelOptionsResponse` in backend/api/device/info.py. */
+export interface ChannelOptionsResponse {
+  primary: AppModeOption[]
+  secondary: AppModeOption[]
+}
+
+/** Result of a channel change. Same three-way shape as SetAppModeResponse:
+ *  whether the unit answered is a separate question from whether it agreed. */
+export interface SetChannelsResponse {
+  primary: number
+  secondary: number
+  primary_label: string
+  secondary_label: string
+  acknowledged: boolean
+  ok: boolean
+  status: number
+  tx_hex: string
+  rx_hex: string
+  error?: string | null
+}
+
+/** Outcome of `POST /device/save-reset`.
+ *
+ *  Success means the meter accepted the command and is going down — the BLE
+ *  link drops and stays down until something reconnects. That is the expected
+ *  result, not an error. Mirrors `SaveResetResponse` in
+ *  backend/api/device/info.py. */
+export interface SaveResetResponse {
+  acknowledged: boolean
+  ok: boolean
+  status: number
+  tx_hex: string
+  rx_hex: string
+  error?: string | null
+}

@@ -7,8 +7,10 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import TuneIcon from '@mui/icons-material/Tune'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import { useNicknames } from '../context/NicknamesContext'
 import { usePathLoss } from '../context/PathLossContext'
+import { MeterInfoModal } from './MeterInfoModal'
 import { NicknameModal } from './NicknameModal'
 import { PathLossModal } from './PathLossModal'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -52,6 +54,7 @@ export function ConnectionPanel() {
   const nicknames = useNicknames()
   const { pathLossDb, setPathLossDb, points } = usePathLoss()
   const [pathLossOpen, setPathLossOpen] = useState(false)
+  const [infoOpen, setInfoOpen] = useState(false)
   const [editMac, setEditMac] = useState<string | null>(null)
   const qc = useQueryClient()
   const [duration, setDuration] = useState(5)
@@ -391,6 +394,28 @@ export function ConnectionPanel() {
         />
         </Box>
 
+        {/* Icon only, and sized to the 36px controls either side of it: the
+            labelled version was wide enough to wrap the whole row onto a
+            second line. Needs a live link, since every field is read off the
+            unit -- disabled rather than hidden so it does not appear on
+            connect and shift Scan and Connect along. */}
+        <Tooltip title={isConnected ? 'Meter information' : 'Connect to a unit first'}>
+          <span>
+            <IconButton
+              disabled={!isConnected}
+              onClick={() => setInfoOpen(true)}
+              aria-label="Meter information"
+              sx={{
+                width: 36, height: 36, borderRadius: 1,
+                border: '1px solid', borderColor: 'divider',
+                '&.Mui-disabled': { borderColor: 'divider', opacity: 0.5 },
+              }}
+            >
+              <InfoOutlinedIcon sx={{ fontSize: 19 }} />
+            </IconButton>
+          </span>
+        </Tooltip>
+
         <Button
           variant="contained"
           onClick={startScan}
@@ -409,7 +434,9 @@ export function ConnectionPanel() {
         >
           {isConnected ? 'Disconnect' : 'Connect'}
         </Button>
+
       </Stack>
+      <MeterInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
       <PathLossModal open={pathLossOpen} onClose={() => setPathLossOpen(false)} />
       <NicknameModal mac={editMac} onClose={() => setEditMac(null)} />
     </Box>
