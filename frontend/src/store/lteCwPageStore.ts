@@ -56,6 +56,14 @@ export interface LteAutomationResultRow {
 export interface LteCwPageSnapshot {
   tab?: LteCwPageTab
   /**
+   * Which instruments the manual tab reads back after a Send.
+   *
+   * Persisted for the same reason as its sibling on the CW page: it describes
+   * the bench, not this minute's measurement. Absent on older snapshots, and
+   * the page falls back to both on.
+   */
+  manualMeasure?: { power: boolean; current: boolean }
+  /**
    * The manual tab's fields, as typed.
    *
    * Kept even though the channel unit lives elsewhere (see `tests/lte/channel`)

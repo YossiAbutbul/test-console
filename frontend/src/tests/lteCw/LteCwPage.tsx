@@ -8,15 +8,15 @@ import { ValidationAdornment, shouldShowValidation } from '../../components/Vali
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
 import { uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch } from '../../lib/earfcn'
-import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import type { CommandResponse, LteCwRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
 import TuneIcon from '@mui/icons-material/Tune'
 import { IconButton, Tooltip } from '@mui/material'
 import {
-  FieldGrid, LastFrameSection, LatchingKey, PageBody, RunControls, Section,
-  SegmentedChoice, SendStopControls,
+  FieldGrid, LastFrameSection, LatchingKey, MeasureOptions, PageBody,
+  RunControls, Section, SegmentedChoice, SendStopControls, measuresAnything,
+  requiredInstruments, type MeasureSelection,
 } from '../../ui'
 import { BandsModal } from '../lte/BandsModal'
 import { useLteBands, useLteChannelUnit, type ChannelUnit } from '../lte/channel'
@@ -53,8 +53,11 @@ import {
  * had already sent, and the modem refuses that.
  */
 
-/** Both tabs measure what they transmit, so both need these up. */
-const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
+/** What the manual tab reads back by default: everything, as it always did.
+ *  The operator can drop either, or both — see `MeasureOptions`. The
+ *  automation tab is unaffected; a sweep with nothing to record is not a
+ *  sweep, so it still requires both. */
+const DEFAULT_MEASURE: MeasureSelection = { power: true, current: true }
 
 /** The modem's ceiling; mirrors MAX_TX_POWER_DBM on the backend. */
 const MAX_POWER_DBM = 23
@@ -101,7 +104,12 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
   const [focusKey, setFocusKey] = useState<string | null>(null)
-  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
+  const [measure, setMeasure] = useState<MeasureSelection>(
+    () => lteCwPageSnapshot.manualMeasure ?? DEFAULT_MEASURE,
+  )
+  useEffect(() => { lteCwPageSnapshot.manualMeasure = measure; persistLteCwPage() }, [measure])
+  const willMeasure = measuresAnything(measure)
+  const preflight = useInstrumentPreflight(requiredInstruments(measure), { verb: 'send' })
 
   const [tab, setTab] = useState<LteCwPageTab>(() => lteCwPageSnapshot.tab ?? 'manual')
   useEffect(() => { lteCwPageSnapshot.tab = tab; persistLteCwPage() }, [tab])
@@ -218,8 +226,10 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
 
   const send = useMutation({
     mutationFn: async () => {
-      // Connect before keying the PA — see PowerPage.send.
-      if (!(await preflight.run())) {
+      // Connect before keying the PA — see PowerPage.send. Skipped outright
+      // when nothing is being measured: preflight with an empty list still
+      // puts a dialog in front of a transmit that needs no instruments.
+      if (willMeasure && !(await preflight.run())) {
         log('DUT', 'Send cancelled — instruments not ready', 'warn')
         return null
       }
@@ -239,7 +249,7 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
       // Remembered so the next Send knows to abort, and so Stop aborts what is
       // actually running even if the form has been edited since.
       modem.setRunning(cwTest(r.params))
-      setMeasureTrigger((n) => n + 1)
+      if (willMeasure) setMeasureTrigger((n) => n + 1)
     },
     // No power-down here. The modem may well be up with the command having
     // failed; it stays up so the operator can fix the parameters and retry
@@ -388,11 +398,22 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
             </FieldGrid>
           </Section>
 
-          <MeasurementCard
-            freqHz={channel?.freqHz}
-            triggerId={measureTrigger}
-            targetDbm={powerValid ? asNum(power) : null}
-          />
+          {/* What to read back after the send. Above the result rather than
+              beside it, because it decides whether there is one. */}
+          <Section title="Measure" panel>
+            <MeasureOptions value={measure} onChange={setMeasure} disabled={busy} />
+          </Section>
+
+          {/* Hidden when nothing is being measured; an empty strip of dashes
+              reads as a failed read rather than one never asked for. */}
+          {willMeasure && (
+            <MeasurementCard
+              freqHz={channel?.freqHz}
+              triggerId={measureTrigger}
+              targetDbm={powerValid ? asNum(power) : null}
+              wants={measure}
+            />
+          )}
 
           <LastFrameSection result={last} />
         </PageBody>

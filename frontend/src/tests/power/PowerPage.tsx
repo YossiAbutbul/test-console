@@ -6,19 +6,19 @@ import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
-import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import {
-  FieldGrid, LastFrameSection, PageBody, RunControls, Section, SendStopControls,
+  FieldGrid, LastFrameSection, MeasureOptions, PageBody, RunControls, Section,
+  SendStopControls, measuresAnything, requiredInstruments, type MeasureSelection,
 } from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
 import { AutomationPanel, type AutomationControls } from './AutomationPanel'
 import { powerPageSnapshot, persistPowerPage, type PowerPageTab } from '../../store/powerPageStore'
 
-/** The manual tab measures the command it sends, so it needs what the
- *  automation tab needs. Kept in sync with AutomationPanel deliberately. */
-const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
+/** What the manual tab reads back by default: everything, as it always did.
+ *  The operator can drop either, or both — see `MeasureOptions`. */
+const DEFAULT_MEASURE: MeasureSelection = { power: true, current: true }
 
 export function PowerPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
@@ -28,7 +28,12 @@ export function PowerPage({ protocol, group }: TestPageProps) {
   const [paMode, setPaMode] = useState(2)
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
-  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
+  const [measure, setMeasure] = useState<MeasureSelection>(
+    () => powerPageSnapshot.manualMeasure ?? DEFAULT_MEASURE,
+  )
+  useEffect(() => { powerPageSnapshot.manualMeasure = measure; persistPowerPage() }, [measure])
+  const willMeasure = measuresAnything(measure)
+  const preflight = useInstrumentPreflight(requiredInstruments(measure), { verb: 'send' })
   // The automation tab owns its run; it publishes just enough for the header
   // to render the buttons in the same slot the manual tab uses.
   const [autoCtl, setAutoCtl] = useState<AutomationControls | null>(null)
@@ -45,7 +50,11 @@ export function PowerPage({ protocol, group }: TestPageProps) {
       // auto-measures once the command lands, and connecting a VISA session
       // takes long enough that the DUT would already be transmitting into a
       // sensor nobody was reading.
-      if (!(await preflight.run())) {
+      //
+      // Skipped outright when nothing is being measured. Preflight with an
+      // empty list still puts a dialog in front of a transmit that needs no
+      // instruments at all.
+      if (willMeasure && !(await preflight.run())) {
         log('DUT', 'Send cancelled — instruments not ready', 'warn')
         return null
       }
@@ -59,7 +68,7 @@ export function PowerPage({ protocol, group }: TestPageProps) {
       if (!r) return
       setLast(r)
       log('DUT', `Power sent: ok=${r.ok} status=${r.status}`)
-      if (r.ok) setMeasureTrigger((n) => n + 1)
+      if (r.ok && willMeasure) setMeasureTrigger((n) => n + 1)
     },
     onError: (e: Error) => log('DUT', `Power failed: ${e.message}`, 'error'),
   })
@@ -149,13 +158,24 @@ export function PowerPage({ protocol, group }: TestPageProps) {
             </FieldGrid>
           </Section>
 
+          {/* What to read back after the send. Above the result rather than
+              beside it, because it decides whether there is one. */}
+          <Section title="Measure" panel>
+            <MeasureOptions value={measure} onChange={setMeasure} disabled={busy} />
+          </Section>
+
           {/* The answer: what we asked for, what came out, and the error
-              between them — the question this page exists to settle. */}
-          <MeasurementCard
-            freqHz={Math.round(freqMhz * 1_000_000)}
-            triggerId={measureTrigger}
-            targetDbm={power}
-          />
+              between them — the question this page exists to settle. Hidden
+              when nothing is being measured; an empty strip of dashes reads
+              as a failed read rather than one that was never asked for. */}
+          {willMeasure && (
+            <MeasurementCard
+              freqHz={Math.round(freqMhz * 1_000_000)}
+              triggerId={measureTrigger}
+              targetDbm={power}
+              wants={measure}
+            />
+          )}
 
           {/* Wire detail last, and collapsed: it explains a result you have
               already read. */}

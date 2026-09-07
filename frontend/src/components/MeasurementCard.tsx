@@ -9,7 +9,7 @@ import { usePathLoss } from '../context/PathLossContext'
 import { describeMeasureError } from '../lib/instrumentError'
 import { DEFAULT_SETTLE_MS } from '../lib/settle'
 import { useAppPalette } from '../context/ThemeModeContext'
-import { StatRow, StatTile } from '../ui'
+import { MEASURE_ALL, StatRow, StatTile, type MeasureSelection } from '../ui'
 
 interface Props {
   /** Hz, used to set sensor calibration freq before reading. */
@@ -27,6 +27,18 @@ interface Props {
   targetDbm?: number | null
   /** |error| at or under this is on-spec; up to twice this is marginal. */
   toleranceDb?: number
+  /**
+   * Which instruments this card is allowed to bring up and read.
+   *
+   * Defaults to both, which is what every caller wanted before the CW pages
+   * let the operator turn one off. An excluded instrument is treated as absent
+   * rather than merely unread: `fire` will not open a VISA session for it, and
+   * its tile greys out the same as an unplugged one.
+   *
+   * Ignored for `staticData`, which is a record of a reading that already
+   * happened — what this card is permitted to do now says nothing about it.
+   */
+  wants?: MeasureSelection
   /** When set, render these values instead of fetching. Hides controls. */
   staticData?: {
     power_dbm?: number | null
@@ -45,7 +57,7 @@ function num(v: number | null | undefined, digits: number): string {
 
 export function MeasurementCard({
   freqHz, triggerId, settleMs = DEFAULT_SETTLE_MS, onResult, staticData,
-  targetDbm, toleranceDb = 1,
+  targetDbm, toleranceDb = 1, wants = MEASURE_ALL,
 }: Props) {
   const { instruments, connect } = useInstruments()
   const { lossAt } = usePathLoss()
@@ -55,12 +67,19 @@ export function MeasurementCard({
   const pathLossDb = loss.db
   const p = useAppPalette()
   const isStatic = staticData !== undefined
+  // Pulled out as plain booleans so the effects below can depend on them.
+  // `wants` is an object, and a caller passing a fresh literal each render
+  // would rebuild `fire` every time; the two flags are what actually change.
+  const { power: wantPower, current: wantCurrent } = wants
+  // An instrument the caller excluded reads as absent, not as connected-but-
+  // ignored: leaving its tile lit with a stale number would say the value
+  // belongs to this send when nothing was read for it.
   const ps = isStatic
     ? staticData?.power_dbm != null
-    : instruments['power-sensor'].status === 'connected'
+    : wantPower && instruments['power-sensor'].status === 'connected'
   const dc = isStatic
     ? (staticData?.current_a != null || staticData?.voltage_v != null)
-    : instruments['dc-analyzer'].status === 'connected'
+    : wantCurrent && instruments['dc-analyzer'].status === 'connected'
   const anyConnected = ps || dc
 
   // The target that was actually in force when the current reading was taken.
@@ -94,15 +113,17 @@ export function MeasurementCard({
       setConnecting(true)
       try {
         // Sequential: these are USB/VISA sessions and the vendor layers do
-        // not reliably tolerate concurrent opens.
-        await connect('power-sensor')
-        await connect('dc-analyzer')
+        // not reliably tolerate concurrent opens. Only what was asked for --
+        // opening a session for an instrument the operator switched off is
+        // the cost they switched it off to avoid.
+        if (wantPower) await connect('power-sensor')
+        if (wantCurrent) await connect('dc-analyzer')
       } finally {
         setConnecting(false)
       }
     }
     measure.mutate()
-  }, [anyConnected, connect, measure])
+  }, [anyConnected, connect, measure, wantPower, wantCurrent])
 
   useEffect(() => {
     if (isStatic) return

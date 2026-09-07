@@ -61,6 +61,15 @@ export interface AutomationResultRow {
 export interface PowerPageSnapshot {
   /** Last opened sub-tab on the Power page (Manual / Automation). */
   tab?: PowerPageTab
+  /**
+   * Which instruments the manual tab reads back after a Send.
+   *
+   * Persisted because it describes how the bench is set up, not what is being
+   * measured this minute: an operator with no DC analyzer on the rig would
+   * otherwise re-clear the same box on every visit. Absent on snapshots
+   * written before it existed, and the page falls back to both on.
+   */
+  manualMeasure?: { power: boolean; current: boolean }
   /** Automation panel state. */
   automation?: {
     /** Rows may predate the per-row PA mode and tolerance, so they are read

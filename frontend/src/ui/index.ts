@@ -10,6 +10,10 @@ export { FieldGrid } from './FieldGrid'
 export { LatchingKey } from './LatchingKey'
 export { SegmentedChoice, type ChoiceOption } from './SegmentedChoice'
 export { StatTile, StatRow, StatGrid } from './StatTile'
+export { MeasureOptions } from './MeasureOptions'
+export {
+  MEASURE_ALL, measuresAnything, requiredInstruments, type MeasureSelection,
+} from './measure'
 export { Eyebrow, Readout, StatusChip, StatusDot, MonoText } from './Readout'
 export {
   ConnectButton, EmergencyStop, RunControls, SendStopControls, PathLossChip,
