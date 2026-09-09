@@ -95,7 +95,19 @@ _READ_RETRIES = 12
 _READ_RETRY_DELAY_S = 0.125
 
 
-def _read_power_dbm(freq_hz: int | None) -> float | None:
+def _read_power_dbm(freq_hz: int | None, allow_no_signal: bool = False) -> float | None:
+    """Read the sensor, in dBm.
+
+    `allow_no_signal` returns whatever the sensor says, including its
+    under-range sentinel (around -997 dBm), and does so on the first read.
+
+    Off by default, and it must stay that way for the tests: a sweep that
+    recorded -997 as a measurement would poison its results table and every
+    export built from it, which is what the retry-and-raise below exists to
+    prevent. The exception is a bare power meter, where "the sensor sees
+    nothing" is a reading the operator asked for -- and where the 1.5 s of
+    retries would make a 400 ms continuous read impossible.
+    """
     s = state.power_sensor
     if s is None:
         return None
@@ -108,6 +120,8 @@ def _read_power_dbm(freq_hz: int | None) -> float | None:
         reader = getattr(s, "read_power", None)
         if reader is None:
             return None
+        if allow_no_signal:
+            return float(reader("dBm"))
         last = -999.0
         for _ in range(_READ_RETRIES):
             last = float(reader("dBm"))
@@ -157,7 +171,9 @@ def _read_dc() -> tuple[float | None, float | None, str | None]:
 
 
 @_aggregate.post("/measure", response_model=MeasureResponse)
-async def measure(freq_hz: int | None = None) -> MeasureResponse:
+async def measure(
+    freq_hz: int | None = None, allow_no_signal: bool = False,
+) -> MeasureResponse:
     t0 = time.perf_counter()
     ps_connected = state.power_sensor is not None
     dc_connected = state.dc_analyzer is not None
@@ -179,7 +195,9 @@ async def measure(freq_hz: int | None = None) -> MeasureResponse:
     # whole API — see _bus.py.
     try:
         if ps_connected:
-            p_dbm = await bus("power-sensor").call(_read_power_dbm, freq_hz)
+            p_dbm = await bus("power-sensor").call(
+                _read_power_dbm, freq_hz, allow_no_signal,
+            )
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
     try:

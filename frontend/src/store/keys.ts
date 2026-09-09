@@ -20,6 +20,10 @@ export const STORAGE_KEYS = {
   lteBands: 'lte-bands-v1',
   lteChannelUnit: 'lte-channel-unit-v1',
   loadPullPage: 'load-pull-page-snapshot-v1',
+  // v2: the continuous interval's default moved from 1000 ms to 400 ms, and a
+  // stored v1 value would have shadowed it forever -- a default only applies
+  // when nothing is saved.
+  powerMeterPage: 'power-meter-page-snapshot-v2',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

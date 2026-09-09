@@ -58,11 +58,25 @@ export const instrumentsApi = {
     http<ConnectResponse>(`/instruments/${kind}/disconnect`, {
       method: 'POST',
     }),
-  measure: (freqHz?: number, opts?: { signal?: AbortSignal }) =>
-    http<MeasureResponse>(
-      `/instruments/measure${freqHz ? `?freq_hz=${Math.round(freqHz)}` : ''}`,
+  /**
+   * `allowNoSignal` returns the sensor's under-range reading (around -997 dBm)
+   * instead of failing, and skips the ~1.5 s of retries that a no-signal read
+   * otherwise spends. For the Power Meter page, where "the sensor sees
+   * nothing" is an answer; never for a sweep, which must not record it.
+   */
+  measure: (
+    freqHz?: number,
+    opts?: { signal?: AbortSignal; allowNoSignal?: boolean },
+  ) => {
+    const q = new URLSearchParams()
+    if (freqHz) q.set('freq_hz', String(Math.round(freqHz)))
+    if (opts?.allowNoSignal) q.set('allow_no_signal', 'true')
+    const qs = q.toString()
+    return http<MeasureResponse>(
+      `/instruments/measure${qs ? `?${qs}` : ''}`,
       { method: 'POST', signal: opts?.signal },
-    ),
+    )
+  },
   getDcSupply: () => http<SupplyResponse>('/instruments/dc-analyzer/supply'),
   setDcSupply: (enabled: boolean, voltage_v: number, channel?: number) =>
     http<SupplyResponse>('/instruments/dc-analyzer/supply', {

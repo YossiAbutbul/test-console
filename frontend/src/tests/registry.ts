@@ -8,6 +8,7 @@ import { loadPullModule } from './loadPull/module'
 import { tromboneModule } from './trombone/module'
 import { switchModule } from './switch/module'
 import { networkAnalyzerModule } from './networkAnalyzer/module'
+import { powerMeterModule } from './powerMeter/module'
 import type { TestModule } from './types'
 
 export const testRegistry: TestModule[] = [
@@ -21,4 +22,5 @@ export const testRegistry: TestModule[] = [
   tromboneModule,
   switchModule,
   networkAnalyzerModule,
+  powerMeterModule,
 ]
