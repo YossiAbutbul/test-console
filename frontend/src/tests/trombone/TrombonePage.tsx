@@ -167,15 +167,20 @@ export function TrombonePage({ group }: TestPageProps) {
             <MonoText sx={{ fontSize: 11 }}>MT986A · Arcus DMX-J-SA</MonoText>
             <Box sx={{ flexGrow: 1 }} />
             {!connected && (
-              <TextField
-                size="small"
-                type="number"
-                label="Index"
-                value={deviceIndex}
-                onChange={(e) => setDeviceIndex(Math.max(0, Number(e.target.value) || 0))}
-                inputProps={{ min: 0, max: 15 }}
-                sx={{ width: 84, '& .MuiInputBase-root': { height: 26 } }}
-              />
+              // Inline in the status row, so the name sits beside the box
+              // rather than above it -- a stacked label here would push the
+              // row taller than the chip it lines up with.
+              <Stack direction="row" alignItems="center" spacing={0.75}>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Index</Typography>
+                <TextField
+                  size="small"
+                  type="number"
+                  value={deviceIndex}
+                  onChange={(e) => setDeviceIndex(Math.max(0, Number(e.target.value) || 0))}
+                  inputProps={{ min: 0, max: 15 }}
+                  sx={{ width: 64, '& .MuiInputBase-root': { height: 26 } }}
+                />
+              </Stack>
             )}
             <StatusChip
               label={statusText}
