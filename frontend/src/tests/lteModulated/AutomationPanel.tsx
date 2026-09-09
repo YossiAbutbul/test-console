@@ -247,7 +247,7 @@ const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i:
 /** Export the results table. The column list and the row mapping live in
  *  `./csv`, alongside the parser that reads them back. */
 function downloadCsv(rows: ResultRow[], mac: string | null): void {
-  saveCsv(
+  void saveCsv(
     [...CSV_HEADER], toCsvBody(rows),
     exportName('lte-modulated-automation', mac, 'csv'),
   )

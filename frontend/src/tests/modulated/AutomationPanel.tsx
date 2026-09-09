@@ -210,7 +210,7 @@ const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i:
 /** Export the results table. The column list and the row mapping live in
  *  `./csv`, alongside the parser that reads them back. */
 function downloadCsv(rows: ResultRow[], mac: string | null): void {
-  saveCsv([...CSV_HEADER], toCsvBody(rows), exportName('lora-modulated-automation', mac, 'csv'))
+  void saveCsv([...CSV_HEADER], toCsvBody(rows), exportName('lora-modulated-automation', mac, 'csv'))
 }
 
 /** Nested snapshot — auto-created on first write so the page-level store stays
