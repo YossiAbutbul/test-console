@@ -290,21 +290,42 @@ class MeasureResponse(BaseModel):
     markers: list[MarkerResult] = []
 
 
-def _measure_s11() -> MeasureResponse:
-    import math
-    import numpy as np  # rf-instruments deps brings numpy; fine to assume present
+def _read_param(param: str):
+    """One S-parameter trace off the instrument, as (freqs, complex values).
+
+    Shared by the S11 and S21 reads so the session handling -- free-run, and
+    resyncing after a bad exchange -- cannot drift between them.
+    """
     a = state.network_analyzer
     if a is None:
         raise RuntimeError("network_analyzer not connected")
     # Keep instrument in free-run; just read whatever the latest sweep produced.
     _force_free_run(a)
     try:
-        freqs, gamma = a.get_s_parameter_complex("S11")  # type: ignore[attr-defined]
+        return a.get_s_parameter_complex(param)  # type: ignore[attr-defined]
     except Exception:
         # Leave the session usable for the next point rather than letting one
         # bad exchange poison the rest of the run.
         _resync(a)
         raise
+
+
+def _snap(freqs, mf: float) -> int:
+    """Index of the sweep point nearest `mf`.
+
+    A marker can only ever be read at a point the sweep actually visited, so a
+    coarse span answers a request with whatever is closest -- 900.21 MHz for a
+    902.3 MHz marker on a 201-point 3 GHz sweep. Both frequencies travel back
+    in the result so the caller can see the gap rather than trust the number.
+    """
+    import numpy as np
+    return int(np.argmin(np.abs(freqs - mf)))
+
+
+def _measure_s11() -> MeasureResponse:
+    import math
+    import numpy as np  # rf-instruments deps brings numpy; fine to assume present
+    freqs, gamma = _read_param("S11")
     start = float(freqs[0]) if len(freqs) else None
     stop = float(freqs[-1]) if len(freqs) else None
     pts = int(len(freqs))
@@ -313,7 +334,7 @@ def _measure_s11() -> MeasureResponse:
     for i, mf in enumerate(markers):
         if pts == 0:
             continue
-        idx = int(np.argmin(np.abs(freqs - mf)))
+        idx = _snap(freqs, mf)
         g = complex(gamma[idx])
         z = 50.0 * (1 + g) / (1 - g) if abs(1 - g) > 1e-12 else complex(float("inf"), 0.0)
         mag = abs(g)
@@ -363,3 +384,73 @@ async def measure(req: MeasureRequest | None = None) -> MeasureResponse:
                     raise
                 await asyncio.sleep(_MEASURE_BUSY_WAIT_S)
         raise RuntimeError("unreachable")
+
+
+# ---------- S21 (transmission) ----------
+#
+# Kept as its own model and route rather than folded into the S11 measure.
+# S21 is transmission: it has a magnitude and a phase, and no impedance -- the
+# R/jX pair on a MarkerResult would be meaningless here, and reporting 50 Ω
+# beside a through-path reading would invite it being read as one.
+
+
+class S21MarkerResult(BaseModel):
+    index: int
+    requested_hz: float
+    """What was asked for."""
+    freq_hz: float
+    """The sweep point it was actually read at -- see `_snap`."""
+    mag_db: float
+    phase_deg: float
+    real: float
+    imag: float
+
+
+class MeasureS21Response(BaseModel):
+    connected: bool
+    start_hz: float | None = None
+    stop_hz: float | None = None
+    points: int | None = None
+    markers: list[S21MarkerResult] = []
+
+
+def _measure_s21() -> MeasureS21Response:
+    import math
+    freqs, s21 = _read_param("S21")
+    start = float(freqs[0]) if len(freqs) else None
+    stop = float(freqs[-1]) if len(freqs) else None
+    pts = int(len(freqs))
+    markers = state.network_analyzer_markers or []
+    results: list[S21MarkerResult] = []
+    for i, mf in enumerate(markers):
+        if pts == 0:
+            continue
+        idx = _snap(freqs, mf)
+        v = complex(s21[idx])
+        mag = abs(v)
+        # A true zero is a dead port rather than infinite loss; the floor keeps
+        # it a number the table can show and sort.
+        mag_db = 20.0 * math.log10(mag) if mag > 0 else -200.0
+        results.append(S21MarkerResult(
+            index=i + 1,
+            requested_hz=float(mf),
+            freq_hz=float(freqs[idx]),
+            mag_db=float(mag_db),
+            phase_deg=float(math.degrees(math.atan2(v.imag, v.real))),
+            real=float(v.real),
+            imag=float(v.imag),
+        ))
+    return MeasureS21Response(
+        connected=True, start_hz=start, stop_hz=stop, points=pts, markers=results,
+    )
+
+
+@router.post("/network-analyzer/measure-s21", response_model=MeasureS21Response)
+async def measure_s21(req: MeasureRequest | None = None) -> MeasureS21Response:
+    with handle_driver_errors("vna measure s21"):
+        if req is not None and req.markers is not None:
+            await bus("network-analyzer").call(_apply_markers, req.markers)
+        # Same bus and the same generous window as the S11 read: the trace
+        # fetch raises the VISA timeout to 30 s, and giving up here would
+        # abandon a reply mid-flight and desync the session.
+        return await bus("network-analyzer").call(_measure_s21)

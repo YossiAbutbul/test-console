@@ -30,6 +30,27 @@ export interface VnaMeasureResponse {
   markers: VnaMarkerResult[]
 }
 
+/** One S21 marker. Transmission, so magnitude and phase rather than the
+ *  impedance an S11 marker carries. Mirrors `S21MarkerResult` in
+ *  backend/api/instruments/network_analyzer.py. */
+export interface VnaS21MarkerResult {
+  index: number
+  requested_hz: number
+  freq_hz: number
+  mag_db: number
+  phase_deg: number
+  real: number
+  imag: number
+}
+
+export interface VnaMeasureS21Response {
+  connected: boolean
+  start_hz: number | null
+  stop_hz: number | null
+  points: number | null
+  markers: VnaS21MarkerResult[]
+}
+
 export const vna = {
   discover: () => http<{ candidates: string[] }>('/instruments/discover/network-analyzer'),
   connect: (address: string) =>
@@ -54,6 +75,11 @@ export const vna = {
     }),
   measure: (markers?: number[]) =>
     http<VnaMeasureResponse>('/instruments/network-analyzer/measure', {
+      method: 'POST',
+      body: JSON.stringify(markers ? { markers } : {}),
+    }),
+  measureS21: (markers?: number[]) =>
+    http<VnaMeasureS21Response>('/instruments/network-analyzer/measure-s21', {
       method: 'POST',
       body: JSON.stringify(markers ? { markers } : {}),
     }),

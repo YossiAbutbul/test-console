@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Autocomplete, Box, Button, IconButton, Stack, Table, TableBody,
-  TableCell, TableHead, TableRow, TextField, Typography,
+  Tab, TableCell, TableHead, TableRow, Tabs, TextField, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
+import { LabeledField } from '../../components/LabeledField'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
-import { vna, type VnaMeasureResponse } from '../../api/networkAnalyzer'
+import {
+  vna, type VnaMeasureResponse, type VnaMeasureS21Response,
+} from '../../api/networkAnalyzer'
 import { useLog } from '../../context/LogContext'
 import { DASH, fmt, fmtHz, fmtMhz } from '../../lib/format'
 import {
@@ -37,6 +40,11 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
   const [startMHz, setStartMHz] = useState<string>('800')
   const [stopMHz, setStopMHz] = useState<string>('1000')
   const [markersMHz, setMarkersMHz] = useState<string[]>(['915'])
+  // Which S-parameter's results are on screen. They are separate reads on the
+  // same markers, so each keeps its own last result -- switching tabs shows
+  // what that parameter last measured rather than blanking it.
+  const [sTab, setSTab] = useState<'s11' | 's21'>('s11')
+  const [lastS21, setLastS21] = useState<VnaMeasureS21Response | null>(null)
   const [lastMeas, setLastMeas] = useState<VnaMeasureResponse | null>(null)
 
   const configQ = useQuery({
@@ -124,9 +132,22 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
     onError: (e: Error) => reporter.failed(e.message),
   })
 
+  const measureS21M = useMutation({
+    mutationFn: () => vna.measureS21(markerHzList),
+    onMutate: () => reporter.started(),
+    onSuccess: (r) => {
+      setLastS21(r)
+      reporter.succeeded(`${r.markers.length} S21 markers read`)
+      refresh()
+    },
+    onError: (e: Error) => reporter.failed(e.message),
+  })
+
+  const shown = sTab === 's11' ? lastMeas : lastS21
+
   const busy =
     connectM.isPending || disconnectM.isPending || setFreqM.isPending ||
-    setMarkersM.isPending || measureM.isPending
+    setMarkersM.isPending || measureM.isPending || measureS21M.isPending
 
   const addMarker = () => {
     if (markersMHz.length >= MAX_MARKERS) return
@@ -159,14 +180,19 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
         label="Network Analyzer"
         actions={
           <Stack direction="row" spacing={1}>
+            {/* Follows the open tab. Reading S11 from a button sitting above
+                an S21 table would be the wrong parameter under the right
+                heading, which is worse than having no button here. */}
             <Button
               variant="contained"
               startIcon={<PlayArrowIcon />}
-              onClick={() => measureM.mutate()}
+              onClick={() => (sTab === 's11' ? measureM.mutate() : measureS21M.mutate())}
               disabled={!connected || busy || markerHzList.length === 0}
               sx={{ minWidth: ACTION_W.wide, height: CONTROL_H.md }}
             >
-              {measureM.isPending ? 'Sweeping…' : 'Sweep + Read'}
+              {busy && (measureM.isPending || measureS21M.isPending)
+                ? 'Sweeping…'
+                : `Sweep + Read ${sTab === 's11' ? 'S11' : 'S21'}`}
             </Button>
             <ConnectButton
               connected={connected}
@@ -248,32 +274,34 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
             hint={pendingFreq ? 'Not applied — the instrument still has the range above.' : undefined}
           >
             <Stack direction="row" spacing={1} alignItems="flex-start">
-              <TextField
-                size="small"
-                label="Start (MHz)"
+              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+              <LabeledField
+                label="Start"
+                hint="MHz"
                 type="number"
                 value={startMHz}
                 onChange={(e) => setStartMHz(e.target.value)}
                 {...freqFocusBind('start')}
                 inputProps={{ step: 1, min: 0 }}
-                sx={{ flexGrow: 1, minWidth: 0 }}
                 disabled={!connected || busy}
                 error={startMHz.trim() !== '' && !freqValid}
                 InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(startMHz, freqValid, freqFocus === 'start')} message={startMHz.trim() === '' ? 'Enter a value' : 'Stop must be greater than Start, both > 0'} /> }}
               />
-              <TextField
-                size="small"
-                label="Stop (MHz)"
+              </Box>
+              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+              <LabeledField
+                label="Stop"
+                hint="MHz"
                 type="number"
                 value={stopMHz}
                 onChange={(e) => setStopMHz(e.target.value)}
                 {...freqFocusBind('stop')}
                 inputProps={{ step: 1, min: 0 }}
-                sx={{ flexGrow: 1, minWidth: 0 }}
                 disabled={!connected || busy}
                 error={stopMHz.trim() !== '' && !freqValid}
                 InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(stopMHz, freqValid, freqFocus === 'stop')} message={stopMHz.trim() === '' ? 'Enter a value' : 'Stop must be greater than Start, both > 0'} /> }}
               />
+              </Box>
               <Button
                 variant={pendingFreq ? 'contained' : 'outlined'}
                 onClick={() => setFreqM.mutate()}
@@ -319,15 +347,14 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
             <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
               {markersMHz.map((v, i) => (
                 <Stack key={i} direction="row" alignItems="center">
-                  <TextField
-                    size="small"
-                    type="number"
+                  <LabeledField
                     label={`M${i + 1}`}
+                    type="number"
                     value={v}
                     onChange={(e) => updateMarker(i, e.target.value)}
-                    onFocus={selectOnFocus}
                     inputProps={{ step: 1, min: 0 }}
-                    sx={{ width: 108, '& input': { fontFamily: MONO } }}
+                    width={108}
+                    sx={{ '& input': { fontFamily: MONO } }}
                     disabled={busy}
                   />
                   <IconButton
@@ -345,26 +372,56 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
         </TwoCol>
 
         <Section
-          title="S11 at markers"
+          title="At markers"
           panel
           action={
-            lastMeas ? (
-              <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
-                {fmtHz(lastMeas.start_hz)} → {fmtHz(lastMeas.stop_hz)} · {lastMeas.points} pts
-              </Typography>
-            ) : null
+            <Stack direction="row" alignItems="center" spacing={1.5}>
+              {/* Both parameters are read at the same markers, so the tabs
+                  switch the view rather than the setup. Each keeps its own
+                  last result: switching should show what that parameter
+                  measured, not blank it. */}
+              <Tabs
+                value={sTab}
+                onChange={(_, v) => setSTab(v)}
+                sx={{
+                  minHeight: 28,
+                  '& .MuiTab-root': { minHeight: 28, py: 0, px: 1.25, fontSize: 12 },
+                }}
+              >
+                <Tab value="s11" label="S11" />
+                <Tab value="s21" label="S21" />
+              </Tabs>
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={!connected || busy || markerHzList.length === 0}
+                onClick={() => (sTab === 's11' ? measureM.mutate() : measureS21M.mutate())}
+                sx={{ height: 26, fontSize: 12 }}
+              >
+                {sTab === 's11' ? 'Read S11' : 'Read S21'}
+              </Button>
+              {shown ? (
+                <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+                  {fmtHz(shown.start_hz)} → {fmtHz(shown.stop_hz)} · {shown.points} pts
+                </Typography>
+              ) : null}
+            </Stack>
           }
         >
-          {!lastMeas ? (
+          {!shown ? (
             <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-              No measurement yet. Set markers, then Sweep + Read.
+              No {sTab === 's11' ? 'S11' : 'S21'} measurement yet. Set markers,
+              then Read {sTab === 's11' ? 'S11' : 'S21'}.
             </Typography>
-          ) : (
+          ) : sTab === 's11' && lastMeas ? (
             <Box sx={{ overflowX: 'auto' }}>
               <Table size="small" sx={{ width: '100%' }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Mk</TableCell>
+                    {/* The frequency as configured. The reading itself comes
+                        from the nearest point the sweep actually visited, which
+                        on a coarse span is not the same frequency. */}
                     <TableCell>Freq (MHz)</TableCell>
                     <TableCell align="right">R (Ω)</TableCell>
                     <TableCell align="right">jX (Ω)</TableCell>
@@ -374,21 +431,54 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {lastMeas.markers.map((m) => (
+                  {lastMeas.markers.map((m) => {
+                    return (
                     <TableRow key={m.index}>
                       <TableCell>M{m.index}</TableCell>
-                      <TableCell sx={{ fontFamily: MONO }}>{fmtMhz(m.freq_hz)}</TableCell>
+                      <TableCell sx={{ fontFamily: MONO }}>{fmtMhz(m.requested_hz)}</TableCell>
                       <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.r_ohm, 2)}</TableCell>
                       <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.x_ohm, 2)}</TableCell>
                       <TableCell align="right" sx={{ fontFamily: MONO, fontWeight: 700 }}>{fmt(m.s11_mag_db, 2)}</TableCell>
                       <TableCell align="right" sx={{ fontFamily: MONO, color: 'text.secondary' }}>{fmt(m.s11_real, 4)}</TableCell>
                       <TableCell align="right" sx={{ fontFamily: MONO, color: 'text.secondary' }}>{fmt(m.s11_imag, 4)}</TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
                 </TableBody>
               </Table>
             </Box>
-          )}
+          ) : lastS21 ? (
+            <Box sx={{ overflowX: 'auto' }}>
+              <Table size="small" sx={{ width: '100%' }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Mk</TableCell>
+                    <TableCell>Freq (MHz)</TableCell>
+                    <TableCell align="right">|S21| (dB)</TableCell>
+                    <TableCell align="right">Phase (°)</TableCell>
+                    <TableCell align="right">S21 real</TableCell>
+                    <TableCell align="right">S21 imag</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {lastS21.markers.map((m) => {
+                    return (
+                      <TableRow key={m.index}>
+                        <TableCell>M{m.index}</TableCell>
+                        <TableCell sx={{ fontFamily: MONO }}>{fmtMhz(m.requested_hz)}</TableCell>
+                        <TableCell align="right" sx={{ fontFamily: MONO, fontWeight: 700 }}>
+                          {fmt(m.mag_db, 2)}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.phase_deg, 1)}</TableCell>
+                        <TableCell align="right" sx={{ fontFamily: MONO, color: 'text.secondary' }}>{fmt(m.real, 4)}</TableCell>
+                        <TableCell align="right" sx={{ fontFamily: MONO, color: 'text.secondary' }}>{fmt(m.imag, 4)}</TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </Box>
+          ) : null}
         </Section>
       </PageBody>
     </Box>
