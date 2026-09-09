@@ -377,14 +377,11 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
               <Stack
                 direction="row"
                 alignItems="center"
-                onClick={() => setExpandedProto((st) => {
-                  const isOpen = st[pkey]
-                  if (isOpen) return { ...st, [pkey]: false }
-                  const next: Record<string, boolean> = {}
-                  for (const k of Object.keys(st)) next[k] = false
-                  next[pkey] = true
-                  return next
-                })}
+                // A plain toggle, not an accordion. Opening one protocol used
+                // to close the others, which undid the branch the operator had
+                // just been working in every time they looked at another one --
+                // and comparing two protocols means having both open.
+                onClick={() => setExpandedProto((st) => ({ ...st, [pkey]: !st[pkey] }))}
                 sx={{
                   mx: 1.5,
                   mb: 0.25,
