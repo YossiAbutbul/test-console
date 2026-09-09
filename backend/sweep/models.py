@@ -42,13 +42,46 @@ class RunState(str, Enum):
     ERROR = "error"
 
 
+class SweepBlock(BaseModel):
+    """One group of combinations: its own span on each of the three axes.
+
+    A sweep was a single cross-product of three ranges, which cannot express
+    "power 1-12 while duty is 2-4, then power 13-22 while duty is 1" -- that
+    had to be two runs with their exports stitched together afterwards. A list
+    of blocks is the same thing in one run, and each block is still a plain
+    cross-product internally.
+
+    Blocks are run in order and are not de-duplicated: two that overlap measure
+    the overlapping points twice, which is the operator's choice to make.
+    """
+
+    power_values: list[int] = Field(default_factory=lambda: list(POWER_RANGE))
+    duty_values: list[int] = Field(default_factory=lambda: list(PA_DC_RANGE))
+    hp_values: list[int] = Field(default_factory=lambda: list(HP_MAX_RANGE))
+
+    @property
+    def steps(self) -> int:
+        return len(self.hp_values) * len(self.duty_values) * len(self.power_values)
+
+
 class SweepConfig(BaseModel):
-    """One sweep's plan. The runner iterates hp × duty × power at `freq_hz`."""
+    """One sweep's plan.
+
+    The runner walks `effective_blocks` in order, and within each block
+    iterates hp × duty × power at `freq_hz`.
+    """
 
     freq_hz: int = Field(..., ge=0, le=0xFFFFFFFF)
     power_values: list[int] = Field(default_factory=lambda: list(POWER_RANGE))
     duty_values: list[int] = Field(default_factory=lambda: list(PA_DC_RANGE))
     hp_values: list[int] = Field(default_factory=lambda: list(HP_MAX_RANGE))
+    blocks: list[SweepBlock] = Field(
+        default_factory=list,
+        description=(
+            "Optional multi-range plan. When empty the three *_values lists are "
+            "run as a single block, which is what every older client sends."
+        ),
+    )
     settle_ms: int = Field(default=DEFAULT_SETTLE_MS, ge=MIN_SETTLE_MS, le=10_000)
     cmd_timeout_s: float = Field(default=5.0, ge=0.1, le=60.0)
     pa_mode: int = Field(default=0, ge=0, le=2, description="0=OFF 1=ON 2=AUTO")
@@ -57,21 +90,38 @@ class SweepConfig(BaseModel):
         description="Added to the raw sensor reading: DUT power = sensor + path_loss_db",
     )
 
+    @property
+    def effective_blocks(self) -> list[SweepBlock]:
+        """The blocks the runner will actually walk.
+
+        An empty `blocks` means the legacy single cross-product, so a client
+        that knows nothing about blocks -- and every existing caller -- keeps
+        working unchanged.
+        """
+        if self.blocks:
+            return self.blocks
+        return [SweepBlock(
+            power_values=self.power_values,
+            duty_values=self.duty_values,
+            hp_values=self.hp_values,
+        )]
+
     def validate_ranges(self) -> None:
         """Reject a plan the DUT would refuse, before any hardware is touched."""
-        for value in self.duty_values:
-            if value not in PA_DC_RANGE:
-                raise ValueError(f"PaDutyCycle out of range: {value}")
-        for value in self.hp_values:
-            if value not in HP_MAX_RANGE:
-                raise ValueError(f"HpMax out of range: {value}")
-        for value in self.power_values:
-            if value not in POWER_RANGE:
-                raise ValueError(f"Power out of range: {value}")
+        for block in self.effective_blocks:
+            for value in block.duty_values:
+                if value not in PA_DC_RANGE:
+                    raise ValueError(f"PaDutyCycle out of range: {value}")
+            for value in block.hp_values:
+                if value not in HP_MAX_RANGE:
+                    raise ValueError(f"HpMax out of range: {value}")
+            for value in block.power_values:
+                if value not in POWER_RANGE:
+                    raise ValueError(f"Power out of range: {value}")
 
     @property
     def total_steps(self) -> int:
-        return len(self.hp_values) * len(self.duty_values) * len(self.power_values)
+        return sum(block.steps for block in self.effective_blocks)
 
 
 class ResultRow(BaseModel):

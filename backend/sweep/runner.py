@@ -214,16 +214,22 @@ class TestRunner:
                 await asyncio.sleep(0.2)
 
             idx = 0
-            for hp in ctx.config.hp_values:
-                for duty in ctx.config.duty_values:
-                    for power in ctx.config.power_values:
-                        if ctx.cancel.is_set():
-                            ctx.state = RunState.CANCELLED
-                            return
-                        ctx.results.append(
-                            await self._measure_step(ctx, device, pm, cm, idx, hp, duty, power, t0)
-                        )
-                        idx += 1
+            # Blocks in the order they were given; a single implicit block when
+            # none were, which is the legacy cross-product. See
+            # `SweepConfig.effective_blocks`.
+            for block in ctx.config.effective_blocks:
+                for hp in block.hp_values:
+                    for duty in block.duty_values:
+                        for power in block.power_values:
+                            if ctx.cancel.is_set():
+                                ctx.state = RunState.CANCELLED
+                                return
+                            ctx.results.append(
+                                await self._measure_step(
+                                    ctx, device, pm, cm, idx, hp, duty, power, t0,
+                                )
+                            )
+                            idx += 1
 
             ctx.state = RunState.DONE
         except Exception as e:

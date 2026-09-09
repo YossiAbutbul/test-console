@@ -98,11 +98,22 @@ export interface CommandResponse {
   reply_payload_hex: string
 }
 
+/** One group of combinations in a multi-range plan. Mirrors `SweepBlock` in
+ *  backend/sweep/models.py. */
+export interface SweepBlock {
+  power_values: number[]
+  duty_values: number[]
+  hp_values: number[]
+}
+
 export interface SweepConfig {
   freq_hz: number
   power_values: number[]
   duty_values: number[]
   hp_values: number[]
+  /** Multi-range plan. Omitted or empty means the three lists above are run as
+   *  a single cross-product, which is what the simple form sends. */
+  blocks?: SweepBlock[]
   settle_ms: number
   cmd_timeout_s: number
   pa_mode?: number

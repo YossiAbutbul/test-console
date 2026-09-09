@@ -8,6 +8,7 @@ import pytest
 from openpyxl import load_workbook
 
 from backend.sweep.export import HEADERS, build_workbook, parse_workbook
+from backend.sweep.models import SweepBlock
 from backend.sweep.models import ResultRow, SweepConfig
 
 
@@ -255,7 +256,7 @@ class TestParseWorkbook:
         with pytest.raises(ValueError, match="not a sweep workbook"):
             parse_workbook(buf.getvalue())
 
-    def test_rejects_a_workbook_whose_columns_moved(self) -> None:
+    def test_rejects_a_workbook_missing_our_columns(self) -> None:
         from openpyxl import Workbook
         wb = Workbook()
         wb.active.title = "All"
@@ -263,5 +264,125 @@ class TestParseWorkbook:
             wb.active.cell(row=1, column=c, value=name)
         buf = BytesIO()
         wb.save(buf)
-        with pytest.raises(ValueError, match="unexpected columns"):
+        with pytest.raises(ValueError, match="missing columns"):
             parse_workbook(buf.getvalue())
+
+    def test_reads_a_file_written_before_the_columns_were_reordered(self) -> None:
+        """The old layout put HP Max and PA DC ahead of Power Set.
+
+        Files exported by earlier versions are still on disk and still get
+        imported, so the parser matches on the header text rather than on
+        position. This is that promise, written down.
+        """
+        from openpyxl import Workbook
+        old_headers = [
+            "#", "HP Max", "PA DC", "Power Set [dBm]", "Measured [dBm]",
+            "Raw [dBm]", "CC [mA]", "V [V]", "Status",
+        ]
+        assert sorted(old_headers) == sorted(HEADERS), "same columns, different order"
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "All"
+        for c, name in enumerate(old_headers, start=1):
+            ws.cell(row=1, column=c, value=name)
+        # idx, hp, duty, set, measured, raw, cc, v, status -- in the old order.
+        for c, value in enumerate(
+            [1, "0x03", "0x02", 14, 13.5, -22.3, 250.0, 3.7, "ok"], start=1,
+        ):
+            ws.cell(row=2, column=c, value=value)
+        buf = BytesIO()
+        wb.save(buf)
+
+        back = parse_workbook(buf.getvalue())
+        assert len(back) == 1
+        r = back[0]
+        # Each value has to land on its own field, not on the one that now
+        # occupies its old column -- power and hp_max are the pair that would
+        # silently swap if position were still used.
+        assert r.hp_max == 3
+        assert r.pa_duty_cycle == 2
+        assert r.power_dbm_setting == 14
+        assert r.tx_power_dbm == 13.5
+        assert r.tx_power_dbm_raw == -22.3
+        assert r.current_a is not None and abs(r.current_a - 0.25) < 1e-9
+        assert r.voltage_v == 3.7
+        assert r.ok is True
+
+
+class TestSweepBlocks:
+    """Multi-range plans: several cross-products in one run."""
+
+    def test_no_blocks_means_the_legacy_single_cross_product(self) -> None:
+        # Every client that predates blocks sends only the three lists, and
+        # must keep behaving exactly as it did.
+        cfg = SweepConfig(
+            freq_hz=902_300_000,
+            power_values=[1, 2, 3], duty_values=[1, 2], hp_values=[1, 2, 3, 4],
+        )
+        assert cfg.blocks == []
+        assert cfg.total_steps == 3 * 2 * 4
+        blocks = cfg.effective_blocks
+        assert len(blocks) == 1
+        assert blocks[0].power_values == [1, 2, 3]
+        assert blocks[0].duty_values == [1, 2]
+        assert blocks[0].hp_values == [1, 2, 3, 4]
+
+    def test_steps_are_the_sum_of_each_block(self) -> None:
+        cfg = SweepConfig(
+            freq_hz=902_300_000,
+            blocks=[
+                SweepBlock(power_values=list(range(1, 13)), duty_values=[2, 3, 4], hp_values=[1]),
+                SweepBlock(power_values=list(range(13, 23)), duty_values=[1], hp_values=[1, 2]),
+            ],
+        )
+        assert cfg.total_steps == 12 * 3 * 1 + 10 * 1 * 2
+
+    def test_blocks_win_over_the_flat_lists(self) -> None:
+        # Both present is a client that sent blocks without clearing the
+        # legacy fields; the explicit plan is the one that was meant.
+        cfg = SweepConfig(
+            freq_hz=902_300_000,
+            power_values=list(range(1, 23)),
+            blocks=[SweepBlock(power_values=[5], duty_values=[1], hp_values=[1])],
+        )
+        assert cfg.total_steps == 1
+
+    def test_every_block_is_range_checked(self) -> None:
+        # A bad value in the second block must not slip through because the
+        # first one was fine.
+        cfg = SweepConfig(
+            freq_hz=902_300_000,
+            blocks=[
+                SweepBlock(power_values=[1], duty_values=[1], hp_values=[1]),
+                SweepBlock(power_values=[23], duty_values=[1], hp_values=[1]),
+            ],
+        )
+        with pytest.raises(ValueError, match="Power out of range"):
+            cfg.validate_ranges()
+
+    def test_the_run_sheet_lists_each_block(self) -> None:
+        from openpyxl import load_workbook
+        cfg = SweepConfig(
+            freq_hz=902_300_000,
+            blocks=[
+                SweepBlock(power_values=[1, 2], duty_values=[2], hp_values=[1]),
+                SweepBlock(power_values=[5], duty_values=[1], hp_values=[1, 2]),
+            ],
+        )
+        wb = load_workbook(BytesIO(build_workbook([make_row(0, measured=14.0)], cfg)))
+        run = {r[0]: r[1] for r in wb["Run"].iter_rows(min_row=2, values_only=True) if r[0]}
+        assert "Block 1" in run and "Block 2" in run
+        assert str(run["Block 1"]).startswith("Power 1, 2")
+        assert "PA DC 2" in str(run["Block 1"])
+        assert run["Steps planned"] == 2 * 1 * 1 + 1 * 1 * 2
+        # The flat per-axis lines would be a lie here -- there is no single
+        # span that describes both blocks.
+        assert "Power Set values" not in run
+
+    def test_a_single_block_keeps_the_flat_run_sheet(self) -> None:
+        from openpyxl import load_workbook
+        cfg = SweepConfig(freq_hz=902_300_000, power_values=[1, 2], duty_values=[1], hp_values=[1])
+        wb = load_workbook(BytesIO(build_workbook([make_row(0, measured=14.0)], cfg)))
+        run = {r[0]: r[1] for r in wb["Run"].iter_rows(min_row=2, values_only=True) if r[0]}
+        assert "Power Set values" in run
+        assert "Block 1" not in run

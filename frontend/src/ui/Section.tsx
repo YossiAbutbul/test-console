@@ -25,6 +25,15 @@ interface SectionProps {
    */
   panel?: boolean
   /**
+   * Drop the panel's bottom padding.
+   *
+   * For a `grow` panel whose child is its own scroll area: the padding leaves
+   * a strip of dead space under scrolling content, which reads as the list
+   * having stopped short rather than as breathing room. Only sensible with
+   * `panel`, and only when the child actually reaches the edge.
+   */
+  flush?: boolean
+  /**
    * Let the whole heading row toggle the body. For detail that is worth
    * keeping on the page but not worth the room it takes when you are not
    * reading it — a raw frame dump, a long parameter list.
@@ -42,7 +51,8 @@ interface SectionProps {
  * eye reads them as one hierarchy level regardless of the frame.
  */
 export function Section({
-  title, step, action, hint, children, grow, panel, collapsible, defaultOpen = true,
+  title, step, action, hint, children, grow, panel, collapsible, flush,
+  defaultOpen = true,
 }: SectionProps) {
   const [open, setOpen] = useState(defaultOpen)
   const growSx = { display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }
@@ -148,7 +158,9 @@ export function Section({
   return (
     <Box
       sx={{
-        ...(panel ? { ...PANEL_SX, p: `${CARD_PAD}px` } : null),
+        ...(panel
+          ? { ...PANEL_SX, p: `${CARD_PAD}px`, ...(flush ? { pb: 0 } : null) }
+          : null),
         ...(grow ? growSx : null),
       }}
     >

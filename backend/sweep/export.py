@@ -30,8 +30,15 @@ from .models import ResultRow, SweepConfig
 # "Power Set" vs "Measured": the old pair was "Power" and "Power [dBm]", which
 # read as though the *second* one was the commanded value. Both carry their unit
 # now, and the app's table uses the same two names.
+# Column order follows the sweep's own configuration -- Power, PA DC, HP Max --
+# so a row reads in the order the run was set up. It used to be the reverse of
+# that, which is the runner's nesting order (hp outermost) rather than anything
+# the operator sees.
+#
+# Order is not part of the file format: `parse_workbook` matches on the header
+# text, so a workbook written before this change still imports.
 HEADERS = [
-    "#", "HP Max", "PA DC", "Power Set [dBm]", "Measured [dBm]", "Raw [dBm]",
+    "#", "Power Set [dBm]", "PA DC", "HP Max", "Measured [dBm]", "Raw [dBm]",
     "CC [mA]", "V [V]", "Status",
 ]
 HEADER_FONT = Font(bold=True)
@@ -79,9 +86,9 @@ def _row_values(r: ResultRow) -> list[Any]:
     backend/tests/test_sweep.py."""
     return [
         r.idx + 1,
-        _hex_byte(r.hp_max),
-        _hex_byte(r.pa_duty_cycle),
         r.power_dbm_setting,
+        _hex_byte(r.pa_duty_cycle),
+        _hex_byte(r.hp_max),
         r.tx_power_dbm,
         # The uncorrected reading. `ResultRow` keeps it so a wrong path loss can
         # be undone after the fact, but that was useless while it stayed out of
@@ -158,10 +165,16 @@ def parse_workbook(data: bytes) -> list[ResultRow]:
         )
     ws = wb["All"]
 
-    header = [c.value for c in ws[1]][: len(HEADERS)]
-    if header != HEADERS:
+    # Located by name, not by position. The column order changed once already
+    # -- to follow the configuration rather than the runner's loop nesting --
+    # and a file written before that must still import. Matching on the header
+    # text makes the order a presentation choice instead of a format promise.
+    header = [c.value for c in ws[1]]
+    at = {str(name): i for i, name in enumerate(header) if name is not None}
+    missing = [h for h in HEADERS if h not in at]
+    if missing:
         raise ValueError(
-            f"unexpected columns: expected {HEADERS}, found {header}. "
+            f"missing columns: {missing}. Found {[h for h in header if h]}. "
             "The file was exported by a different version of this app."
         )
 
@@ -172,7 +185,15 @@ def parse_workbook(data: bytes) -> list[ResultRow]:
                 freq_hz = int(round(float(value) * 1e6))
                 break
 
-    idx_c, hp_c, duty_c, set_c, meas_c, raw_c, cc_c, volt_c, status_c = range(9)
+    idx_c = at["#"]
+    set_c = at["Power Set [dBm]"]
+    duty_c = at["PA DC"]
+    hp_c = at["HP Max"]
+    meas_c = at["Measured [dBm]"]
+    raw_c = at["Raw [dBm]"]
+    cc_c = at["CC [mA]"]
+    volt_c = at["V [V]"]
+    status_c = at["Status"]
     rows: list[ResultRow] = []
     for n, values in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         if values[idx_c] is None:
@@ -237,9 +258,28 @@ def _write_run_sheet(
         ("Settle [ms]", cfg.settle_ms),
         ("PA mode", f"{_PA_MODE_NAMES.get(cfg.pa_mode, '?')} ({cfg.pa_mode})"),
         ("Command timeout [s]", cfg.cmd_timeout_s),
-        ("HP Max values", _describe_values(cfg.hp_values)),
-        ("PA DC values", _describe_values(cfg.duty_values)),
-        ("Power Set values", _describe_values(cfg.power_values)),
+    ]
+    # A multi-block plan cannot be described by three lines of values -- the
+    # whole point of it is that the axes do not apply uniformly -- so each
+    # block gets its own row. A single-block plan keeps the flat form it has
+    # always had rather than growing a "Block 1" label for no reason.
+    blocks = cfg.effective_blocks
+    if len(blocks) == 1:
+        entries += [
+            ("Power Set values", _describe_values(blocks[0].power_values)),
+            ("PA DC values", _describe_values(blocks[0].duty_values)),
+            ("HP Max values", _describe_values(blocks[0].hp_values)),
+        ]
+    else:
+        for n, b in enumerate(blocks, start=1):
+            entries.append((
+                f"Block {n}",
+                f"Power {_describe_values(b.power_values)}"
+                f" · PA DC {_describe_values(b.duty_values)}"
+                f" · HP Max {_describe_values(b.hp_values)}"
+                f" · {b.steps} steps",
+            ))
+    entries += [
         ("Steps planned", cfg.total_steps),
         ("Rows recorded", row_count),
         ("Started", _stamp(started_at)),

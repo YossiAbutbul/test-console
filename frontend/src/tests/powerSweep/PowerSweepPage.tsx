@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
-import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
+import {
+  Box, Button, FormControlLabel, MenuItem, Stack, Switch, Tooltip, Typography,
+} from '@mui/material'
+import AddIcon from '@mui/icons-material/Add'
 import DownloadIcon from '@mui/icons-material/Download'
 import ShowChartIcon from '@mui/icons-material/ShowChart'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
@@ -14,10 +17,11 @@ import { MeasurementCard } from '../../components/MeasurementCard'
 import { useInstruments, type InstrumentId } from '../../context/InstrumentsContext'
 import { usePathLoss } from '../../context/PathLossContext'
 import { useNotify } from '../../context/NotifyContext'
-import { downloadBlob } from '../../lib/download'
+import { saveBlob } from '../../lib/download'
 import { range } from '../../lib/numericList'
 import {
-  FieldGrid, GRID_GAP, PageBody, PathLossChip, RunControls, Section, TwoCol,
+  FieldGrid, GRID_GAP, MONO, PageBody, PathLossChip, RunControls, Section,
+  TEXT, TwoCol,
 } from '../../ui'
 import type { ResultRow, StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
@@ -28,6 +32,11 @@ import { useBackendRun } from '../engine/useBackendRun'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'
 import { RangeRow } from './RangeRow'
+import { RangeEditorModal } from './RangeEditorModal'
+import {
+  blockSteps, newBlock, spanLabel, toWire, totalSteps as blocksTotalSteps,
+  type BlockDraft,
+} from './blocks'
 
 const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
 
@@ -46,6 +55,15 @@ const RANGES = {
   duty: { min: 1, max: 4 },
   hp: { min: 1, max: 7 },
 }
+
+/** The range list shows this many rows before it scrolls.
+ *
+ *  Row height is fixed rather than left to the content so the cap is exact:
+ *  derived from padding it would clip the third row by a pixel or two, which
+ *  looks like a bug rather than a limit. */
+const RANGE_ROW_H = 52
+const RANGE_ROW_GAP = 8
+const RANGE_ROWS_VISIBLE = 3
 
 const PA_MODES = [
   { value: 0, label: 'Off' },
@@ -69,6 +87,22 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   const [dutyHi, setDutyHi] = useState(RANGES.duty.max)
   const [hpLo, setHpLo] = useState(RANGES.hp.min)
   const [hpHi, setHpHi] = useState(RANGES.hp.max)
+  // Empty means the simple form above is in force. Non-empty supersedes it
+  // entirely -- the two are alternatives, not layers, and showing both as
+  // editable would leave it ambiguous which one the run used.
+  const [advBlocks, setAdvBlocks] = useState<BlockDraft[]>([])
+  // Which row the editor is on: a BlockDraft to edit it, null to add one,
+  // undefined for closed. Three states rather than a boolean plus an index,
+  // so "adding" cannot be confused with "editing row 0".
+  const [editing, setEditing] = useState<BlockDraft | null | undefined>(undefined)
+  const advanced = advBlocks.length > 0
+
+  const editIndex = editing ? advBlocks.findIndex((b) => b.id === editing.id) : -1
+
+  /** Seeded from the simple form so switching modes keeps the current plan. */
+  const enableAdvanced = () => setAdvBlocks([{
+    ...newBlock(RANGES), powerLo, powerHi, dutyLo, dutyHi, hpLo, hpHi,
+  }])
   const [settle, setSettle] = useState(DEFAULT_SETTLE_MS)
   const [paMode, setPaMode] = useState(0)
   const [graphOpen, setGraphOpen] = useState(false)
@@ -93,10 +127,11 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   const loss = lossAt(Number(freqMhz))
   const pathLossDb = loss.db
 
-  const totalSteps =
-    Math.max(0, Math.abs(powerHi - powerLo) + 1) *
-    Math.max(0, Math.abs(dutyHi - dutyLo) + 1) *
-    Math.max(0, Math.abs(hpHi - hpLo) + 1)
+  const totalSteps = advanced
+    ? blocksTotalSteps(advBlocks)
+    : Math.max(0, Math.abs(powerHi - powerLo) + 1) *
+      Math.max(0, Math.abs(dutyHi - dutyLo) + 1) *
+      Math.max(0, Math.abs(hpHi - hpLo) + 1)
 
   useBackendRun({
     state: statusQ.data?.state,
@@ -117,9 +152,13 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
       const req: StartRequest = {
         config: {
           freq_hz: Math.round(Number(freqMhz) * 1_000_000),
+          // The flat lists still travel: a backend that predates blocks
+          // reads them, and one that knows about blocks ignores them when
+          // `blocks` is non-empty. See SweepConfig.effective_blocks.
           power_values: range(powerLo, powerHi),
           duty_values: range(dutyLo, dutyHi),
           hp_values: range(hpLo, hpHi),
+          ...(advanced ? { blocks: advBlocks.map(toWire) } : {}),
           // Clamped again here: the field may still hold a typed-but-unblurred
           // value, and the backend rejects anything under the floor outright.
           settle_ms: clampSettleMs(settle),
@@ -172,9 +211,12 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
 
   const exportXlsx = useMutation({
     mutationFn: tests.exportXlsx,
-    onSuccess: ({ blob, filename }) => {
-      downloadBlob(blob, filename)
-      reporter.note(`Exported ${filename}`)
+    onSuccess: async ({ blob, filename }) => {
+      // Reported only once it is actually written: the operator can dismiss
+      // the save dialog, and "Exported" for a file that was never saved sends
+      // them looking for it.
+      const outcome = await saveBlob(blob, filename)
+      if (outcome === 'saved') reporter.note(`Exported ${filename}`)
     },
     onError: (e: Error) => reporter.note(`Export failed: ${e.message}`, 'error'),
   })
@@ -273,25 +315,159 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
             // fields that decide it and easy to miss before starting a run of
             // several hundred steps.
             action={
-              <Typography
-                sx={{
-                  fontSize: 11.5,
-                  fontWeight: 600,
-                  color: totalSteps === 0 ? 'error.main' : 'text.disabled',
-                }}
-              >
-                {totalSteps} step{totalSteps === 1 ? '' : 's'}
-              </Typography>
+              <Stack direction="row" alignItems="center" spacing={0.75}>
+                <Typography
+                  sx={{
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    color: totalSteps === 0 ? 'error.main' : 'text.disabled',
+                  }}
+                >
+                  {totalSteps} step{totalSteps === 1 ? '' : 's'}
+                </Typography>
+                {/* A toggle rather than an icon: the two modes are exclusive
+                    and the control has to show which one is on, which an icon
+                    button does not. */}
+                <Tooltip title={
+                  advanced
+                    ? 'Back to one range for the whole sweep'
+                    : 'Sweep several ranges, one after another'
+                }>
+                  <FormControlLabel
+                    sx={{ mr: 0, ml: 0.5 }}
+                    disabled={running}
+                    control={
+                      <Switch
+                        size="small"
+                        checked={advanced}
+                        onChange={(e) => (e.target.checked ? enableAdvanced() : setAdvBlocks([]))}
+                        inputProps={{ 'aria-label': 'Advanced ranges' }}
+                      />
+                    }
+                    label={
+                      <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: 'text.secondary' }}>
+                        Advanced
+                      </Typography>
+                    }
+                  />
+                </Tooltip>
+              </Stack>
             }
           >
-            <Stack spacing={`${GRID_GAP}px`}>
-              <RangeRow label="Power" lo={powerLo} hi={powerHi} setLo={setPowerLo} setHi={setPowerHi}
-                min={RANGES.power.min} max={RANGES.power.max} unit="dBm" disabled={running} />
-              <RangeRow label="PA Duty Cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
-                min={RANGES.duty.min} max={RANGES.duty.max} disabled={running} />
-              <RangeRow label="HP Max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
-                min={RANGES.hp.min} max={RANGES.hp.max} disabled={running} />
-            </Stack>
+            {advanced ? (
+              // The sliders are not shown at all rather than disabled: they
+              // describe one range, and leaving them on screen under a
+              // multi-range plan invites reading them as the plan.
+              <Stack spacing={1}>
+                {/* Capped and scrolled. The list shares a stretched row with
+                    the settings panel and sits above the results, so an
+                    unbounded one pushed the results table down to nothing --
+                    the taller the plan, the less of the run you could see. */}
+                <Box
+                  sx={{
+                    display: 'flex', flexDirection: 'column',
+                    gap: `${RANGE_ROW_GAP}px`,
+                    maxHeight:
+                      RANGE_ROWS_VISIBLE * RANGE_ROW_H
+                      + (RANGE_ROWS_VISIBLE - 1) * RANGE_ROW_GAP,
+                    overflowY: 'auto',
+                    // Room for the scrollbar so it does not sit on the cards.
+                    pr: advBlocks.length > 3 ? 0.75 : 0,
+                  }}
+                >
+                {advBlocks.map((b, i) => (
+                  <Box
+                    key={b.id}
+                    onClick={() => !running && setEditing(b)}
+                    role="button"
+                    title={running ? undefined : `Edit range ${i + 1}`}
+                    sx={{
+                      display: 'flex', alignItems: 'center', gap: 1.5,
+                      height: RANGE_ROW_H,
+                      flexShrink: 0,
+                      // More room on the right than the left: the step count
+                      // is right-aligned, so it ends flush against the border
+                      // at equal padding while the badge on the left does not.
+                      pl: 1.25, pr: 2.25,
+                      border: 1, borderColor: 'divider', borderRadius: 1,
+                      cursor: running ? 'default' : 'pointer',
+                      transition: 'border-color 0.12s, background-color 0.12s',
+                      '&:hover': running ? undefined : {
+                        borderColor: 'text.disabled',
+                        bgcolor: 'action.hover',
+                      },
+                    }}
+                  >
+                    <Box sx={{
+                      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      bgcolor: 'action.selected',
+                    }}>
+                      <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary' }}>
+                        {i + 1}
+                      </Typography>
+                    </Box>
+
+                    {/* Each axis labelled rather than run together in one
+                        string: three spans separated by dots read as one
+                        number until you have parsed the whole line. */}
+                    <Box sx={{
+                      display: 'grid', gap: 1.5, flexGrow: 1, minWidth: 0,
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))',
+                    }}>
+                      {([
+                        ['Power', spanLabel(b.powerLo, b.powerHi), 'dBm'],
+                        ['PA DC', spanLabel(b.dutyLo, b.dutyHi), ''],
+                        ['HP Max', spanLabel(b.hpLo, b.hpHi), ''],
+                      ] as const).map(([label, value, unit]) => (
+                        <Box key={label} sx={{ minWidth: 0 }}>
+                          <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
+                            {label}
+                          </Typography>
+                          <Typography sx={{ fontSize: 13.5, fontFamily: MONO, fontWeight: 600 }}>
+                            {value}
+                            {unit && (
+                              <Box component="span" sx={{ ...TEXT.micro, color: 'text.disabled', ml: 0.5 }}>
+                                {unit}
+                              </Box>
+                            )}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+
+                    <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
+                      <Typography sx={{ fontSize: 13.5, fontFamily: MONO, fontWeight: 600 }}>
+                        {blockSteps(b)}
+                      </Typography>
+                      <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>steps</Typography>
+                    </Box>
+                  </Box>
+                ))}
+                </Box>
+                {/* Rows edit themselves; this is the only other action. Kept
+                    outside the scroll area so it stays reachable. */}
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+                  onClick={() => setEditing(null)}
+                  disabled={running}
+                  sx={{ alignSelf: 'flex-start', mt: 0.5 }}
+                >
+                  Add range
+                </Button>
+              </Stack>
+            ) : (
+              <Stack spacing={`${GRID_GAP}px`}>
+                <RangeRow label="Power" lo={powerLo} hi={powerHi} setLo={setPowerLo} setHi={setPowerHi}
+                  min={RANGES.power.min} max={RANGES.power.max} unit="dBm" disabled={running} />
+                <RangeRow label="PA Duty Cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
+                  min={RANGES.duty.min} max={RANGES.duty.max} disabled={running} />
+                <RangeRow label="HP Max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
+                  min={RANGES.hp.min} max={RANGES.hp.max} disabled={running} />
+              </Stack>
+            )}
           </Section>
 
           <Section title="Common settings" panel>
@@ -359,6 +535,8 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
           title="Results"
           panel
           grow
+          // The table is its own scroller, so it should meet the panel edge.
+          flush
           action={
             <Stack direction="row" alignItems="center" spacing={0.75}>
               <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
@@ -414,6 +592,10 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
           }
         >
 
+          {/* No minimum height here. A floor taller than the space the flex
+              column actually has pushes the rows out past the panel instead of
+              scrolling them -- the table has its own scroller, and what starved
+              it was the range list above, which is now capped. */}
           <SweepResultsTable rows={rows} />
           <input
             ref={fileInput}
@@ -435,6 +617,23 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
         open={graphOpen}
         onClose={() => setGraphOpen(false)}
         rows={rows}
+      />
+
+      <RangeEditorModal
+        editing={editing}
+        bounds={RANGES}
+        position={editIndex >= 0 ? editIndex + 1 : undefined}
+        onClose={() => setEditing(undefined)}
+        onSave={(row) => setAdvBlocks((rows) => (
+          editIndex >= 0
+            ? rows.map((r, i) => (i === editIndex ? row : r))
+            : [...rows, row]
+        ))}
+        // Withheld on the last row: turning advanced off is what "no ranges"
+        // means, and the toggle already does that.
+        onDelete={editIndex >= 0 && advBlocks.length > 1
+          ? () => setAdvBlocks((rows) => rows.filter((_, i) => i !== editIndex))
+          : undefined}
       />
 
       {preflight.dialog}

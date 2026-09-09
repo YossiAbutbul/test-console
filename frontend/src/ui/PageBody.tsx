@@ -41,7 +41,14 @@ export function PageBody({ children, width = 'panel', scroll, grow }: PageBodyPr
         // `minHeight: 0` is the load-bearing half: without it the flex item
         // refuses to shrink below its content and the inner scroll never
         // engages, pushing the table off the bottom of the page instead.
-        ...(grow && !scroll ? { flexGrow: 1, minHeight: 0, pb: 2 } : null),
+        //
+        // No bottom padding, unlike `scroll`. `main` already carries a 24px
+        // gutter, so a second one here only shortened the panel that was
+        // supposed to be taking the leftover height -- 16px of empty card
+        // under a results table that wanted the room. A scrolling body needs
+        // the gap so its last row does not butt against the edge; a growing
+        // one ends in a bordered panel that provides its own.
+        ...(grow && !scroll ? { flexGrow: 1, minHeight: 0 } : null),
       }}
     >
       {children}
