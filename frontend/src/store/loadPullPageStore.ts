@@ -28,6 +28,16 @@ export interface LoadPullResultRow {
    */
   att_db?: number
   power_dbm: number | null
+  /**
+   * The uncorrected sensor reading.
+   *
+   * Kept alongside the corrected figure because the correction moves the
+   * number by tens of dB without moving where the sensor actually sat, and it
+   * is that position in the meter's range which decides how far to trust the
+   * point — see `powerConfidence`. Absent on rows recorded or imported before
+   * it existed, where the colouring falls back to undoing the path loss.
+   */
+  power_dbm_raw?: number | null
   current_a: number | null
   r_ohm: number | null
   x_ohm: number | null

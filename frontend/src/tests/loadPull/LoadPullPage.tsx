@@ -32,8 +32,9 @@ import { useNotify } from '../../context/NotifyContext'
 import { sleep } from '../../lib/async'
 import { parseRangeSpec } from '../../lib/numericList'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
-import { downloadBlob } from '../../lib/download'
+import { saveBlob } from '../../lib/download'
 import { DASH, fmt } from '../../lib/format'
+import { vswrLabel } from './smith'
 import {
   ACTION_W, CONTROL_H, EmergencyStop, FieldGrid, MONO, PageBody, PathLossChip,
   RunControls, Section, StatRow, StatTile, StatusChip, TEXT, TwoCol,
@@ -54,6 +55,7 @@ import { loadPullApi } from '../../api/loadPull'
 import { useAttPrompt } from './AttPrompt'
 import { parseLoadPullCsv } from './importCsv'
 import { SetupDiagramModal } from './SetupDiagramModal'
+import { confidenceColor, powerConfidence } from './powerConfidence'
 
 const PULSES_PER_MM = 400
 
@@ -576,6 +578,10 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         // 5. measure power + CC; correct with the loss for *this* frequency
         const meas = await instrumentsApi.measure(freqHz, { signal })
         const pl = lossAt(item.freqMhz)
+        // Both: the corrected figure is what the run is measuring, the raw one
+        // is what says whether the sensor was anywhere near the edge of its
+        // range when it measured it.
+        row.power_dbm_raw = meas.power_dbm
         row.power_dbm = meas.power_dbm == null ? null : meas.power_dbm + pl.db
         row.current_a = meas.current_a
         if (meas.error) row.error = (row.error ? row.error + '; ' : '') + meas.error
@@ -716,9 +722,10 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       }),
       dut_mac: bleStatus?.address ?? null,
     }),
-    onSuccess: ({ blob, filename }) => {
-      downloadBlob(blob, filename)
-      log('LoadPull', `Exported ${filename}`)
+    onSuccess: async ({ blob, filename }) => {
+      // Logged only once it is written -- see the note on the sweep export.
+      const outcome = await saveBlob(blob, filename)
+      if (outcome === 'saved') log('LoadPull', `Exported ${filename}`)
     },
     onError: (e: Error) => {
       log('LoadPull', `Excel export failed: ${e.message}`, 'error')
@@ -1295,16 +1302,17 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     two with no width ran off the right-hand edge. */}
                 <colgroup>
                   <col style={{ width: '5%' }} />
-                  <col style={{ width: '9%' }} />
+                  <col style={{ width: '8%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '7%' }} />
+                  <col style={{ width: '7%' }} />
                   <col style={{ width: '10%' }} />
                   <col style={{ width: '8%' }} />
                   <col style={{ width: '8%' }} />
-                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '8%' }} />
                   <col style={{ width: '9%' }} />
                   <col style={{ width: '9%' }} />
-                  <col style={{ width: '9%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: '13%' }} />
+                  <col style={{ width: '11%' }} />
                 </colgroup>
                 <TableHead>
                   <TableRow sx={{ '& th': { whiteSpace: 'nowrap', fontSize: 12 } }}>
@@ -1320,29 +1328,51 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     <TableCell>R (Ω)</TableCell>
                     <TableCell>J (Ω)</TableCell>
                     <TableCell>S11 (dB)</TableCell>
+                    <TableCell>VSWR</TableCell>
                     <TableCell>Status</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {results.map((r, i) => (
+                  {results.map((r, i) => {
+                    // Judged on the raw reading. Older rows have none, so the
+                    // correction is undone with the loss for that row's own
+                    // frequency -- exact for anything this app measured, and
+                    // the best available for a file imported from elsewhere.
+                    const raw = r.power_dbm_raw
+                      ?? (r.power_dbm == null ? null : r.power_dbm - lossAt(r.freq_mhz).db)
+                    const confidence = powerConfidence(raw)
+                    return (
                     <TableRow key={i}>
                       <TableCell>{i + 1}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.pos_mm, 2)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.freq_mhz ?? null, 2)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.power_dbm_setting ?? null, 0)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.att_db ?? null, 0)}</TableCell>
-                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.power_dbm, 2)}</TableCell>
+                      <TableCell
+                        sx={{
+                          fontFamily: MONO,
+                          color: confidenceColor(confidence),
+                          fontWeight: confidence === 'ok' ? undefined : 600,
+                        }}
+                      >
+                        {fmt(r.power_dbm, 2)}
+                      </TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.current_a == null ? null : r.current_a * 1000, 1)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.r_ohm, 2)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.x_ohm, 2)}</TableCell>
                       <TableCell sx={{ fontFamily: MONO }}>{fmt(r.s11_db, 2)}</TableCell>
+                      {/* Derived from the point's own S11, not stored on it, so
+                          an imported file shows one whether or not it was
+                          exported with the column. */}
+                      <TableCell sx={{ fontFamily: MONO }}>{vswrLabel(r)}</TableCell>
                       <TableCell sx={{ fontSize: 11 }}>
                         {r.error
                           ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
                           : <Box component="span" sx={{ color: 'success.main' }}>ok</Box>}
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
                 </TableBody>
               </Table>
             </Box>
