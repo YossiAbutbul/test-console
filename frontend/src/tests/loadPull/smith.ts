@@ -44,3 +44,46 @@ export function rampColor(t: number): string {
   if (i >= RAMP.length - 1) return RAMP[RAMP.length - 1]
   return hexLerp(RAMP[i], RAMP[i + 1], x - i)
 }
+
+/**
+ * |Γ| for a row, from whichever measurement it carries.
+ *
+ * The VNA marker reports |S11| in dB and the impedance behind it, both derived
+ * from the same complex Γ, so either yields the same magnitude. The dB figure
+ * is preferred because it is what the instrument reports directly; R and X are
+ * a conversion further away from it.
+ */
+export function gammaMag(row: LoadPullResultRow): number | null {
+  if (row.s11_db != null && Number.isFinite(row.s11_db)) {
+    return Math.pow(10, row.s11_db / 20)
+  }
+  if (row.r_ohm == null || row.x_ohm == null) return null
+  const { gr, gi } = reflection(row.r_ohm, row.x_ohm)
+  const m = Math.hypot(gr, gi)
+  return Number.isFinite(m) ? m : null
+}
+
+/**
+ * VSWR = (1 + |Γ|) / (1 - |Γ|).
+ *
+ * Computed from the row rather than stored on it, which is what lets a file
+ * exported before this column existed still show one — everything the ratio
+ * needs was already being recorded per point.
+ *
+ * |Γ| ≥ 1 is a total reflection, or in practice a stale calibration reporting
+ * marginally more coming back than went out. The ratio is unbounded there, so
+ * it comes back as `Infinity`; the arithmetic left alone would turn the sign
+ * over and hand back a small, entirely plausible-looking number.
+ */
+export function vswr(row: LoadPullResultRow): number | null {
+  const g = gammaMag(row)
+  if (g == null) return null
+  return g >= 1 ? Infinity : (1 + g) / (1 - g)
+}
+
+/** VSWR as text: `—` when unmeasured, `∞` at or past total reflection. */
+export function vswrLabel(row: LoadPullResultRow): string {
+  const v = vswr(row)
+  if (v == null) return '—'
+  return Number.isFinite(v) ? v.toFixed(2) : '∞'
+}

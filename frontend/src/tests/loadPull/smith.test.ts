@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { reflection, dbmToW, efficiency, rampColor, RAMP } from './smith'
+import { reflection, dbmToW, efficiency, rampColor, RAMP, gammaMag, vswr, vswrLabel } from './smith'
 import type { LoadPullResultRow } from '../../store/loadPullPageStore'
 
 const row = (p: Partial<LoadPullResultRow>): LoadPullResultRow => ({
@@ -54,5 +54,49 @@ describe('rampColor', () => {
   })
   it('returns a hex colour', () => {
     expect(rampColor(0.5)).toMatch(/^#[0-9a-f]{6}$/)
+  })
+})
+
+describe('gammaMag', () => {
+  it('reads |S11| in dB when the marker reported one', () => {
+    expect(gammaMag(row({ s11_db: 0 }))).toBeCloseTo(1, 9)
+    expect(gammaMag(row({ s11_db: -20 }))).toBeCloseTo(0.1, 9)
+  })
+  it('falls back to the impedance when S11 is missing', () => {
+    // Short: |Γ| = 1 whichever way it is worked out.
+    expect(gammaMag(row({ r_ohm: 0, x_ohm: 0 }))).toBeCloseTo(1, 6)
+  })
+  it('null with nothing to work from', () => {
+    expect(gammaMag(row({}))).toBeNull()
+    expect(gammaMag(row({ r_ohm: 50 }))).toBeNull()
+  })
+})
+
+describe('vswr', () => {
+  it('matched load (|Γ|=0) is 1:1', () => {
+    expect(vswr(row({ r_ohm: 50, x_ohm: 0 }))).toBeCloseTo(1, 6)
+  })
+  it('-20 dB return loss → |Γ|=0.1 → 1.222', () => {
+    expect(vswr(row({ s11_db: -20 }))).toBeCloseTo(1.2222, 4)
+  })
+  it('-9.54 dB → |Γ|≈1/3 → 2:1', () => {
+    expect(vswr(row({ s11_db: -9.542 }))).toBeCloseTo(2, 3)
+  })
+  it('total reflection is unbounded, not a small positive number', () => {
+    expect(vswr(row({ s11_db: 0 }))).toBe(Infinity)
+    // Slightly over 0 dB happens on a stale calibration; the plain formula
+    // would flip the sign and return something that looks like a good match.
+    expect(vswr(row({ s11_db: 0.5 }))).toBe(Infinity)
+  })
+  it('null when the point was never measured', () => {
+    expect(vswr(row({}))).toBeNull()
+  })
+})
+
+describe('vswrLabel', () => {
+  it('two decimals, dash when unmeasured, ∞ at total reflection', () => {
+    expect(vswrLabel(row({ s11_db: -20 }))).toBe('1.22')
+    expect(vswrLabel(row({}))).toBe('—')
+    expect(vswrLabel(row({ s11_db: 0 }))).toBe('∞')
   })
 })

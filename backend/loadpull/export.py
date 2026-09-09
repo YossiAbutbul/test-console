@@ -25,8 +25,17 @@ from .models import LoadPullMeta, LoadPullRow
 #: which are constant within each of their tables.
 HEADERS = [
     "#", "Pos [mm]", "Pos [pulses]", "Freq [MHz]", "Set [dBm]", "Att [dB]",
-    "Power [dBm]", "CC [mA]", "R [Ω]", "J [Ω]", "S11 [dB]", "Status",
+    "Power [dBm]", "Raw [dBm]", "CC [mA]", "R [Ω]", "J [Ω]", "S11 [dB]",
+    "VSWR", "Status",
 ]
+#: Columns added after files were already in circulation. Matching by name
+#: makes a missing one survivable, and an older workbook is still a complete
+#: record of the run it holds, so their absence is not an error.
+OPTIONAL_HEADERS = {"Raw [dBm]", "VSWR"}
+#: Of those, the ones worked out from the columns beside them rather than
+#: measured. Written but never read back, so a reader who edited the cell does
+#: not get to contradict the measurement it came from.
+DERIVED_HEADERS = {"VSWR"}
 #: The per-frequency tables keep Att: unlike frequency and power it varies
 #: *inside* one table, and it is what those rows are sorted by.
 TABLE_HEADERS = [h for h in HEADERS if h not in ("Freq [MHz]", "Set [dBm]")]
@@ -46,6 +55,28 @@ def _status(r: LoadPullRow) -> str:
     return r.error or "ok"
 
 
+def _vswr(s11_db: float | None) -> float | None:
+    """VSWR = (1 + |Γ|) / (1 - |Γ|), with |Γ| = 10^(S11/20).
+
+    Derived here rather than carried on the row so the sheet cannot disagree
+    with the S11 column printed next to it. The browser works the same figure
+    out for its results table — see `vswr` in
+    frontend/src/tests/loadPull/smith.ts, which is the definition this one
+    tracks.
+
+    |Γ| >= 1 is a total reflection, or in practice a stale calibration showing
+    marginally more coming back than went out. The ratio is unbounded there, so
+    the cell is left empty; the arithmetic left alone would turn the sign over
+    and print a small number that reads like a good match.
+    """
+    if s11_db is None:
+        return None
+    gamma = 10.0 ** (s11_db / 20.0)
+    if gamma >= 1.0:
+        return None
+    return round((1.0 + gamma) / (1.0 - gamma), 3)
+
+
 def _values(idx: int, r: LoadPullRow, *, with_point: bool) -> list[Any]:
     """`with_point` includes Freq and Set — the two the sheet title already
     states on a per-frequency sheet."""
@@ -55,7 +86,12 @@ def _values(idx: int, r: LoadPullRow, *, with_point: bool) -> list[Any]:
     # it varies *within* one of them, and it is what those rows are sorted by.
     tail = [
         r.att_db,
-        r.power_dbm, _milliamps(r.current_a), r.r_ohm, r.x_ohm, r.s11_db, _status(r),
+        # Raw sits beside the corrected figure: the correction moves the number
+        # by tens of dB without moving where the sensor sat, and it is that
+        # position in the meter's range which says how far to trust the point.
+        r.power_dbm, r.power_dbm_raw,
+        _milliamps(r.current_a), r.r_ohm, r.x_ohm, r.s11_db,
+        _vswr(r.s11_db), _status(r),
     ]
     return head + point + tail
 
@@ -148,35 +184,49 @@ def parse_workbook(data: bytes) -> list[LoadPullRow]:
         )
     ws = wb["All"]
 
-    header = [c.value for c in ws[1]][: len(HEADERS)]
-    if header != HEADERS:
+    header = [c.value for c in ws[1]]
+    # Matched by name, not by position: a workbook written before a column was
+    # added is still a complete record of its own run, and refusing it would
+    # strand every file exported up to that point. Derived columns are not
+    # required at all -- they are recomputed from the measurements beside them.
+    col = {name: i for i, name in enumerate(header) if isinstance(name, str)}
+    missing = [h for h in HEADERS if h not in col and h not in OPTIONAL_HEADERS]
+    if missing:
         raise ValueError(
-            f"unexpected columns: expected {HEADERS}, found {header}. "
+            f"unexpected columns: missing {missing}, found {header}. "
             "The file was exported by a different version of this app."
         )
 
-    col = {name: i for i, name in enumerate(HEADERS)}
+    def cell(values: tuple[Any, ...], name: str) -> Any:
+        i = col.get(name)
+        if i is None:
+            return None            # a column this file predates
+        # A row saved from Excel can be shorter than the header if its trailing
+        # cells were cleared.
+        return values[i] if i < len(values) else None
+
     rows: list[LoadPullRow] = []
     for values in ws.iter_rows(min_row=2, values_only=True):
-        if values[col["#"]] is None:
+        if cell(values, "#") is None:
             continue  # trailing blank row
-        pos_mm = _float_or_none(values[col["Pos [mm]"]])
-        pos_pulses = _float_or_none(values[col["Pos [pulses]"]])
+        pos_mm = _float_or_none(cell(values, "Pos [mm]"))
+        pos_pulses = _float_or_none(cell(values, "Pos [pulses]"))
         if pos_mm is None and pos_pulses is None:
             continue
-        cc_ma = _float_or_none(values[col["CC [mA]"]])
-        status = str(values[col["Status"]] or "").strip()
+        cc_ma = _float_or_none(cell(values, "CC [mA]"))
+        status = str(cell(values, "Status") or "").strip()
         rows.append(LoadPullRow(
             pos_pulses=int(pos_pulses or 0),
             pos_mm=pos_mm or 0.0,
-            freq_mhz=_float_or_none(values[col["Freq [MHz]"]]),
-            power_dbm_setting=_float_or_none(values[col["Set [dBm]"]]),
-            att_db=_float_or_none(values[col["Att [dB]"]]),
-            power_dbm=_float_or_none(values[col["Power [dBm]"]]),
+            freq_mhz=_float_or_none(cell(values, "Freq [MHz]")),
+            power_dbm_setting=_float_or_none(cell(values, "Set [dBm]")),
+            att_db=_float_or_none(cell(values, "Att [dB]")),
+            power_dbm=_float_or_none(cell(values, "Power [dBm]")),
+            power_dbm_raw=_float_or_none(cell(values, "Raw [dBm]")),
             current_a=None if cc_ma is None else cc_ma / 1000.0,
-            r_ohm=_float_or_none(values[col["R [Ω]"]]),
-            x_ohm=_float_or_none(values[col["J [Ω]"]]),
-            s11_db=_float_or_none(values[col["S11 [dB]"]]),
+            r_ohm=_float_or_none(cell(values, "R [Ω]")),
+            x_ohm=_float_or_none(cell(values, "J [Ω]")),
+            s11_db=_float_or_none(cell(values, "S11 [dB]")),
             # Anything that is not a plain "ok" was the reason the row has no
             # numbers, so it travels back as the error.
             error=None if status.lower() == "ok" else (status or None),

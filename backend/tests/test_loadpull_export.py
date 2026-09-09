@@ -77,6 +77,21 @@ class TestLoadPullWorkbook:
         wb = wb_of([row(0, 902.3, 0, current_a=0.1234)])
         assert wb["All"].cell(row=2, column=HEADERS.index("CC [mA]") + 1).value == 123.4
 
+    def test_vswr_is_worked_out_from_s11(self) -> None:
+        """The same ratio the results table shows -- see `vswr` in
+        frontend/src/tests/loadPull/smith.ts."""
+        wb = wb_of([row(0, 902.3, 0, s11_db=-20)])
+        cell = wb["All"].cell(row=2, column=HEADERS.index("VSWR") + 1).value
+        assert cell == pytest.approx(1.222, abs=1e-3)
+
+    def test_vswr_is_blank_where_the_ratio_is_unbounded(self) -> None:
+        """|Γ| >= 1 has no finite VSWR. Printing the raw formula there would
+        flip the sign and give a number that reads like a good match."""
+        wb = wb_of([row(0, 902.3, 0, s11_db=0), row(1, 902.3, 0, s11_db=None)])
+        col = HEADERS.index("VSWR") + 1
+        assert wb["All"].cell(row=2, column=col).value is None
+        assert wb["All"].cell(row=3, column=col).value is None
+
     def test_a_failed_point_says_why(self) -> None:
         wb = wb_of([row(0, 902.3, 0, power_dbm=None, error="tx status=3")])
         assert wb["All"].cell(row=2, column=HEADERS.index("Status") + 1).value == "tx status=3"
@@ -139,7 +154,7 @@ class TestParseWorkbook:
         with pytest.raises(ValueError, match="not a Load Pull workbook"):
             parse_workbook(buf.getvalue())
 
-    def test_rejects_a_workbook_whose_columns_moved(self) -> None:
+    def test_rejects_a_workbook_missing_our_columns(self) -> None:
         from openpyxl import Workbook
         wb = Workbook()
         wb.active.title = "All"
@@ -149,6 +164,35 @@ class TestParseWorkbook:
         wb.save(buf)
         with pytest.raises(ValueError, match="unexpected columns"):
             parse_workbook(buf.getvalue())
+
+    def test_raw_power_survives_the_round_trip(self) -> None:
+        back = parse_workbook(build_workbook([row(0, 902.3, 14, power_dbm_raw=-23.4)]))
+        assert back[0].power_dbm_raw == -23.4
+
+    def test_reads_a_file_exported_before_the_newer_columns_existed(self) -> None:
+        """Columns are matched by name, so an older export still imports —
+        without Raw or VSWR, which were added after files were in circulation."""
+        from openpyxl import Workbook
+        old = [h for h in HEADERS if h not in ("Raw [dBm]", "VSWR")]
+        wb = Workbook()
+        wb.active.title = "All"
+        for c, name in enumerate(old, start=1):
+            wb.active.cell(row=1, column=c, value=name)
+        values = {
+            "#": 1, "Pos [mm]": 1.5, "Pos [pulses]": 600, "Freq [MHz]": 902.3,
+            "Set [dBm]": 14, "Power [dBm]": 12.5, "CC [mA]": 22.1,
+            "R [Ω]": 48.2, "J [Ω]": -3.1, "S11 [dB]": -14.8, "Status": "ok",
+        }
+        for c, name in enumerate(old, start=1):
+            wb.active.cell(row=2, column=c, value=values.get(name))
+        buf = BytesIO()
+        wb.save(buf)
+
+        back = parse_workbook(buf.getvalue())
+        assert len(back) == 1
+        assert (back[0].pos_mm, back[0].freq_mhz, back[0].s11_db) == (1.5, 902.3, -14.8)
+        # Absent, not guessed at: the page falls back to undoing the path loss.
+        assert back[0].power_dbm_raw is None
 
 
 class TestRunSheet:

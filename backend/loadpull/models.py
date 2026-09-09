@@ -23,6 +23,12 @@ class LoadPullRow(BaseModel):
     #: did not sweep it.
     att_db: Optional[float] = None
     power_dbm: Optional[float] = None
+    #: The uncorrected sensor reading. Kept because the correction moves the
+    #: number by tens of dB without moving where the sensor actually sat, so a
+    #: corrected value cannot say how far into the meter's range it was -- and
+    #: that is what decides whether the point is trustworthy. Absent on rows
+    #: recorded before it existed.
+    power_dbm_raw: Optional[float] = None
     current_a: Optional[float] = None
     r_ohm: Optional[float] = None
     x_ohm: Optional[float] = None
