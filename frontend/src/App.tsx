@@ -5,9 +5,11 @@ import {
 import ArticleIcon from '@mui/icons-material/Article'
 import CloseIcon from '@mui/icons-material/Close'
 import ScienceIcon from '@mui/icons-material/Science'
+import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import { ConnectionPanel } from './components/ConnectionPanel'
 import { SearchBar } from './components/SearchBar'
 import { LogPanel } from './components/LogPanel'
+import { ChatPanel } from './components/ChatPanel'
 import { InstrumentsModal } from './components/InstrumentsModal'
 import { useConnection } from './context/ConnectionContext'
 import { useThemeMode } from './context/ThemeModeContext'
@@ -67,8 +69,12 @@ function TestArea({ activeId }: { activeId: string }) {
   )
 }
 
+/** Which panel the right-hand dock is showing. */
+type DockTab = 'log' | 'chat'
+
 export default function App() {
   const [logOpen, setLogOpen] = useState(true)
+  const [dockTab, setDockTab] = usePersistedState<DockTab>(STORAGE_KEYS.dockTab, 'log')
   const [logW, setLogW] = usePersistedState<number>(STORAGE_KEYS.logWidth, LOG_DEFAULT_W)
   /**
    * The test page on screen, remembered across reloads.
@@ -178,15 +184,18 @@ export default function App() {
             }}
           />
           {!logOpen && (
-            <Tooltip title="Open log">
-              <IconButton
-                size="small"
-                onClick={() => setLogOpen(true)}
-                sx={{ position: 'absolute', right: 12 }}
-              >
-                <ArticleIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', right: 12 }}>
+              <Tooltip title="Open log">
+                <IconButton size="small" onClick={() => { setDockTab('log'); setLogOpen(true) }}>
+                  <ArticleIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Open assistant">
+                <IconButton size="small" onClick={() => { setDockTab('chat'); setLogOpen(true) }}>
+                  <SmartToyOutlinedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
           )}
         </Box>
 
@@ -201,7 +210,26 @@ export default function App() {
               px: 1.5,
             }}
           >
-            <Typography sx={{ fontSize: 15, fontWeight: 700, color: s.text }}>Log</Typography>
+            <Stack direction="row" spacing={1.5}>
+              {(['log', 'chat'] as DockTab[]).map((tab) => (
+                <Typography
+                  key={tab}
+                  onClick={() => setDockTab(tab)}
+                  sx={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                    cursor: 'pointer',
+                    color: s.text,
+                    opacity: dockTab === tab ? 1 : 0.45,
+                    borderBottom: dockTab === tab ? `2px solid ${s.text}` : '2px solid transparent',
+                    transition: 'opacity 0.15s',
+                  }}
+                >
+                  {tab === 'log' ? 'Log' : 'Assistant'}
+                </Typography>
+              ))}
+            </Stack>
             <IconButton size="small" onClick={() => setLogOpen(false)}>
               <CloseIcon sx={{ fontSize: 16 }} />
             </IconButton>
@@ -311,8 +339,30 @@ export default function App() {
             transition: 'background-color 0.15s',
           }}
         />
-        <Stack sx={{ p: 2, height: '100%', overflow: 'hidden' }}>
-          <LogPanel embedded />
+        {/* `flex: 1` rather than `height: 100%`: the drawer paper is a column
+            flex container whose height comes from its own sx, and a percentage
+            height on a child of it resolves against nothing -- the panel
+            collapsed to zero and its chips and input row overflowed on top of
+            each other rather than the transcript giving up the space. */}
+        <Stack sx={{ p: 2, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          {/* Both stay mounted: switching tabs must not lose the log's scroll
+              position or a half-typed question. */}
+          <Box
+            sx={{
+              display: dockTab === 'log' ? 'flex' : 'none',
+              flexDirection: 'column', flex: 1, minHeight: 0,
+            }}
+          >
+            <LogPanel embedded />
+          </Box>
+          <Box
+            sx={{
+              display: dockTab === 'chat' ? 'flex' : 'none',
+              flexDirection: 'column', flex: 1, minHeight: 0,
+            }}
+          >
+            <ChatPanel embedded />
+          </Box>
         </Stack>
       </Drawer>
     </Box>

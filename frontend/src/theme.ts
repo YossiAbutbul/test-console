@@ -320,7 +320,12 @@ export function makeTheme(mode: ThemeMode): Theme {
             '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: p.appBarBorder, borderWidth: 1 },
             '&.Mui-disabled:hover .MuiOutlinedInput-notchedOutline': { borderColor: p.appBarBorder },
             '&.Mui-disabled .MuiOutlinedInput-notchedOutline': { borderColor: p.appBarBorder },
-            '&.MuiInputBase-sizeSmall': { height: 36 },
+            // Single-line only. A multiline field grows by giving its box more
+            // height, so a fixed one leaves the textarea rendering outside it:
+            // the assistant's question box spilled over the controls above it
+            // the moment a question ran to a second line. Every existing
+            // single-line input keeps the exact 36 px it had.
+            '&.MuiInputBase-sizeSmall:not(.MuiInputBase-multiline)': { height: 36 },
           },
           notchedOutline: { borderColor: p.appBarBorder, top: 0, '& legend': { display: 'none' } },
           inputSizeSmall: { paddingTop: 0, paddingBottom: 0, fontSize: '0.875rem' },

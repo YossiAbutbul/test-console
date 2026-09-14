@@ -11,6 +11,8 @@ import { uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch } from '../../lib/ear
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import type { CommandResponse, LteCwRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
+import { useChatSource } from '../../context/ChatContext'
+import { mA, statusOf } from '../../lib/chatRows'
 import TuneIcon from '@mui/icons-material/Tune'
 import { IconButton, Tooltip } from '@mui/material'
 import {
@@ -78,7 +80,7 @@ function man(): NonNullable<typeof lteCwPageSnapshot.manual> {
   return lteCwPageSnapshot.manual
 }
 
-export function LteCwPage({ protocol, group }: TestPageProps) {
+export function LteCwPage({ protocol, group, active }: TestPageProps) {
   const { log } = useLog()
   /**
    * Whether channel inputs are read as EARFCNs or as MHz, and which bands a
@@ -101,6 +103,24 @@ export function LteCwPage({ protocol, group }: TestPageProps) {
   useEffect(() => { man().seconds = seconds; persistLteCwPage() }, [seconds])
   useEffect(() => { man().power = power; persistLteCwPage() }, [power])
   useEffect(() => { man().offset = offset; persistLteCwPage() }, [offset])
+
+  // The run lives in LteAutomationPanel; the snapshot is where it already
+  // mirrors every row, so the assistant reads that rather than the panel's state.
+  useChatSource('LTE CW', !!active, () => ({
+    title: 'LTE CW automation results',
+    rows: (lteCwPageSnapshot.automation?.results ?? []).map((r, i) => ({
+      '#': i + 1,
+      EARFCN: r.earfcn,
+      Band: r.band,
+      'Freq (MHz)': r.freq_mhz,
+      'Set (dBm)': r.set_power_dbm,
+      'Measured (dBm)': r.measured_dbm,
+      'CC (mA)': mA(r.current_a),
+      'V (V)': r.voltage_v,
+      Verdict: r.verdict,
+      Status: statusOf(r),
+    })),
+  }))
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
   const [focusKey, setFocusKey] = useState<string | null>(null)

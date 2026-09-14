@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { ThemeModeProvider } from './context/ThemeModeContext'
 import { ConnectionProvider } from './context/ConnectionContext'
 import { LogProvider } from './context/LogContext'
+import { ChatProvider } from './context/ChatContext'
 import { InstrumentsProvider } from './context/InstrumentsContext'
 import { NicknamesProvider } from './context/NicknamesContext'
 import { PathLossProvider } from './context/PathLossContext'
@@ -40,7 +41,9 @@ createRoot(document.getElementById('root')!).render(
               <NicknamesProvider>
                 <PathLossProvider>
                   <NotifyProvider>
-                    <App />
+                    <ChatProvider>
+                      <App />
+                    </ChatProvider>
                   </NotifyProvider>
                 </PathLossProvider>
               </NicknamesProvider>

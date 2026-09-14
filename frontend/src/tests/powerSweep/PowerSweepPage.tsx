@@ -25,6 +25,8 @@ import {
 } from '../../ui'
 import type { ResultRow, StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
+import { useChatSource } from '../../context/ChatContext'
+import { mA, statusOf } from '../../lib/chatRows'
 import { comboLabel } from './bestSettings'
 import { SweepResultsModal } from './SweepResultsModal'
 import { SweepResultsTable } from './SweepResultsTable'
@@ -279,6 +281,27 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   const liveRows: ResultRow[] = resultsQ.data ?? []
   // While a file is open it is what the table and the graph show.
   const rows: ResultRow[] = imported?.rows ?? liveRows
+
+  // Whatever is on screen is what the assistant is asked about -- an imported
+  // file when one is open, the live run otherwise -- so the two can never
+  // disagree about which sweep an answer is describing.
+  useChatSource('Mode Sweep', !!active, () => ({
+    title: imported
+      ? `Parameter sweep, imported from ${imported.name}`
+      : `Parameter sweep results (${status?.state ?? 'idle'}, ${completed}/${total} points)`,
+    // The sweep table's own columns and units: `current_a` on the row is
+        // amps, the column the operator reads is milliamps.
+    rows: rows.map((r) => ({
+      '#': r.idx + 1,
+      'Power Set (dBm)': r.power_dbm_setting,
+      'PA DC': r.pa_duty_cycle,
+      'HP Max': r.hp_max,
+      'Measured (dBm)': r.tx_power_dbm,
+      'CC (mA)': mA(r.current_a),
+      'V (V)': r.voltage_v,
+      Status: statusOf(r),
+    })),
+  }))
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>

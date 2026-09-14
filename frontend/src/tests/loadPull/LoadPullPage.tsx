@@ -34,7 +34,7 @@ import { parseRangeSpec } from '../../lib/numericList'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import { saveBlob } from '../../lib/download'
 import { DASH, fmt } from '../../lib/format'
-import { vswrLabel } from './smith'
+import { vswr, vswrLabel } from './smith'
 import {
   ACTION_W, CONTROL_H, EmergencyStop, FieldGrid, MONO, PageBody, PathLossChip,
   RunControls, Section, StatRow, StatTile, StatusChip, TEXT, TwoCol,
@@ -52,6 +52,8 @@ import type { InstrumentId } from '../../context/InstrumentsContext'
 import { planPositions } from './plan'
 import { useTromboneJog } from './useTromboneJog'
 import { loadPullApi } from '../../api/loadPull'
+import { useChatSource } from '../../context/ChatContext'
+import { mA } from '../../lib/chatRows'
 import { useAttPrompt } from './AttPrompt'
 import { parseLoadPullCsv } from './importCsv'
 import { SetupDiagramModal } from './SetupDiagramModal'
@@ -364,6 +366,29 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const [results, setResults] = useState<LoadPullResultRow[]>(() => loadPullPageSnapshot.results ?? [])
   const [smithOpen, setSmithOpen] = useState(false)
   const [setupOpen, setSetupOpen] = useState(false)
+
+  // Read live rather than from the snapshot: a Load Pull run is driven from
+  // this page, so a question asked mid-run should see the rows already taken.
+  useChatSource('Load Pull', !!active, () => ({
+    title: `Load Pull results (freq ${freqSpec || '?'} MHz, power ${powerSpec || '?'} dBm, PA mode ${paMode})`,
+    // The table's own columns, in the table's own units. CC is milliamps on
+    // screen and amps on the row, and VSWR is not on the row at all: it is
+    // derived from S11 here exactly as the table derives it.
+    rows: results.map((r, i) => ({
+      '#': i + 1,
+      'Pos (mm)': r.pos_mm,
+      'Freq (MHz)': r.freq_mhz ?? null,
+      'Set (dBm)': r.power_dbm_setting ?? null,
+      'Att (dB)': r.att_db ?? null,
+      'Power (dBm)': r.power_dbm,
+      'CC (mA)': mA(r.current_a),
+      'R (Ohm)': r.r_ohm,
+      'J (Ohm)': r.x_ohm,
+      'S11 (dB)': r.s11_db,
+      VSWR: vswr(r),
+      Status: r.error ?? 'ok',
+    })),
+  }))
 
   useEffect(() => { loadPullPageSnapshot.paMode = paMode; persistLoadPullPage() }, [paMode])
   useEffect(() => { loadPullPageSnapshot.freqSpec = freqSpec; persistLoadPullPage() }, [freqSpec])

@@ -22,8 +22,8 @@ from fastapi.staticfiles import StaticFiles
 from uvicorn.logging import AccessFormatter, DefaultFormatter
 
 from .api import (
-    ble_router, device_router, instruments_router, load_pull_router,
-    motor_router, servo_router, test_router,
+    ble_router, chat_router, device_router, instruments_router,
+    load_pull_router, motor_router, servo_router, test_router,
 )
 from .api.instruments import close_all as instruments_close_all
 from .ble import manager as ble_manager
@@ -40,7 +40,7 @@ _DATEFMT = "%H:%M:%S"
 
 # Paths the SPA fallback must not swallow.
 _API_PREFIXES = (
-    "/ble", "/device", "/instruments", "/motor", "/servo", "/test", "/health",
+    "/ble", "/chat", "/device", "/instruments", "/motor", "/servo", "/test", "/health",
     "/assets", "/docs", "/redoc", "/openapi.json",
 )
 
@@ -133,6 +133,7 @@ app.add_middleware(
 )
 
 app.include_router(ble_router)
+app.include_router(chat_router)
 app.include_router(device_router)
 app.include_router(instruments_router)
 app.include_router(load_pull_router)

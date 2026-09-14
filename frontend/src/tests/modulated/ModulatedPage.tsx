@@ -17,6 +17,8 @@ import {
 } from '../../store/modulatedPageStore'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
+import { useChatSource } from '../../context/ChatContext'
+import { mA, statusOf } from '../../lib/chatRows'
 
 /** This page measures what it transmits, so the readings need these up. */
 const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
@@ -34,7 +36,7 @@ const BW_OPTIONS = [
 const DR_MIN = 6
 const DR_MAX = 12
 
-export function ModulatedPage({ protocol, group }: TestPageProps) {
+export function ModulatedPage({ protocol, group, active }: TestPageProps) {
   const { log } = useLog()
   const hasBackend = protocol === 'LoRa'
   const [modem, setModem] = useState<ModemName>('LoRa')
@@ -52,6 +54,25 @@ export function ModulatedPage({ protocol, group }: TestPageProps) {
     () => modulatedPageSnapshot.tab ?? 'manual',
   )
   useEffect(() => { modulatedPageSnapshot.tab = tab; persistModulatedPage() }, [tab])
+
+  // The run lives in AutomationPanel; the snapshot is where it already mirrors
+  // every row, so the assistant reads that rather than the panel's state.
+  useChatSource(`${protocol} Modulated`, !!active, () => ({
+    title: `${protocol} TX modulated automation results`,
+    rows: (modulatedPageSnapshot.automation?.results ?? []).map((r, i) => ({
+      '#': i + 1,
+      'Freq (MHz)': r.freq_mhz,
+      'Set (dBm)': r.set_power_dbm,
+      Modem: r.modem,
+      BW: r.bandwidth,
+      DR: r.datarate,
+      'Measured (dBm)': r.measured_dbm,
+      'CC (mA)': mA(r.current_a),
+      'V (V)': r.voltage_v,
+      Verdict: r.verdict,
+      Status: statusOf(r),
+    })),
+  }))
 
   useEffect(() => {
     if (modem === 'FSK' && bandwidth !== 0) setBandwidth(0)

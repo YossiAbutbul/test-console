@@ -308,6 +308,104 @@ install it into the venv on a new machine:
 .\.venv\Scripts\python.exe -m pytest
 ```
 
+## Assistant
+
+The right-hand dock has an **Assistant** tab beside the log: a chat that reads
+the results on the page you are on, or a workbook you attach, and answers
+questions about them ("where does the power flatten out?", "which points look
+wrong?").
+
+It runs on Google's Gemini API, on the free tier. Nothing is sent anywhere until
+you ask a question, and nothing is sent at all until a key is configured on this
+machine.
+
+### Getting a key
+
+1. Sign in at <https://aistudio.google.com/apikey> with a Google account.
+2. **Create API key**, and pick a project when it asks.
+3. Copy the key. It is shown once.
+
+Leave the project on the **free tier** — do not enable billing on it. A free-tier
+key cannot spend money; a billing-enabled one can, and this app's limiter would
+then be the only thing standing between a stuck loop and a bill.
+
+### Where to put it
+
+Either works; the environment wins if both are set.
+
+```powershell
+# per machine, for good — reopen the terminal afterwards
+setx GEMINI_API_KEY "paste-the-key-here"
+```
+
+```powershell
+# or a one-line file at the repo root
+Set-Content -Path .gemini_key -Value "paste-the-key-here" -NoNewline
+```
+
+`.gemini_key` is in `.gitignore`, and so is `.chat-quota.json` (the spend
+counter). **Never paste a key into a source file, a launch config or a commit
+message** — anything tracked by git ends up on GitHub, and a key pushed even
+once has to be revoked and replaced. If it does happen: delete the key in AI
+Studio first, then worry about the history.
+
+The backend reads the key on every question, so dropping the file in takes
+effect without a restart. Adding the route did need one, though — see
+"Backend changes need a restart".
+
+### Staying inside the free tier
+
+One key is one shared budget, so the limit is enforced in the backend for
+everyone using this console, not per browser. Defaults are set **below** the
+published free-tier ceiling, and are overridable by environment variable:
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `CHAT_RPM_LIMIT` | 8 | Questions per rolling minute |
+| `CHAT_RPD_LIMIT` | 200 | Questions per day (resets at midnight Pacific, like Google's) |
+| `CHAT_TPM_LIMIT` | 200000 | Tokens per rolling minute; 0 disables the ceiling |
+| `GEMINI_MODEL` | `gemini-3.6-flash` | Model to ask |
+| `GEMINI_THINKING_LEVEL` | `LOW` | Reasoning effort; `HIGH` for more, empty to send no preference. `MINIMAL` is refused on the free tier -- it answers 429 where `LOW` and `HIGH` succeed |
+| `CHAT_ANSWER_STYLE` | `minimal` | `minimal` is one or two sentences; `detailed` explains its reasoning |
+| `CHAT_MAX_OUTPUT_TOKENS` | 1200 | Ceiling on the answer |
+| `CHAT_MAX_HISTORY_TURNS` | 8 | Turns re-sent with each question |
+
+Model ids retire: `gemini-2.5-flash` was pulled for new keys and answers 404
+with a replacement named in the message. Point `GEMINI_MODEL` at that and
+restart. Note that Gemini 3 replaced `thinkingBudget` with `thinkingLevel` and
+will not let thinking be switched off entirely, so the floor is a few dozen
+tokens a question rather than none.
+
+Check the published free-tier numbers for your model before raising `RPM`/`RPD`
+— Google has revised them downward more than once. The day counter is written
+to `.chat-quota.json` so a backend restart does not hand back a fresh day, and
+if Gemini itself answers 429 the panel stops asking until the window turns over.
+
+A model that answers "currently experiencing high demand" (503) is retried twice
+behind the scenes rather than shown as a failed question, and a refusal that
+carries Google's own retry time is honoured to the second instead of parking the
+panel for a flat minute. While a window is closed the input says so and holds
+the send button.
+
+The counter above the conversation shows what is left: questions today and
+this minute, then a bar for the per-minute token budget. Tokens are the ceiling
+that usually bites first, because a wide table costs thousands of them while a
+question costs one request. They can only be charged once Gemini says what it
+charged, so a question that overshoots is never refused -- the next one waits
+for the window to clear.
+
+### What actually gets sent
+
+Tables are compacted before they travel (`backend/chat/context.py`): constant
+columns are stated once instead of per row, each numeric column gets a
+min/max/mean line, rows go as TSV rather than JSON, and a long run is sampled
+evenly with the sample size declared. An attached workbook is parsed and
+compacted **once**, on the backend, and only the digest is re-sent with
+follow-up questions.
+
+The chips above the input are exactly what travels with the next question.
+Either can be switched off.
+
 ## Run — production
 
 Build the SPA once, then serve it directly from FastAPI (one terminal, no
@@ -442,6 +540,7 @@ backend/                FastAPI app, drivers, instrument adapters
   api/                  HTTP routers (one file per resource)
     instruments/        Per-instrument routes + shared VISA discovery
   ble/ motor/ servo/    Per-device drivers
+  chat/                 Assistant: rate limiter, table compaction, Gemini call
   hw/                   RF-instrument adapters + bundled DLLs
   protocol/             DUT Cat-M2 framing
   sweep/ tests/

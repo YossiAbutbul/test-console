@@ -16,3 +16,7 @@ node_modules/
 dist/
 build/
 .claude/
+
+# Gemini API key for the assistant panel, and its spend counter.
+.gemini_key
+.chat-quota.json

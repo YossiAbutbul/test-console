@@ -12,6 +12,8 @@ import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import type { CommandResponse, LteModulatedRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
+import { useChatSource } from '../../context/ChatContext'
+import { mA, statusOf } from '../../lib/chatRows'
 import TuneIcon from '@mui/icons-material/Tune'
 import { IconButton, Tooltip } from '@mui/material'
 import {
@@ -73,7 +75,7 @@ function man(): NonNullable<typeof lteModulatedPageSnapshot.manual> {
   return lteModulatedPageSnapshot.manual
 }
 
-export function LteModulatedPage({ protocol, group }: TestPageProps) {
+export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
   const { log } = useLog()
   /**
    * Whether channel inputs are read as EARFCNs or as MHz, and which bands a
@@ -97,6 +99,24 @@ export function LteModulatedPage({ protocol, group }: TestPageProps) {
   const [rbStart, setRbStart] = useState(() => man().rbStart ?? 0)
   useEffect(() => { man().channel = earfcn; persistLteModulatedPage() }, [earfcn])
   useEffect(() => { man().seconds = seconds; persistLteModulatedPage() }, [seconds])
+
+  // The run lives in AutomationPanel; the snapshot is where it already mirrors
+  // every row, so the assistant reads that rather than the panel's state.
+  useChatSource('LTE Modulated', !!active, () => ({
+    title: 'LTE modulated automation results',
+    rows: (lteModulatedPageSnapshot.automation?.results ?? []).map((r, i) => ({
+      '#': i + 1,
+      EARFCN: r.earfcn,
+      Band: r.band,
+      'Freq (MHz)': r.freq_mhz,
+      'Set (dBm)': r.set_power_dbm,
+      'Measured (dBm)': r.measured_dbm,
+      'CC (mA)': mA(r.current_a),
+      'V (V)': r.voltage_v,
+      Verdict: r.verdict,
+      Status: statusOf(r),
+    })),
+  }))
   useEffect(() => { man().power = power; persistLteModulatedPage() }, [power])
   useEffect(() => { man().bandwidth = bandwidth; persistLteModulatedPage() }, [bandwidth])
   useEffect(() => { man().mcs = mcs; persistLteModulatedPage() }, [mcs])

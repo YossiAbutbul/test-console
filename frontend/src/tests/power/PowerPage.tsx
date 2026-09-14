@@ -13,6 +13,8 @@ import {
 } from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
+import { useChatSource } from '../../context/ChatContext'
+import { mA, statusOf } from '../../lib/chatRows'
 import { AutomationPanel, type AutomationControls } from './AutomationPanel'
 import { powerPageSnapshot, persistPowerPage, type PowerPageTab } from '../../store/powerPageStore'
 
@@ -20,7 +22,7 @@ import { powerPageSnapshot, persistPowerPage, type PowerPageTab } from '../../st
  *  The operator can drop either, or both — see `MeasureOptions`. */
 const DEFAULT_MEASURE: MeasureSelection = { power: true, current: true }
 
-export function PowerPage({ protocol, group }: TestPageProps) {
+export function PowerPage({ protocol, group, active }: TestPageProps) {
   const { log } = useLog()
   const hasBackend = protocol === 'LoRa'
   const [freqMhz, setFreqMhz] = useState(902.3)
@@ -39,6 +41,26 @@ export function PowerPage({ protocol, group }: TestPageProps) {
   const [autoCtl, setAutoCtl] = useState<AutomationControls | null>(null)
   const [tab, setTab] = useState<PowerPageTab>(() => powerPageSnapshot.tab ?? 'manual')
   useEffect(() => { powerPageSnapshot.tab = tab; persistPowerPage() }, [tab])
+
+  // Read from the snapshot rather than from the automation tab's state: the
+  // run lives inside AutomationPanel, and the snapshot is where it already
+  // mirrors every row.
+  useChatSource(`${protocol} CW`, !!active, () => ({
+    title: `${protocol} TX CW automation results`,
+    // Column names and units as the table on screen shows them, so a question
+    // about "CC" is about the column the operator can see.
+    rows: (powerPageSnapshot.automation?.results ?? []).map((r, i) => ({
+      '#': i + 1,
+      'Freq (MHz)': r.freq_mhz,
+      'Set (dBm)': r.set_power_dbm,
+      PA: r.pa_mode,
+      'Measured (dBm)': r.measured_dbm,
+      'CC (mA)': mA(r.current_a),
+      'V (V)': r.voltage_v,
+      Verdict: r.verdict,
+      Status: statusOf(r),
+    })),
+  }))
 
   const send = useMutation({
     mutationFn: async () => {
