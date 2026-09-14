@@ -5,6 +5,7 @@ Per-device routes live in sibling modules:
   - dc_analyzer.py      — Keysight DC analyzer (also hosts /dc-analyzer/supply).
   - spectrum.py         — Generic VISA spectrum analyzers.
   - network_analyzer.py — Agilent/Keysight E5061B network analyzer.
+  - signal_generator.py — Rohde & Schwarz SML03 over RS-232.
 
 This module aggregates them under a single `router` and adds cross-device
 endpoints (`/instruments/status`, `/instruments/measure`).
@@ -18,7 +19,7 @@ import time
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from . import dc_analyzer, network_analyzer, power_sensor, spectrum
+from . import dc_analyzer, network_analyzer, power_sensor, signal_generator, spectrum
 from ._bus import bus
 from ._state import state
 
@@ -29,6 +30,7 @@ router.include_router(power_sensor.router)
 router.include_router(dc_analyzer.router)
 router.include_router(spectrum.router)
 router.include_router(network_analyzer.router)
+router.include_router(signal_generator.router)
 
 _aggregate = APIRouter(prefix="/instruments", tags=["instruments"])
 
@@ -45,6 +47,7 @@ class StatusResponse(BaseModel):
     dc_analyzer: InstrumentStatus
     spectrum: InstrumentStatus
     network_analyzer: InstrumentStatus
+    signal_generator: InstrumentStatus
 
 
 @_aggregate.get("/status", response_model=StatusResponse)
@@ -65,6 +68,10 @@ async def status() -> StatusResponse:
         network_analyzer=InstrumentStatus(
             connected=state.network_analyzer is not None,
             idn=state.network_analyzer_idn,
+        ),
+        signal_generator=InstrumentStatus(
+            connected=state.signal_generator is not None,
+            idn=state.signal_generator_idn,
         ),
     )
 

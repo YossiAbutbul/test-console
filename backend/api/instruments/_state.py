@@ -7,10 +7,15 @@ class _Holder:
     dc_analyzer: object | None = None
     spectrum: object | None = None
     network_analyzer: object | None = None
+    signal_generator: object | None = None
     power_sensor_idn: str | None = None
     dc_analyzer_idn: str | None = None
     spectrum_idn: str | None = None
     network_analyzer_idn: str | None = None
+    signal_generator_idn: str | None = None
+    # The COM port the generator was opened on. Serial rather than VISA, so
+    # there is no VISA resource string to record -- see signal_generator.py.
+    signal_generator_port: str | None = None
     # Track the VISA resource string each session was opened with so the
     # IDN-probe path in discovery can skip resources we already hold — opening
     # the same resource twice corrupts the live handle (VI_ERROR_INV_JOB_ID).

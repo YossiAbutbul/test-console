@@ -27,6 +27,7 @@ interface CategoryGroup {
 const GROUPS: CategoryGroup[] = [
   { label: 'RF Measurement', ids: ['power-sensor', 'spectrum', 'network-analyzer'] },
   { label: 'DC Supply', ids: ['dc-analyzer'] },
+  { label: 'Signal Source', ids: ['signal-generator'] },
   { label: 'Switching', ids: ['rf-switch'] },
   { label: 'Motion', ids: ['rf-trombone'] },
   { label: 'Attenuation', ids: ['attenuator'] },

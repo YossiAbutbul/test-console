@@ -96,6 +96,7 @@ BUSES: dict[str, InstrumentBus] = {
     "dc-analyzer": InstrumentBus("dc-analyzer"),
     "spectrum": InstrumentBus("spectrum"),
     "network-analyzer": InstrumentBus("network-analyzer"),
+    "signal-generator": InstrumentBus("signal-generator"),
 }
 
 

@@ -25,6 +25,7 @@ export const STORAGE_KEYS = {
   // stored v1 value would have shadowed it forever -- a default only applies
   // when nothing is saved.
   powerMeterPage: 'power-meter-page-snapshot-v2',
+  signalGeneratorPage: 'signal-generator-page-snapshot-v1',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

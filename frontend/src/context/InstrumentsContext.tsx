@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { instrumentsApi, type DiscoverCandidate, type InstrumentKind } from '../api/instruments'
+import { signalGeneratorApi, DEFAULT_BAUD } from '../api/signalGenerator'
 import { servo } from '../api/servo'
 import { motor } from '../api/motor'
 import {
@@ -11,6 +12,7 @@ export type InstrumentId =
   | 'dc-analyzer'
   | 'spectrum'
   | 'network-analyzer'
+  | 'signal-generator'
   | 'rf-switch'
   | 'rf-trombone'
   | 'attenuator'
@@ -22,7 +24,10 @@ export interface InstrumentState {
   model?: string
   /** Address / serial / VISA resource string. */
   address: string
-  /** Optional secondary field (e.g., DC channel). */
+  /**
+   * Optional secondary numeric setting: the DC analyzer's channel, or the
+   * signal generator's baud rate. Rendered only where it applies.
+   */
   channel?: number
   status: InstrumentStatus
   idn?: string
@@ -146,6 +151,16 @@ const INITIAL: Record<InstrumentId, InstrumentState> = {
     address: '',
     status: 'disconnected',
   },
+  'signal-generator': {
+    id: 'signal-generator',
+    label: 'Signal generator',
+    model: 'R&S SML03',
+    // A COM port, not a VISA resource — the generator is on RS-232 and
+    // `channel` carries the baud rate its own menu is set to.
+    address: '',
+    channel: DEFAULT_BAUD,
+    status: 'disconnected',
+  },
   'rf-switch': {
     id: 'rf-switch',
     label: 'RF switch',
@@ -186,7 +201,16 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
    * than trusting state that can be up to one poll interval stale.
    */
   const refreshStatus = useCallback(async (): Promise<void> => {
-    const apply = (id: InstrumentId, st: { connected: boolean; idn: string | null }) => {
+    const apply = (
+      id: InstrumentId,
+      st: { connected: boolean; idn: string | null } | undefined,
+    ) => {
+      // A backend older than this bundle does not report every instrument the
+      // UI knows about — the usual case being a server that has not been
+      // restarted since a new one was added. Reading through the gap threw,
+      // and the throw took the whole status poll with it, so every row went
+      // dead over one missing field. An absent instrument is simply not news.
+      if (!st) return
       setInstruments((prev) => {
         const cur = prev[id]
         // A connect in flight owns the row until it settles.
@@ -211,6 +235,7 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
       apply('dc-analyzer', s.dc_analyzer)
       apply('spectrum', s.spectrum)
       apply('network-analyzer', s.network_analyzer)
+      apply('signal-generator', s.signal_generator)
     } catch { /* backend offline — leave the last known state alone */ }
 
     // rf-switch backed by /servo (separate router).
@@ -284,6 +309,15 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
       // Park the switch on the VNA path right after connect so the user
       // doesn't have to send a goto manually. Failure is non-fatal.
       try { await servo.goto('VNA') } catch { /* ignore — connection ok */ }
+      return
+    }
+    if (id === 'signal-generator') {
+      // Serial rather than VISA, so there is no model to scan for and a blank
+      // address is not resolvable — the port has to be picked. `channel` is
+      // the baud rate: both ends must agree on it, and the instrument's own
+      // Utilities-System-RS232 menu is what decides.
+      const r = await signalGeneratorApi.connect(cur.address.trim(), cur.channel)
+      patch(id, { status: 'connected', idn: r.idn ?? undefined })
       return
     }
     if (id === 'rf-trombone') {

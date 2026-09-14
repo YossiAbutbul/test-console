@@ -13,6 +13,10 @@ from ._bus import InstrumentBus
 class DiscoverCandidate(BaseModel):
     resource: str
     idn: str | None = None
+    #: Secondary line for a resource that cannot be probed for an IDN -- the
+    #: OS's description of a serial port, say. COM3 and COM4 are otherwise
+    #: indistinguishable, and one of them is not an instrument at all.
+    detail: str | None = None
 
 
 class DiscoverResponse(BaseModel):

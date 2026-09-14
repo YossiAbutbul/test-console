@@ -1,6 +1,11 @@
 import { http } from './client'
 
-export type InstrumentKind = 'power-sensor' | 'dc-analyzer' | 'spectrum' | 'network-analyzer'
+export type InstrumentKind =
+  | 'power-sensor'
+  | 'dc-analyzer'
+  | 'spectrum'
+  | 'network-analyzer'
+  | 'signal-generator'
 
 export interface DiscoverCandidate {
   resource: string
@@ -37,6 +42,7 @@ export interface StatusResponse {
   dc_analyzer: { connected: boolean; idn: string | null }
   spectrum: { connected: boolean; idn: string | null }
   network_analyzer: { connected: boolean; idn: string | null }
+  signal_generator: { connected: boolean; idn: string | null }
 }
 
 export interface SupplyResponse {
