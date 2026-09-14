@@ -173,10 +173,11 @@ RETRY_CODES = (500, 502, 503, 504)
 RETRY_BACKOFF_S = (1.0, 3.0)
 
 #: Margin on top of the delay Google names, for clock skew between here and
-#: there. The delay itself is trustworthy: probed with a refused call and then
-#: another five seconds later, it counted down 15.2 s to 9.8 s, so it is the
-#: real time until a slot frees and a refused attempt does not push it out.
-#: Anything longer than that would idle the panel for no reason.
+#: there. The delay counts down in real time and a refused attempt does not
+#: push it out, so it is worth honouring rather than rounding up to a flat
+#: minute. It is only a hint, though: when the ceiling reached is the daily
+#: one, waiting the named seconds changes nothing and the next call is refused
+#: again. The local day counter is what should stop us first.
 UPSTREAM_MARGIN_S = 2.0
 
 #: Boilerplate Google appends to every quota message. Useful once; noise in a
@@ -231,14 +232,19 @@ def _call(req: urllib.request.Request, data: bytes) -> dict[str, Any]:
                 # grow is another caller on the same key, which no amount of
                 # waiting here can fix.
                 wait = _retry_after(detail, body) + UPSTREAM_MARGIN_S
+                # The message names a number but not the period it belongs
+                # to, and it is usually the daily one: a "limit: 20" here was
+                # read as per-minute for a while, which made the panel look
+                # broken rather than out of budget for the day.
                 ceiling = re.search(r"limit:\s*(\d+)", detail or "")
-                where = f" ({ceiling.group(1)} per minute on {config.MODEL})" if ceiling else ""
+                where = f" (its ceiling for {config.MODEL} is {ceiling.group(1)})" if ceiling else ""
                 raise QuotaExceeded(
                     "upstream", wait,
                     f"Gemini's own free-tier limit was hit{where}. Waiting "
-                    f"{int(wait + 0.5)} s for a slot. This is Google's counter, "
-                    "not the one above, so anything else using the same key "
-                    "spends from it too.",
+                    f"{int(wait + 0.5)} s. If that is the daily ceiling it will "
+                    "not clear until midnight Pacific, whatever the wait says. "
+                    "This is Google's counter, not the one above, so anything "
+                    "else using the same key spends from it too.",
                 ) from exc
             if exc.code in (401, 403):
                 raise NotConfigured(

@@ -28,18 +28,23 @@ QUOTA_FILE = REPO_ROOT / ".chat-quota.json"
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
-# Free-tier ceilings are published per model and have been revised downward
-# more than once, so these are deliberately set *under* the numbers Google
-# lists rather than at them, and every one is overridable from the environment.
-# If a request still comes back 429 the limiter parks until the next window.
-# The point is never to spend past free, not to squeeze it.
+# The real free-tier ceilings for gemini-3.6-flash, read off the AI Studio
+# dashboard (ai.dev/rate-limit) rather than guessed: 5 requests per minute,
+# 20 per day, 250k input tokens per minute. Each default sits just under its
+# ceiling, because a counter is only useful if it refuses before Google does.
+#
+# They were 8/min and 200/day, which was worse than no limiter at all: the
+# panel offered "185 questions left today" while Google had already stopped
+# answering at 20. Read the dashboard before changing them, and read it again
+# after changing model, since the ceilings differ per model.
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-RPM_LIMIT = int(os.getenv("CHAT_RPM_LIMIT", "8"))
-RPD_LIMIT = int(os.getenv("CHAT_RPD_LIMIT", "200"))
-#: Tokens per rolling minute. On the free tier this is the ceiling that bites
-#: first, because a wide table is thousands of tokens, so eight of those in a
-#: minute reaches it long before the request count does. Counted after the
-#: fact, from what Gemini reports it actually charged.
+RPM_LIMIT = int(os.getenv("CHAT_RPM_LIMIT", "4"))
+RPD_LIMIT = int(os.getenv("CHAT_RPD_LIMIT", "18"))
+
+#: Tokens per rolling minute. Well clear of the request ceilings in practice
+#: (a day's worth of questions is about 20k tokens against a 250k allowance),
+#: so this is a backstop for one enormous table rather than the limit that
+#: bites. Counted after the fact, from what Gemini reports it charged.
 TPM_LIMIT = int(os.getenv("CHAT_TPM_LIMIT", "200000"))
 
 #: How much scratchpad the model gets. Thinking tokens are billed like output

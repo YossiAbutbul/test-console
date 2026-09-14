@@ -112,7 +112,10 @@ def test_google_s_own_retry_time_is_honoured(monkeypatch, no_sleep):
     # is a real countdown to a free slot, and parking the panel for a minute
     # when the wait was fourteen seconds reads as a broken chat.
     assert 15 < exc.value.retry_after_s < 16, "13.7 s plus the skew margin"
-    assert "20 per minute" in str(exc.value)
+    # The message must not claim a period Google did not name: the
+    # ceiling it reports is usually the daily one.
+    assert "ceiling" in str(exc.value)
+    assert "per minute" not in str(exc.value)
 
 
 def test_a_retry_delay_in_the_error_details_is_used_too(monkeypatch, no_sleep):
