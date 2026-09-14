@@ -59,7 +59,10 @@ def _install(name: str, formatter: logging.Formatter) -> None:
 class _PollNoiseFilter(logging.Filter):
     """Drop access-log lines for the endpoints the UI polls every 500 ms."""
 
-    QUIET_PATHS = ("/ble/status", "/motor/status", "/servo/status", "/test/status")
+    QUIET_PATHS = (
+        "/ble/status", "/motor/status", "/servo/status", "/test/status",
+        "/chat/status",
+    )
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()

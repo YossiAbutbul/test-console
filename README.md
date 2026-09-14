@@ -319,6 +319,19 @@ It runs on Google's Gemini API, on the free tier. Nothing is sent anywhere until
 you ask a question, and nothing is sent at all until a key is configured on this
 machine.
 
+### Switching it on
+
+**Off by default.** With `CHAT_ENABLED` unset there is no Assistant tab in the
+dock and the routes refuse, so the app is exactly what it was before the feature
+existed. To turn it on, set the variable and restart the backend:
+
+```powershell
+$env:CHAT_ENABLED = "1"     # this shell only
+setx CHAT_ENABLED "1"       # or for good, then reopen the terminal
+```
+
+The rest of this section only applies once it is on.
+
 ### Getting a key
 
 1. Sign in at <https://aistudio.google.com/apikey> with a Google account.
@@ -361,6 +374,7 @@ published free-tier ceiling, and are overridable by environment variable:
 
 | Variable | Default | What it does |
 | --- | --- | --- |
+| `CHAT_ENABLED` | unset (off) | Whether the assistant exists at all |
 | `CHAT_RPM_LIMIT` | 8 | Questions per rolling minute |
 | `CHAT_RPD_LIMIT` | 200 | Questions per day (resets at midnight Pacific, like Google's) |
 | `CHAT_TPM_LIMIT` | 200000 | Tokens per rolling minute; 0 disables the ceiling |

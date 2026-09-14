@@ -28,6 +28,19 @@ QUOTA_FILE = REPO_ROOT / ".chat-quota.json"
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
+
+def enabled() -> bool:
+    """Whether the assistant is switched on at all.
+
+    Off by default. The code ships on every branch, but a half-finished
+    feature should not appear in the app just because its commits are in the
+    history: with this off there is no Assistant tab, and the routes refuse.
+
+    Read per call rather than at import, so turning it on takes a restart of
+    nothing but the shell that sets it.
+    """
+    return os.getenv("CHAT_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+
 # The real free-tier ceilings for gemini-3.6-flash, read off the AI Studio
 # dashboard (ai.dev/rate-limit) rather than guessed: 5 requests per minute,
 # 20 per day, 250k input tokens per minute. Each default sits just under its

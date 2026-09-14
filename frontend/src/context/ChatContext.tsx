@@ -55,6 +55,9 @@ export interface PageSource {
 }
 
 interface ChatCtx {
+  /** False until the backend says the assistant is switched on. The dock
+   *  shows no Assistant tab at all while this is false. */
+  available: boolean
   turns: ChatTurn[]
   busy: boolean
   status: ChatStatus | null
@@ -99,6 +102,10 @@ const STATUS_POLL_MS = 20_000
 /** While a rate-limit window is closed, so the countdown stays honest. */
 const COOLDOWN_POLL_MS = 2_000
 
+/** While the feature is switched off. Slow, but not never: turning it on
+ *  should not need a page reload to be noticed. */
+const OFF_POLL_MS = 60_000
+
 function now(): string {
   return new Date().toLocaleTimeString([], { hour12: false })
 }
@@ -142,6 +149,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // counter then stays blank forever with no way back short of a reload.
   // It costs nothing: /chat/status is local and never touches Gemini.
   const cooling = (quota?.retry_after_s ?? 0) > 0
+  // Once the backend says the feature is off there is nothing to watch. One
+  // slow poll stays, so switching it on shows up without a page reload.
+  const off = status?.enabled === false
   useEffect(() => {
     let alive = true
     const read = () => {
@@ -152,9 +162,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     read()
     // Faster while a window is closed, so the countdown the panel shows is
     // roughly true and the send button comes back when it actually can.
-    const timer = setInterval(read, cooling ? COOLDOWN_POLL_MS : STATUS_POLL_MS)
+    const period = off ? OFF_POLL_MS : cooling ? COOLDOWN_POLL_MS : STATUS_POLL_MS
+    const timer = setInterval(read, period)
     return () => { alive = false; clearInterval(timer) }
-  }, [cooling])
+  }, [cooling, off])
 
   const publish = useCallback(() => {
     setPageList(
@@ -258,6 +269,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<ChatCtx>(() => ({
+    available: status?.enabled === true,
     turns, busy, status, quota, attachments, pages: pageList, readPages,
     selectedPages, setSelectedPages, effectivePages, ask, attach,
     removeAttachment, toggleAttachment, clear, registerSource,

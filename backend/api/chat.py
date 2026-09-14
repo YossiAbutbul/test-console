@@ -79,6 +79,8 @@ class AskResponse(BaseModel):
 
 
 class StatusResponse(BaseModel):
+    #: False when CHAT_ENABLED is not set. The panel hides itself entirely.
+    enabled: bool
     configured: bool
     model: str
     quota: QuotaOut
@@ -133,6 +135,7 @@ def _build_prompt(req: AskRequest) -> str:
 @router.get("/status", response_model=StatusResponse)
 def status() -> StatusResponse:
     return StatusResponse(
+        enabled=config.enabled(),
         configured=config.api_key() is not None,
         model=config.MODEL,
         quota=_quota_out(),
@@ -147,6 +150,8 @@ async def attach(req: AttachRequest) -> AttachResponse:
     what gets re-sent with every follow-up question, so it is worth spending
     the parse to make it small. Costs no quota, since nothing is sent to Gemini.
     """
+    if not config.enabled():
+        raise HTTPException(status_code=503, detail="The assistant is switched off.")
     try:
         data = base64.b64decode(req.content_b64, validate=True)
     except (binascii.Error, ValueError) as exc:
@@ -173,6 +178,12 @@ async def attach(req: AttachRequest) -> AttachResponse:
 
 @router.post("/ask", response_model=AskResponse)
 async def ask(req: AskRequest) -> AskResponse:
+    if not config.enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="The assistant is switched off. Set CHAT_ENABLED=1 and restart "
+                   "the backend to use it.",
+        )
     question = req.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Ask something first.")

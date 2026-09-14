@@ -10,6 +10,7 @@ import { ConnectionPanel } from './components/ConnectionPanel'
 import { SearchBar } from './components/SearchBar'
 import { LogPanel } from './components/LogPanel'
 import { ChatPanel } from './components/ChatPanel'
+import { useChat } from './context/ChatContext'
 import { InstrumentsModal } from './components/InstrumentsModal'
 import { useConnection } from './context/ConnectionContext'
 import { useThemeMode } from './context/ThemeModeContext'
@@ -93,6 +94,9 @@ export default function App() {
     ? storedId
     : (testRegistry[0]?.id ?? '')
   const { mode } = useThemeMode()
+  // Off unless the backend says otherwise, so the dock is exactly what it was
+  // before the assistant existed.
+  const { available: chatOn } = useChat()
   const p = getAppPalette(mode)
   const s = p.sidebar
   const dragging = useRef(false)
@@ -190,11 +194,13 @@ export default function App() {
                   <ArticleIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              <Tooltip title="Open assistant">
-                <IconButton size="small" onClick={() => { setDockTab('chat'); setLogOpen(true) }}>
-                  <SmartToyOutlinedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              {chatOn && (
+                <Tooltip title="Open assistant">
+                  <IconButton size="small" onClick={() => { setDockTab('chat'); setLogOpen(true) }}>
+                    <SmartToyOutlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
             </Stack>
           )}
         </Box>
@@ -211,7 +217,7 @@ export default function App() {
             }}
           >
             <Stack direction="row" spacing={1.5}>
-              {(['log', 'chat'] as DockTab[]).map((tab) => (
+              {(chatOn ? (['log', 'chat'] as DockTab[]) : (['log'] as DockTab[])).map((tab) => (
                 <Typography
                   key={tab}
                   onClick={() => setDockTab(tab)}
@@ -349,7 +355,10 @@ export default function App() {
               position or a half-typed question. */}
           <Box
             sx={{
-              display: dockTab === 'log' ? 'flex' : 'none',
+              // Falls back to the log when the assistant is off, so a stored
+              // "chat" tab from a session that had it on cannot leave the dock
+              // showing nothing.
+              display: dockTab === 'log' || !chatOn ? 'flex' : 'none',
               flexDirection: 'column', flex: 1, minHeight: 0,
             }}
           >
@@ -357,11 +366,11 @@ export default function App() {
           </Box>
           <Box
             sx={{
-              display: dockTab === 'chat' ? 'flex' : 'none',
+              display: chatOn && dockTab === 'chat' ? 'flex' : 'none',
               flexDirection: 'column', flex: 1, minHeight: 0,
             }}
           >
-            <ChatPanel embedded />
+            {chatOn && <ChatPanel embedded />}
           </Box>
         </Stack>
       </Drawer>

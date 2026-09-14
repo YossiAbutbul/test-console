@@ -36,6 +36,12 @@ export interface ChatQuota {
 }
 
 export interface ChatStatus {
+  /**
+   * False unless CHAT_ENABLED is set on the backend. The dock hides its
+   * Assistant tab entirely, so the app looks as it did before the feature
+   * existed.
+   */
+  enabled: boolean
   /** False when there is no API key. The panel says so rather than failing on send. */
   configured: boolean
   model: string
