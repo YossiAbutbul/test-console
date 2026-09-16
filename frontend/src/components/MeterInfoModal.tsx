@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, IconButton, MenuItem, Select, Snackbar, Stack, Tooltip, Typography,
+  DialogTitle, IconButton, MenuItem, Select, Stack, Tooltip, Typography,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import { device } from '../api/device'
 import { useConnection } from '../context/ConnectionContext'
 import { useLog } from '../context/LogContext'
+import { useNotify } from '../context/NotifyContext'
 import type {
   AppModeOption, MeterInfoField, SaveResetResponse, SetAppModeResponse,
   SetChannelsResponse,
@@ -177,6 +178,7 @@ function Row({ label, value, mono, dim }: {
 export function MeterInfoModal({ open, onClose }: Props) {
   const { status } = useConnection()
   const { log } = useLog()
+  const notify = useNotify()
   const qc = useQueryClient()
 
   const q = useQuery({
@@ -253,7 +255,6 @@ export function MeterInfoModal({ open, onClose }: Props) {
   // what the unit reported. Deliberately not synced with an effect — clearing
   // it after a write (and on close) lets the re-read win on its own.
   const [picked, setPicked] = useState<Picked>({})
-  const [notice, setNotice] = useState<Notice | null>(null)
   const selMode = picked.mode ?? currentMode
   const selPrimary = picked.primary ?? currentPrimary
   const selSecondary = picked.secondary ?? currentSecondary
@@ -283,7 +284,11 @@ export function MeterInfoModal({ open, onClose }: Props) {
     },
     onSuccess: ({ channels, appMode, reset }) => {
       const n = summarize(channels, appMode, reset)
-      setNotice(n)
+      // A toast rather than a banner inside the dialog: a banner resizes the
+      // dialog and moves the button out from under the pointer, and the result
+      // has to outlive the dialog, which usually closes just below. Through the
+      // shared stack so it looks like every other toast in the app.
+      notify.notify(n.severity, n.message)
       setPicked({})
       log('DUT', n.message, n.severity === 'success' ? 'info' : 'error')
       // The link is down or about to be, so the cached read is worthless.
@@ -296,7 +301,7 @@ export function MeterInfoModal({ open, onClose }: Props) {
       if (reset?.ok || appMode?.ok) close()
     },
     onError: (e: Error) => {
-      setNotice({ severity: 'error', message: e.message })
+      notify.error(e.message)
       log('DUT', `Meter write failed: ${e.message}`, 'error')
     },
   })
@@ -310,7 +315,6 @@ export function MeterInfoModal({ open, onClose }: Props) {
     && !update.isPending && !!status?.connected
 
   return (
-    <>
     <Dialog
       open={open}
       onClose={close}
@@ -409,37 +413,5 @@ export function MeterInfoModal({ open, onClose }: Props) {
         </Button>
       </DialogActions>
     </Dialog>
-
-    {/* A toast rather than a banner inside the dialog. Anything in the dialog
-        either resizes it as the message comes and goes -- moving the button
-        out from under the pointer that just pressed it -- or needs a reserved
-        slot that sits empty the rest of the time. This floats above both, so
-        the dialog is sized by its content and never moves.
-
-        It also outlives the dialog: closing on the back of an Update is the
-        normal thing to do, and the result should not vanish with it. */}
-    <Snackbar
-      open={!!notice}
-      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-      // Success speaks for itself; the other two are asking the operator to go
-      // and check something, so they stay up longer.
-      autoHideDuration={notice?.severity === 'success' ? 6000 : 15000}
-      onClose={(_, reason) => {
-        // Not on clickaway: picking the next mode should not wipe the message.
-        if (reason !== 'clickaway') setNotice(null)
-      }}
-    >
-      {notice ? (
-        <Alert
-          severity={notice.severity}
-          variant="filled"
-          onClose={() => setNotice(null)}
-          sx={{ maxWidth: 420 }}
-        >
-          {notice.message}
-        </Alert>
-      ) : undefined}
-    </Snackbar>
-    </>
   )
 }
