@@ -18,6 +18,7 @@ import { useInstrumentsActions, useInstrumentsState } from '../context/Instrumen
 import { useThemeMode, type ThemePreference } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
 import { SIDEBAR_W, TOP_BAR_H } from '../ui/tokens'
+import { useShellLayout } from '../ui/useShellLayout'
 import { testRegistry } from '../tests/registry'
 import type { TestModule } from '../tests/types'
 
@@ -30,6 +31,10 @@ const PROTOCOLS: Array<'LoRa' | 'LTE' | 'BLE'> = ['LoRa', 'LTE', 'BLE']
 interface SidebarProps {
   activeId: string
   onSelect: (id: string) => void
+  /** Folded away entirely when false — the logo in the top bar toggles it. */
+  open: boolean
+  /** Float over the page instead of holding a column of its own. */
+  floating: boolean
 }
 
 type ProtocolTree = Array<{
@@ -277,8 +282,9 @@ function StatusFoot() {
   )
 }
 
-export function Sidebar({ activeId, onSelect }: SidebarProps) {
+export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
   const tree = useProtocolTree()
+  const { sidebarW } = useShellLayout()
   const { mode } = useThemeMode()
   const s = getAppPalette(mode).sidebar
   const { setOpen: openInstruments } = useInstrumentsActions()
@@ -321,16 +327,31 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
   })
   return (
     <Drawer
-      variant="permanent"
+      variant="persistent"
+      anchor="left"
+      open={open}
+      // Marks the paper for the click-away in `App`. A stable hook of our own
+      // rather than a `.MuiDrawer-*` class, which is an emotion implementation
+      // detail and has moved between MUI majors before.
+      PaperProps={{ 'data-app-nav': '' } as Record<string, string>}
       sx={{
-        width: SIDEBAR_W,
+        // The root is what reserves a column; the paper is fixed either way.
+        // Zero it when the menu is folded away, and when it is floating over a
+        // narrow window, so the page gets the whole width in both cases.
+        width: open && !floating ? sidebarW : 0,
         flexShrink: 0,
         '& .MuiDrawer-paper': {
-          width: SIDEBAR_W,
+          width: sidebarW,
           boxSizing: 'border-box',
           bgcolor: getAppPalette(mode).logBg,
           color: s.text,
           border: 0,
+          ...(floating
+            ? {
+                borderRight: `1px solid ${s.border}`,
+                boxShadow: '8px 0 24px rgba(0,0,0,0.18)',
+              }
+            : null),
           top: TOP_BAR_H,
           height: `calc(100vh - ${TOP_BAR_H}px)`,
           display: 'flex', flexDirection: 'column',

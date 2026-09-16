@@ -158,6 +158,11 @@ export function Section({
   return (
     <Box
       sx={{
+        // The nearest query container for anything the section holds. A field
+        // grid inside a two-column layout has to size off its own column, not
+        // off the whole content area, or it keeps three columns of inputs in a
+        // panel half that wide.
+        containerType: 'inline-size',
         ...(panel
           ? { ...PANEL_SX, p: `${CARD_PAD}px`, ...(flush ? { pb: 0 } : null) }
           : null),

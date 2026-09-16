@@ -23,3 +23,4 @@ export {
   ACTION_W, CARD_SX, CARD_PAD, CONTROL_H, FIELD_MAX_W, GRID_GAP, MONO,
   PANEL_SX, PAGE_W, TEXT, TILE_PAD, type TileAccent,
 } from './tokens'
+export { useShellLayout, type ShellLayout } from './useShellLayout'

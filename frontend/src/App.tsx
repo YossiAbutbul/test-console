@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Box, Drawer, IconButton, Stack, Tooltip, Typography,
+  Box, Drawer, IconButton, Stack, Tooltip, Typography, type Theme,
 } from '@mui/material'
 import ArticleIcon from '@mui/icons-material/Article'
 import CloseIcon from '@mui/icons-material/Close'
@@ -16,7 +16,9 @@ import { useConnection } from './context/ConnectionContext'
 import { useThemeMode } from './context/ThemeModeContext'
 import { getAppPalette } from './theme'
 import { testRegistry } from './tests/registry'
-import { Sidebar, SIDEBAR_W, TOP_BAR_H } from './components/Sidebar'
+import { Sidebar, TOP_BAR_H } from './components/Sidebar'
+import { SHELL_NARROW_W } from './ui/tokens'
+import { useShellLayout } from './ui'
 
 /** Band at the bottom of the window owned by the fixed copyright footer.
  *  Anything that paints under it has to stop short by this much. */
@@ -26,6 +28,11 @@ import { STORAGE_KEYS, usePersistedState } from './store'
 const LOG_MIN_W = 240
 const LOG_MAX_W = 720
 const LOG_DEFAULT_W = 340
+
+/** How much of a narrow window the floating dock may cover. It overlays the
+ *  page rather than sharing the row with it, so it can afford to be wider
+ *  than the docked default -- but not so wide the page behind it is gone. */
+const LOG_OVERLAY_MAX_FRAC = 0.62
 
 function TestArea({ activeId }: { activeId: string }) {
   const { status } = useConnection()
@@ -70,11 +77,77 @@ function TestArea({ activeId }: { activeId: string }) {
   )
 }
 
+const NARROW_QUERY = `(max-width:${SHELL_NARROW_W - 1}px)`
+
+/** Whether the window is currently too narrow to dock both side panels. */
+function isNarrowWindow() {
+  return window.matchMedia(NARROW_QUERY).matches
+}
+
 /** Which panel the right-hand dock is showing. */
 type DockTab = 'log' | 'chat'
 
 export default function App() {
-  const [logOpen, setLogOpen] = useState(true)
+  const { narrow, sidebarW } = useShellLayout()
+  // Read the query directly for the initial value rather than leaning on
+  // `narrow` plus an effect: an effect runs after the first paint, so these
+  // would flash open and shove the page sideways on every reload at half
+  // width. Both open by default on a window wide enough to hold them, as
+  // before.
+  const [logOpen, setLogOpen] = useState(() => !isNarrowWindow())
+  const [navOpen, setNavOpen] = useState(() => !isNarrowWindow())
+  /**
+   * The menu only folds away on a window too narrow to carry it.
+   *
+   * Derived rather than stored, so widening the window brings the menu back
+   * on its own: a collapsed state that survived into a full-screen window
+   * would leave the app with no visible navigation and a logo that gives no
+   * sign it is hiding any.
+   */
+  const navVisible = narrow ? navOpen : true
+
+  /**
+   * Dismiss the floating menu on a click anywhere else, and on Escape.
+   *
+   * It covers the page it is sitting on, so reaching for something underneath
+   * it is already the gesture for "done with the menu" -- without this the
+   * first click was spent closing it and the second did the work. Only while
+   * it floats: docked it costs the page nothing and closing it on a stray
+   * click would be a nuisance.
+   *
+   * `mousedown`, not `click`: a click on a control under the panel would
+   * otherwise land on an element that had already moved by the time the click
+   * completed. The toggle is excluded, or its own click would close the menu
+   * here and reopen it in the handler.
+   */
+  useEffect(() => {
+    if (!narrow || !navOpen) return
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el?.closest('[data-app-nav],[data-nav-toggle]')) return
+      setNavOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNavOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [narrow, navOpen])
+  /**
+   * One-shot nudge after the menu folds itself away.
+   *
+   * The fold happens as a side effect of dragging the window narrower, not of
+   * anything the operator clicked, so without this the menu simply vanishes
+   * and the logo gives no sign it has taken it. Shown only on that crossing,
+   * and only until it is acknowledged or times out -- a tooltip that reappears
+   * every time the pointer nears the corner is worse than no hint at all.
+   */
+  const [navHint, setNavHint] = useState(false)
+  const [logoHover, setLogoHover] = useState(false)
   const [dockTab, setDockTab] = usePersistedState<DockTab>(STORAGE_KEYS.dockTab, 'log')
   const [logW, setLogW] = usePersistedState<number>(STORAGE_KEYS.logWidth, LOG_DEFAULT_W)
   /**
@@ -93,6 +166,37 @@ export default function App() {
   const activeId = testRegistry.some((m) => m.id === storedId)
     ? storedId
     : (testRegistry[0]?.id ?? '')
+  // Dragging the window down to half the screen with both panels open used to
+  // leave ~300px for the page. Folding them away on the way in is the whole
+  // point of the breakpoint; neither is reopened on the way back out, since by
+  // then the operator has been working without it.
+  //
+  // A media-query subscription rather than an effect on `narrow`: this has to
+  // fire on the *crossing*, not on every render where the window happens to be
+  // narrow, or reopening either panel by hand would immediately undo itself.
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW_QUERY)
+    const onChange = (e: MediaQueryListEvent) => {
+      if (!e.matches) {
+        setNavHint(false)
+        return
+      }
+      setLogOpen(false)
+      setNavOpen(false)
+      setNavHint(true)
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  // Long enough to be read mid-drag, short enough not to sit over the page
+  // while the operator gets on with something else.
+  useEffect(() => {
+    if (!navHint) return
+    const t = window.setTimeout(() => setNavHint(false), 5000)
+    return () => window.clearTimeout(t)
+  }, [navHint])
+
   const { mode } = useThemeMode()
   // Off unless the backend says otherwise, so the dock is exactly what it was
   // before the assistant existed.
@@ -128,6 +232,47 @@ export default function App() {
     }
   }, [setLogW])
 
+  /**
+   * Tab strip and close button for the dock.
+   *
+   * Lives in the top bar while the dock is docked, so its title sits on the
+   * same line as the app title and the search box. Once the dock floats there
+   * is no column in the bar to put it in -- the bar belongs to the page
+   * underneath -- so it moves inside the panel instead.
+   */
+  const dockHeader = (
+    <Stack
+      direction="row"
+      alignItems="center"
+      justifyContent="space-between"
+      sx={{ width: '100%', minWidth: 0 }}
+    >
+      <Stack direction="row" spacing={1.5} sx={{ minWidth: 0, overflow: 'hidden' }}>
+        {(chatOn ? (['log', 'chat'] as DockTab[]) : (['log'] as DockTab[])).map((tab) => (
+          <Typography
+            key={tab}
+            onClick={() => setDockTab(tab)}
+            sx={{
+              fontSize: 14,
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              cursor: 'pointer',
+              color: s.text,
+              opacity: dockTab === tab ? 1 : 0.45,
+              borderBottom: dockTab === tab ? `2px solid ${s.text}` : '2px solid transparent',
+              transition: 'opacity 0.15s',
+            }}
+          >
+            {tab === 'log' ? 'Log' : 'Assistant'}
+          </Typography>
+        ))}
+      </Stack>
+      <IconButton size="small" onClick={() => setLogOpen(false)} aria-label="Close panel">
+        <CloseIcon sx={{ fontSize: 16 }} />
+      </IconButton>
+    </Stack>
+  )
+
   return (
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden', bgcolor: 'background.default' }}>
       {/* Unified top bar across whole window */}
@@ -144,31 +289,81 @@ export default function App() {
           zIndex: (t) => t.zIndex.drawer + 2,
         }}
       >
-        <Box
-          sx={{
-            width: SIDEBAR_W,
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.25,
-            pl: 2.2,
-            pr: 1.5,
-          }}
+        {/* On a narrow window the logo doubles as the menu toggle: it already
+            sits in the corner the menu belongs to, and a hamburger beside it
+            would have spent on a second control the width the sidebar just
+            gave back. Inert on a wide window, where the menu never folds and a
+            clickable logo would only invite a click that does nothing.
+
+            Only as wide as the sidebar while the sidebar is actually holding
+            that column open; once it folds away or starts floating, the bar
+            closes up and the search box re-centres. */}
+        <Tooltip
+          placement="bottom-start"
+          // Controlled, because the hint has to appear without the pointer
+          // going anywhere near the logo. Hover and focus still drive it
+          // through `onOpen`/`onClose`, which MUI fires either way.
+          open={narrow && (navHint || logoHover)}
+          onOpen={() => setLogoHover(true)}
+          onClose={() => { setLogoHover(false); setNavHint(false) }}
+          // One line, same length as the ordinary labels. A sentence
+          // explaining itself sat across the first two fields of the page and
+          // read as an error, which is a lot of weight for a hint.
+          title={navHint ? 'Menu hidden - click to show' : (navOpen ? 'Hide menu' : 'Show menu')}
+          slotProps={{ tooltip: { sx: { whiteSpace: 'nowrap', maxWidth: 'none' } } }}
         >
           <Box
+            component={narrow ? 'button' : 'div'}
+            type={narrow ? 'button' : undefined}
+            data-nav-toggle=""
+            aria-label={narrow ? (navOpen ? 'Hide menu' : 'Show menu') : undefined}
+            aria-expanded={narrow ? navOpen : undefined}
+            onClick={narrow ? () => { setNavHint(false); setNavOpen((v) => !v) } : undefined}
             sx={{
-              width: 34, height: 34, borderRadius: 1.25,
-              bgcolor: s.text,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: navVisible && !narrow ? sidebarW : 'auto',
               flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.25,
+              pl: 2.2,
+              pr: 1.5,
+              minWidth: 0,
+              overflow: 'hidden',
+              border: 0,
+              bgcolor: 'transparent',
+              font: 'inherit',
+              textAlign: 'left',
+              ...(narrow
+                ? {
+                    cursor: 'pointer',
+                    '&:hover .app-logo-mark': { opacity: 0.82 },
+                    '&:focus-visible': {
+                      outline: `2px solid ${s.text}`, outlineOffset: -2,
+                    },
+                  }
+                : null),
             }}
           >
-            <ScienceIcon sx={{ fontSize: 20, color: s.bg }} />
+            <Box
+              className="app-logo-mark"
+              sx={{
+                width: 34, height: 34, borderRadius: 1.25,
+                bgcolor: s.text,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+                transition: 'opacity 0.15s',
+              }}
+            >
+              <ScienceIcon sx={{ fontSize: 20, color: s.bg }} />
+            </Box>
+            <Typography
+              noWrap
+              sx={{ fontWeight: 700, fontSize: 18, color: s.text, lineHeight: 1.15 }}
+            >
+              Test Console
+            </Typography>
           </Box>
-          <Typography sx={{ fontWeight: 700, fontSize: 18, color: s.text, lineHeight: 1.15 }}>
-            Test Console
-          </Typography>
-        </Box>
+        </Tooltip>
 
         <Box
           sx={{
@@ -205,49 +400,23 @@ export default function App() {
           )}
         </Box>
 
-        {logOpen && (
-          <Box
-            sx={{
-              width: logW,
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              px: 1.5,
-            }}
-          >
-            <Stack direction="row" spacing={1.5}>
-              {(chatOn ? (['log', 'chat'] as DockTab[]) : (['log'] as DockTab[])).map((tab) => (
-                <Typography
-                  key={tab}
-                  onClick={() => setDockTab(tab)}
-                  sx={{
-                    fontSize: 14,
-                    fontWeight: 700,
-                    whiteSpace: 'nowrap',
-                    cursor: 'pointer',
-                    color: s.text,
-                    opacity: dockTab === tab ? 1 : 0.45,
-                    borderBottom: dockTab === tab ? `2px solid ${s.text}` : '2px solid transparent',
-                    transition: 'opacity 0.15s',
-                  }}
-                >
-                  {tab === 'log' ? 'Log' : 'Assistant'}
-                </Typography>
-              ))}
-            </Stack>
-            <IconButton size="small" onClick={() => setLogOpen(false)}>
-              <CloseIcon sx={{ fontSize: 16 }} />
-            </IconButton>
+        {logOpen && !narrow && (
+          <Box sx={{ width: logW, flexShrink: 0, px: 1.5, display: 'flex' }}>
+            {dockHeader}
           </Box>
         )}
       </Box>
 
       <Sidebar
+        open={navVisible}
+        floating={narrow}
         activeId={activeId}
         onSelect={(id) => {
           setActiveId(id)
           window.scrollTo({ top: 0, behavior: 'smooth' })
+          // A floating menu covers the page it just navigated to, so getting
+          // out of the way is part of the selection.
+          if (narrow) setNavOpen(false)
         }}
       />
 
@@ -256,16 +425,44 @@ export default function App() {
         sx={{
           flexGrow: 1,
           minWidth: 0,
-          px: 4,
+          // 32px of side gutter is a luxury on a half-width window -- it is
+          // two number fields' worth of room taken from the page to leave
+          // white space at the edges.
+          px: 2,
+          [`@media (min-width:${SHELL_NARROW_W}px)`]: { px: 4 },
           pt: `${TOP_BAR_H + 24}px`,
           pb: 3,
           display: 'flex',
           flexDirection: 'column',
           height: '100vh',
-          overflow: 'hidden',
+          // Pages that own the remaining height still scroll inside
+          // themselves; this is for the case they cannot cover -- a window
+          // short enough that the connection row and the page header alone
+          // overflow it. That used to be clipped with no way to reach it.
+          //
+          // No scrollbar: it would appear and disappear with the window
+          // height, and a gutter opening and closing down the side of the page
+          // shifts every control under it. The wheel, trackpad, keyboard and
+          // focus scrolling all still work.
+          overflowX: 'hidden',
+          overflowY: 'auto',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+          '&::-webkit-scrollbar': { display: 'none' },
         }}
       >
-        <Box sx={{ pb: 2, mb: 3, borderBottom: `1px solid ${p.appBarBorder}` }}>
+        <Box
+          sx={{
+            flexShrink: 0,
+            pb: 2,
+            mb: 2,
+            [`@media (min-width:${SHELL_NARROW_W}px)`]: { mb: 3 },
+            borderBottom: `1px solid ${p.appBarBorder}`,
+            // The connection row sizes its fields off this box rather than off
+            // the window, which the floating dock does not change.
+            containerType: 'inline-size',
+          }}
+        >
           <ConnectionPanel />
         </Box>
         <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -313,13 +510,34 @@ export default function App() {
         onClose={() => setLogOpen(false)}
         variant="persistent"
         sx={{
-          width: logOpen ? logW : 0,
+          // Zero while floating: `persistent` reserves its width by sizing the
+          // root, and the whole point on a narrow window is that the dock
+          // costs the page nothing. The paper is `position: fixed` either way,
+          // so dropping the root's width is all it takes to turn a column into
+          // an overlay -- no modal, no backdrop, and the page underneath stays
+          // clickable, which a `temporary` drawer would have taken away.
+          width: logOpen && !narrow ? logW : 0,
           flexShrink: 0,
           '& .MuiDrawer-paper': {
-            width: logW,
+            width: narrow
+              ? `min(${logW}px, ${Math.round(LOG_OVERLAY_MAX_FRAC * 100)}vw)`
+              : logW,
             boxSizing: 'border-box',
             bgcolor: p.logBg,
             border: 0,
+            // Floating over the page rather than beside it, so it needs an
+            // edge of its own; docked, the page's own background provides it.
+            // The paper is fixed, but the docked root that carries MUI's own
+            // z-index is statically positioned, so the rule never applies and
+            // the page painted straight over the top of the panel. Docked that
+            // never showed, because the panel had its own column to sit in.
+            ...(narrow
+              ? {
+                  zIndex: (t: Theme) => t.zIndex.drawer + 1,
+                  borderLeft: `1px solid ${p.appBarBorder}`,
+                  boxShadow: '-8px 0 24px rgba(0,0,0,0.18)',
+                }
+              : null),
             top: TOP_BAR_H,
             height: `calc(100vh - ${TOP_BAR_H}px)`,
             // The global footer is fixed to the bottom-right of the window and
@@ -351,6 +569,9 @@ export default function App() {
             collapsed to zero and its chips and input row overflowed on top of
             each other rather than the transcript giving up the space. */}
         <Stack sx={{ p: 2, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          {narrow && (
+            <Box sx={{ display: 'flex', mb: 1, flexShrink: 0 }}>{dockHeader}</Box>
+          )}
           {/* Both stay mounted: switching tabs must not lose the log's scroll
               position or a half-typed question. */}
           <Box

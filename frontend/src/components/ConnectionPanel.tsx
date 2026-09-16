@@ -165,8 +165,22 @@ export function ConnectionPanel() {
 
   return (
     <Box sx={{ width: '100%' }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems="flex-end" flexWrap="wrap">
-        <Box sx={{ width: 110 }}>
+      {/* Flex with an explicit `gap` rather than a `Stack` with `spacing`:
+          spacing lays out as margins on the children, which a wrapped row does
+          not get on its second line -- at half-screen width the buttons ended
+          up flush against the fields above them. The basis/grow pairs below
+          decide the order things give way in: the numbers hold their size, the
+          device picker gives a little, and the MAC field -- the only one whose
+          content is long -- absorbs the rest. */}
+      <Box
+        sx={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'flex-end',
+          gap: 1.5,
+        }}
+      >
+        <Box sx={{ flex: '0 1 110px', minWidth: 96 }}>
           {fieldLabel('Path loss (dB)')}
           <TextField
             type="number"
@@ -201,7 +215,7 @@ export function ConnectionPanel() {
           />
         </Box>
 
-        <Box sx={{ width: 110 }}>
+        <Box sx={{ flex: '0 1 110px', minWidth: 96 }}>
           {fieldLabel('Duration (sec)')}
           <TextField
             type="number"
@@ -215,7 +229,7 @@ export function ConnectionPanel() {
           />
         </Box>
 
-        <Box sx={{ minWidth: 170 }}>
+        <Box sx={{ flex: '1 1 150px', minWidth: 130, maxWidth: 220 }}>
           {fieldLabel('Device type')}
           <FormControl size="small" fullWidth disabled={isConnected || scanning}>
             <Select
@@ -233,7 +247,7 @@ export function ConnectionPanel() {
           </FormControl>
         </Box>
 
-        <Box sx={{ minWidth: 340, flex: 1, position: 'relative' }}>
+        <Box sx={{ flex: '6 1 220px', minWidth: 190, position: 'relative' }}>
           <Stack direction="row" alignItems="center" sx={{ mb: 0.5, gap: 1 }}>
             <Typography sx={{ fontSize: 13, fontWeight: 500 }}>MAC Address</Typography>
             {(() => {
@@ -394,11 +408,17 @@ export function ConnectionPanel() {
         />
         </Box>
 
-        {/* Icon only, and sized to the 36px controls either side of it: the
-            labelled version was wide enough to wrap the whole row onto a
-            second line. Needs a live link, since every field is read off the
-            unit -- disabled rather than hidden so it does not appear on
-            connect and shift Scan and Connect along. */}
+        {/* The three actions travel as one block. Left to the row's own
+            wrapping they broke up -- the info button stranded on the field
+            line, Scan and Connect on a line of their own -- which read as
+            three unrelated controls instead of one place to act. `ml: auto`
+            keeps them against the right edge on whichever line they land on,
+            and `flexWrap: nowrap` keeps them from splitting again. */}
+        <Stack
+          direction="row"
+          alignItems="center"
+          sx={{ gap: 1.5, flexWrap: 'nowrap', ml: 'auto', flexShrink: 0 }}
+        >
         <Tooltip title={isConnected ? 'Meter information' : 'Connect to a unit first'}>
           <span>
             <IconButton
@@ -420,7 +440,7 @@ export function ConnectionPanel() {
           variant="contained"
           onClick={startScan}
           disabled={isConnected}
-          sx={{ minWidth: 110, height: 36, ...actionSx(scanning ? a.danger : a.scan) }}
+          sx={{ minWidth: 96, height: 36, ...actionSx(scanning ? a.danger : a.scan) }}
         >
           {scanning ? 'Stop' : 'Scan'}
         </Button>
@@ -430,12 +450,13 @@ export function ConnectionPanel() {
           disabled={isConnected ? busy : !canConnect}
           onClick={toggle}
           endIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
-          sx={{ minWidth: 130, height: 36, ...actionSx(isConnected ? a.disconnect : a.connect) }}
+          sx={{ minWidth: 116, height: 36, ...actionSx(isConnected ? a.disconnect : a.connect) }}
         >
           {isConnected ? 'Disconnect' : 'Connect'}
         </Button>
+        </Stack>
 
-      </Stack>
+      </Box>
       <MeterInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
       <PathLossModal open={pathLossOpen} onClose={() => setPathLossOpen(false)} />
       <NicknameModal mac={editMac} onClose={() => setEditMac(null)} />

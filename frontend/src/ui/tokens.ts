@@ -15,6 +15,23 @@ export const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 export const TOP_BAR_H = 56
 export const SIDEBAR_W = 300
 
+/**
+ * Below this window width the shell stops being three docked columns.
+ *
+ * Half of a 1920 screen is 960px; with a 300px sidebar and a 340px docked log
+ * that left ~300px for the page, which is narrower than a single results
+ * table. Past this point the log floats over the content instead of taking a
+ * share of it, and the sidebar gives some width back. Chosen off the window,
+ * not the content area: it decides how the shell itself is arranged. Anything
+ * *inside* the content area should size off a container query instead, since
+ * the page's width depends on the dock as much as on the window.
+ */
+export const SHELL_NARROW_W = 1200
+
+/** Sidebar width once past `SHELL_NARROW_W`. Still fits the longest page label
+ *  ("Network Analyzer") at one line. */
+export const SIDEBAR_W_NARROW = 232
+
 /** Control heights. `md` matches MuiOutlinedInput sizeSmall so inputs and
  *  buttons on the same row line up; `lg` is for standalone action rows. */
 export const CONTROL_H = { md: 36, lg: 40 } as const
@@ -29,6 +46,10 @@ export const ACTION_W = { compact: 96, default: 120, wide: 148 } as const
 export const PAGE_W = {
   form: 760, panel: 900, grid: 1040, full: 1180, fluid: '100%',
 } as const
+
+/** Narrowest a labelled input column may get before its label starts to clip.
+ *  Field grids use it to decide how many columns their container can hold. */
+export const FIELD_MIN_W = 150
 
 /** Widest a column of text inputs should get. Past this a number field is all
  *  empty box, and the label drifts away from the value it belongs to. */

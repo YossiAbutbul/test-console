@@ -35,6 +35,13 @@ export function PageBody({ children, width = 'panel', scroll, grow }: PageBodyPr
       sx={{
         mt: 1,
         maxWidth: PAGE_W[width],
+        // Query container for everything the page lays out inside it. The
+        // content area's width is the window minus the sidebar minus whatever
+        // the log dock is taking, so a viewport breakpoint says almost nothing
+        // about how much room a panel actually has -- half a 1920 screen still
+        // reads as `md` while the page itself is 300px wide. Sizing off this
+        // box instead means a grid stacks exactly when it runs out of room.
+        containerType: 'inline-size',
         ...(scroll
           ? { flexGrow: 1, minHeight: 0, overflowY: 'auto', pr: 1, pb: 2 }
           : null),
@@ -73,8 +80,9 @@ interface TwoColProps {
 
 /**
  * Responsive two-column layout for dashboard pages: config on the left, live
- * results on the right. Collapses to a single column when the content area is
- * narrow (log drawer open on a small window).
+ * results on the right. Collapses to a single column when the *container* —
+ * not the window — is narrower than two `minCol` columns, so the log dock
+ * opening has the same effect as the window shrinking.
  */
 export function TwoCol({
   children, left = 1, right = 1, minCol = 300, stretch,
@@ -84,9 +92,14 @@ export function TwoCol({
       sx={{
         display: 'grid',
         gap: `${GRID_GAP}px`,
-        gridTemplateColumns: {
-          xs: '1fr',
-          md: `minmax(${minCol}px, ${left}fr) minmax(${minCol}px, ${right}fr)`,
+        // One column until both would actually fit at `minCol`. The old
+        // viewport `md` rule kept two columns on a half-width window, where
+        // each one was well under its own minimum and the grid simply
+        // overflowed the page to the right.
+        gridTemplateColumns: '1fr',
+        [`@container (min-width:${minCol * 2 + GRID_GAP}px)`]: {
+          gridTemplateColumns:
+            `minmax(${minCol}px, ${left}fr) minmax(${minCol}px, ${right}fr)`,
         },
         alignItems: stretch ? 'stretch' : 'start',
       }}

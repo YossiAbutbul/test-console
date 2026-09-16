@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Box } from '@mui/material'
-import { FIELD_MAX_W, GRID_GAP } from './tokens'
+import { FIELD_MAX_W, FIELD_MIN_W, GRID_GAP } from './tokens'
 
 interface FieldGridProps {
   children: ReactNode
@@ -24,10 +24,16 @@ export function FieldGrid({ children, columns = 3, wide }: FieldGridProps) {
       sx={{
         display: 'grid',
         gap: `${GRID_GAP}px`,
-        gridTemplateColumns: {
-          xs: '1fr',
-          sm: 'repeat(2, minmax(0, 1fr))',
-          md: `repeat(${columns}, minmax(0, 1fr))`,
+        // Container queries, not viewport ones: these grids sit inside a panel
+        // that may be one of two columns with the log dock open, so the window
+        // width is no guide to how many fields fit. `FIELD_MIN_W` is the point
+        // below which a labelled number field starts clipping its label.
+        gridTemplateColumns: '1fr',
+        [`@container (min-width:${FIELD_MIN_W * 2 + GRID_GAP}px)`]: {
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+        },
+        [`@container (min-width:${FIELD_MIN_W * columns + GRID_GAP * (columns - 1)}px)`]: {
+          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
         },
         ...(wide ? null : { maxWidth: FIELD_MAX_W }),
       }}
