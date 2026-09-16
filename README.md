@@ -452,10 +452,11 @@ The backend serves `frontend/dist` at `/`.
 A self-contained Windows app for a PC with no rig: no Python, no Node, no
 drivers. It drives the DUT over BLE; the rig pages are greyed out.
 
-Run from the repo root, in PowerShell, on a machine set up as above:
+Open a terminal in the repo root (cmd or PowerShell) on a machine set up as
+above, and run:
 
-```powershell
-.\scripts\build-app.ps1 -Zip
+```bash
+powershell -ExecutionPolicy Bypass -File scripts\build-app.ps1 -Zip
 ```
 
 Output is `dist\TestConsole\` (~35 MB) and `dist\TestConsole.zip`. Send the
