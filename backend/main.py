@@ -164,9 +164,37 @@ async def get_capabilities() -> dict[str, Any]:
     return {"instruments": available, "missing": missing}
 
 
+def _spa_index() -> FileResponse:
+    """index.html, marked to be revalidated on every load.
+
+    Without a Cache-Control header the browser picks its own freshness window
+    from Last-Modified and serves index.html from cache inside it. After a
+    rebuild that cached copy still names the previous bundle's hashed JS, so
+    the page kept showing the old UI until a hard refresh. `no-cache` still
+    lets the browser keep the file; it only has to ask first, and an unchanged
+    build answers 304.
+    """
+    return FileResponse(SPA_INDEX, headers={"Cache-Control": "no-cache"})
+
+
+class _HashedAssets(StaticFiles):
+    """/assets, cached for good.
+
+    Vite puts a content hash in every filename there, so a changed file is a
+    new URL and a cached one can never be stale. That is what makes it safe
+    for index.html alone to be revalidated.
+    """
+
+    async def get_response(self, path: str, scope: Any) -> Any:
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 @app.get("/")
 async def index() -> FileResponse:
-    return FileResponse(SPA_INDEX)
+    return _spa_index()
 
 
 @app.get("/favicon.svg")
@@ -183,7 +211,7 @@ async def favicon() -> FileResponse:
 
 
 if FRONTEND_DIST.is_dir():
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="spa-assets")
+    app.mount("/assets", _HashedAssets(directory=FRONTEND_DIST / "assets"), name="spa-assets")
 
 
 @app.get("/{full_path:path}")
@@ -192,4 +220,4 @@ async def spa_fallback(full_path: str, request: Request) -> FileResponse:
     path = "/" + full_path
     if any(path == prefix or path.startswith(prefix + "/") for prefix in _API_PREFIXES):
         raise HTTPException(status_code=404)
-    return FileResponse(SPA_INDEX)
+    return _spa_index()
