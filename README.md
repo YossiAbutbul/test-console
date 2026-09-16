@@ -6,6 +6,17 @@ RF instruments, an Arcus trombone motor, and an Arduino RF switch.
 See [`docs/architecture.md`](docs/architecture.md) for the structural overview
 and conventions used across the codebase.
 
+- [What to install on a new PC](#what-to-install-on-a-new-pc)
+- [Setup](#setup)
+- [Verify the install](#verify-the-install)
+- [Run — dev](#run--dev)
+- [Assistant](#assistant)
+- [Run — production](#run--production)
+- [Build the standalone app](#build-the-standalone-app)
+- [Troubleshooting](#troubleshooting)
+- [Layout](#layout)
+- [Tips](#tips)
+
 ---
 
 ## What to install on a new PC

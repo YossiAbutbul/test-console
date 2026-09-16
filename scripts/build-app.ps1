@@ -104,6 +104,13 @@ try {
     }
 
     # --- 4. ship ---------------------------------------------------------
+    # Copied next to the exe rather than declared as a `datas` entry in the
+    # spec: PyInstaller puts datas under _internal\, and the one file that has
+    # to be found without being looked for is the one telling the recipient
+    # what to double-click.
+    Step 'Adding README.txt...'
+    Copy-Item (Join-Path $Root 'packaging\README.txt') (Join-Path $OutDir 'README.txt') -Force
+
     if ($Zip) {
         Step 'Zipping...'
         $zipPath = Join-Path $Root 'dist\TestConsole.zip'
