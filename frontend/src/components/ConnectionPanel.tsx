@@ -46,6 +46,11 @@ const NAME_FILTERS: { value: string; label: string }[] = [
   { value: 'int2g', label: 'Interpreter G2' },
 ]
 
+/** A MAC with its `:`/`-` separators and spaces removed, for matching. */
+function stripMac(v: string): string {
+  return v.replace(/[\s:-]/g, '')
+}
+
 export function ConnectionPanel() {
   const { status, selectedAddr, setSelectedAddr } = useConnection()
   const { log } = useLog()
@@ -310,9 +315,14 @@ export function ConnectionPanel() {
           }}
           filterOptions={(opts, state) => {
             const q = state.inputValue.toLowerCase()
+            // The address is matched with its separators taken out on both
+            // sides, so "7054" finds 70:54:... -- nobody types the colons
+            // when reading a MAC off a label.
+            const qHex = stripMac(q)
             const filtered = !q ? opts : opts.filter(
               (o) =>
                 o.address.toLowerCase().includes(q) ||
+                (qHex !== '' && stripMac(o.address.toLowerCase()).includes(qHex)) ||
                 (o.name ?? '').toLowerCase().includes(q) ||
                 (nicknames.get(o.address) ?? '').toLowerCase().includes(q),
             )
