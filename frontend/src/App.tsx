@@ -69,6 +69,7 @@ function TestArea({ activeId }: { activeId: string }) {
   // a rig page that was left selected the last time the same browser profile
   // ran the rig build.
   const unavailable = activeMod.requiresInstruments ? noInstruments : null
+  const waiting = !!activeMod.requiresInstruments && !known
   // Rig pages are not mounted at all on a build without instruments, rather
   // than mounted and unreachable. Every page mounts at startup (see below) and
   // these ones go looking for their hardware as they do, so leaving them in
@@ -108,9 +109,19 @@ function TestArea({ activeId }: { activeId: string }) {
       {unavailable && (
         <NoInstrumentsNotice label={activeMod.label} reason={unavailable} />
       )}
+      {waiting && (
+        // Rig pages are held back until the backend has said what it can
+        // drive (see `pages`). Without this the page area is simply empty
+        // while it is down, which looks exactly like a broken page.
+        <Stack alignItems="center" justifyContent="center" sx={{ flexGrow: 1, minHeight: 0, p: 4 }}>
+          <Typography sx={{ fontSize: 14, opacity: 0.7 }}>
+            Waiting for the backend…
+          </Typography>
+        </Stack>
+      )}
       {pages.map((mod) => {
         const { Page } = mod
-        const isActive = mod.id === activeMod.id && !unavailable
+        const isActive = mod.id === activeMod.id && !unavailable && !waiting
         return (
           <Box
             key={mod.id}

@@ -9,6 +9,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '^/ble(/|$)': { target: backend, changeOrigin: true },
+      '^/capabilities$': { target: backend, changeOrigin: true },
       '^/chat(/|$)': { target: backend, changeOrigin: true },
       '^/device(/|$)': { target: backend, changeOrigin: true },
       '^/instruments(/|$)': { target: backend, changeOrigin: true },

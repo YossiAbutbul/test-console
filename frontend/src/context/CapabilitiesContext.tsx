@@ -15,6 +15,7 @@ import {
 } from 'react'
 
 import { getCapabilities, type Capabilities } from '../api/capabilities'
+import { ApiError } from '../api/client'
 
 interface CapabilitiesCtx extends Capabilities {
   /** False until the first answer lands. */
@@ -34,21 +35,47 @@ const FALLBACK: CapabilitiesCtx = { instruments: true, missing: [], known: false
 
 const Ctx = createContext<CapabilitiesCtx>(FALLBACK)
 
+/** How often to ask again while the backend is not answering at all. */
+const RETRY_MS = 2000
+
 export function CapabilitiesProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<CapabilitiesCtx>(FALLBACK)
 
   useEffect(() => {
     let cancelled = false
-    getCapabilities()
-      .then((c) => {
-        if (!cancelled) setState({ ...c, known: true })
-      })
-      .catch(() => {
-        // An older backend has no such route. Leaving the fallback in place
-        // means the UI behaves exactly as it did before this was added, which
-        // is the right answer for a backend that predates it.
-      })
-    return () => { cancelled = true }
+    let timer: number | undefined
+
+    const ask = () => {
+      getCapabilities()
+        .then((c) => {
+          if (!cancelled) setState({ ...c, known: true })
+        })
+        .catch((e: unknown) => {
+          if (cancelled) return
+          // Backend not up yet: the fetch itself fails, or the Vite proxy
+          // answers 5xx for it. Keep asking. Under `npm run dev` the UI is
+          // routinely open before uvicorn is, and asking only once left `known`
+          // false for the life of the tab -- which kept every rig page from
+          // mounting at all, even after the backend came up.
+          const unreachable = e instanceof TypeError
+            || (e instanceof ApiError && e.status >= 500)
+          if (unreachable) {
+            timer = window.setTimeout(ask, RETRY_MS)
+            return
+          }
+          // Anything else is an answer, just not a usable one: an older backend
+          // without the route, or a dev server with no proxy rule for it, where
+          // the SPA fallback hands back index.html. Settle on the fallback, so
+          // the UI behaves exactly as it did before this existed. Leaving
+          // `known` false here is what blanked Mode Sweep and Load Pull.
+          setState({ ...FALLBACK, known: true })
+        })
+    }
+    ask()
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
   }, [])
 
   const value = useMemo(() => state, [state])
