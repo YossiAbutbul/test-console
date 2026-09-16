@@ -13,18 +13,23 @@ limits live here and are enforced centrally rather than per client.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+from ..paths import data_root
+
+#: Both of these are resolved through `data_root` rather than from __file__:
+#: frozen into the desktop bundle the directory holding this module is
+#: read-only (and under one-file it is a temp dir that does not survive the
+#: process), so a quota write there would fail or silently reset the counters.
+_DATA_ROOT = data_root()
 
 #: Fallback for the key when GEMINI_API_KEY is not in the environment.
 #: Git-ignored; one line, the key and nothing else.
-KEY_FILE = REPO_ROOT / ".gemini_key"
+KEY_FILE = _DATA_ROOT / ".gemini_key"
 
 #: Where the day/minute counters survive a restart. Without this a backend
 #: bounce would hand back a full day's quota, which is exactly the overage the
 #: limiter exists to prevent.
-QUOTA_FILE = REPO_ROOT / ".chat-quota.json"
+QUOTA_FILE = _DATA_ROOT / ".chat-quota.json"
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 

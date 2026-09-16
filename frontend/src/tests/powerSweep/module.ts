@@ -11,4 +11,5 @@ export const powerSweepModule: TestModule = {
   icon: createElement(SsidChartIcon, { fontSize: 'small' }),
   Page: PowerSweepPage,
   requiresConnection: true,
+  requiresInstruments: true,
 }

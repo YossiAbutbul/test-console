@@ -4,6 +4,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
 import { testRegistry } from '../tests/registry'
+import { useInstrumentsUnavailableReason } from '../context/CapabilitiesContext'
 
 interface Props {
   activeId: string
@@ -49,9 +50,18 @@ export function SearchBar({ activeId, onSelect }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
+  const noInstruments = useInstrumentsUnavailableReason()
+
   const hits = useMemo<Hit[]>(() => {
     const needle = q.trim().toLowerCase()
-    const all: Hit[] = testRegistry.map((m) => ({
+    // Dropped rather than greyed out, unlike the sidebar. Search exists to get
+    // somewhere in one keystroke; offering a result that refuses to open is
+    // worse than the page simply not being among the matches, and the sidebar
+    // is still there to show what the rig would add.
+    const usable = noInstruments
+      ? testRegistry.filter((m) => !m.requiresInstruments)
+      : testRegistry
+    const all: Hit[] = usable.map((m) => ({
       kind: 'page',
       id: m.id,
       label: m.label,
@@ -73,7 +83,7 @@ export function SearchBar({ activeId, onSelect }: Props) {
       if (ga !== gb) return ga.localeCompare(gb)
       return a.label.localeCompare(b.label)
     })
-  }, [q])
+  }, [q, noInstruments])
 
   useEffect(() => { setCursor(0) }, [q])
 

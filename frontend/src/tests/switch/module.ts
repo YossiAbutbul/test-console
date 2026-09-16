@@ -12,4 +12,5 @@ export const switchModule: TestModule = {
   icon: createElement(SwapHorizIcon, { fontSize: 'small' }),
   Page: SwitchPage,
   requiresConnection: false,
+  requiresInstruments: true,
 }

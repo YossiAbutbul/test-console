@@ -1,0 +1,29 @@
+# What the DUT-only desktop bundle is built from.
+#
+# A deliberate subset of requirements.txt, and a separate file rather than a
+# pip extra because the *absence* of the instrument packages is the point:
+# scripts/build-app.ps1 builds in a venv made from this file alone, so nothing
+# that is not listed here can end up in the bundle by accident. backend's
+# capability probe then reports "no instrument support" because that is
+# genuinely true of the interpreter it is running on, rather than because a
+# flag says so.
+#
+# Left out on purpose, all of them useless without hardware and its drivers:
+#   pyvisa, pyvisa-py       VISA spectrum/network/DC analysers
+#   rf-instruments          the vendor wrappers
+#   pythonnet               loads the Mini-Circuits .NET power-sensor DLL
+#   numpy                   pulled in only by the network_analyzer wrapper
+#   dmx-j-sa                Arcus trombone motor, needs a kernel driver
+#   pyserial                the servo on the RF switch
+#
+# The DUT itself is BLE, which bleak drives through the OS Bluetooth stack --
+# no driver, no install, which is the whole reason this build is possible.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+bleak>=0.22
+pydantic>=2.6
+openpyxl>=3.1
+
+# Build tool, not a runtime dependency. Listed here so the build venv is one
+# pip install rather than two.
+pyinstaller>=6.6

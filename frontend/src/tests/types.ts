@@ -31,4 +31,17 @@ export interface TestModule {
   icon?: ReactNode
   Page: ComponentType<TestPageProps>
   requiresConnection: boolean
+  /**
+   * True for a page that exists only to drive an instrument, and so has
+   * nothing to offer a build without instrument support (see
+   * CapabilitiesContext). Such a page is shown greyed out with a reason
+   * rather than hidden, so the app looks the same everywhere and the
+   * operator can see what the rig would add.
+   *
+   * Not the same as "uses an instrument". The TX pages command the DUT and
+   * measure what comes back; without instruments they still transmit, and
+   * the existing preflight already offers to run without the readings. Those
+   * stay enabled.
+   */
+  requiresInstruments?: boolean
 }

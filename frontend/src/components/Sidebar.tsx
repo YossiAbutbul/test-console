@@ -20,6 +20,7 @@ import { getAppPalette } from '../theme'
 import { SIDEBAR_W, TOP_BAR_H } from '../ui/tokens'
 import { useShellLayout } from '../ui/useShellLayout'
 import { testRegistry } from '../tests/registry'
+import { useInstrumentsUnavailableReason } from '../context/CapabilitiesContext'
 import type { TestModule } from '../tests/types'
 
 // Re-exported for the call sites that reach for them alongside Sidebar; the
@@ -289,6 +290,9 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
   const s = getAppPalette(mode).sidebar
   const { setOpen: openInstruments } = useInstrumentsActions()
   const { instruments } = useInstrumentsState()
+  // Non-null in the DUT-only desktop build: the message explaining why every
+  // rig page below is greyed out.
+  const noInstruments = useInstrumentsUnavailableReason()
   const anyConnected = useMemo(
     () => Object.values(instruments).some((i) => i.status === 'connected'),
     [instruments],
@@ -361,8 +365,15 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
     >
       <Box sx={{ flexGrow: 1, overflowY: 'auto', py: 1.5 }}>
         <Box sx={{ px: 1.5, mb: 1.5 }}>
+          <Tooltip
+            title={noInstruments ?? ''}
+            placement="right"
+            disableHoverListener={!noInstruments}
+          >
+            <Box>
           <ListItemButton
             disableRipple
+            disabled={!!noInstruments}
             onClick={() => openInstruments(true)}
             sx={{
               borderRadius: 1.5,
@@ -371,6 +382,7 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
               height: 36,
               color: s.textDim,
               '&:hover': { bgcolor: s.hover, color: s.text },
+              '&.Mui-disabled': { opacity: 0.38 },
             }}
           >
             <ListItemIcon sx={{ minWidth: 30, color: anyConnected ? s.success : 'inherit' }}>
@@ -384,6 +396,8 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
               <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: s.success, mr: 0.5 }} />
             )}
           </ListItemButton>
+            </Box>
+          </Tooltip>
         </Box>
         {tree.map(({ protocol, groups }) => {
           // Root entry: no protocol row to expand, and always open.
@@ -480,27 +494,43 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
                           <Box sx={{ pl: hasGroup ? 2 : 0 }}>
                             {mods.map((m) => {
                               const sel = m.id === activeId
+                              // Greyed out rather than hidden, so the sidebar
+                              // reads the same on a PC without a rig and the
+                              // tooltip can say what is missing.
+                              const blocked = m.requiresInstruments ? noInstruments : null
                               return (
                                 <Box key={m.id} sx={{ px: 1.5 }}>
-                                  <ListItemButton
-                                    disableRipple
-                                    onClick={() => onSelect(m.id)}
-                                    sx={{
-                                      borderRadius: 1.5,
-                                      px: 1.5,
-                                      mx: 0,
-                                      height: 36,
-                                      my: 0.25,
-                                      color: sel ? s.text : s.textDim,
-                                      bgcolor: sel ? s.accentSoft : 'transparent',
-                                      '&:hover': { bgcolor: sel ? s.accentSoftHover : s.hover, color: s.text },
-                                    }}
+                                  <Tooltip
+                                    title={blocked ?? ''}
+                                    placement="right"
+                                    // A disabled button fires no pointer events,
+                                    // so the tooltip has to listen on the wrapper.
+                                    disableHoverListener={!blocked}
                                   >
-                                    <ListItemText
-                                      primary={m.label}
-                                      primaryTypographyProps={{ fontSize: 14, fontWeight: sel ? 600 : 500 }}
-                                    />
-                                  </ListItemButton>
+                                    <Box>
+                                      <ListItemButton
+                                        disableRipple
+                                        disabled={!!blocked}
+                                        onClick={() => onSelect(m.id)}
+                                        sx={{
+                                          borderRadius: 1.5,
+                                          px: 1.5,
+                                          mx: 0,
+                                          height: 36,
+                                          my: 0.25,
+                                          color: sel ? s.text : s.textDim,
+                                          bgcolor: sel ? s.accentSoft : 'transparent',
+                                          '&:hover': { bgcolor: sel ? s.accentSoftHover : s.hover, color: s.text },
+                                          '&.Mui-disabled': { opacity: 0.38 },
+                                        }}
+                                      >
+                                        <ListItemText
+                                          primary={m.label}
+                                          primaryTypographyProps={{ fontSize: 14, fontWeight: sel ? 600 : 500 }}
+                                        />
+                                      </ListItemButton>
+                                    </Box>
+                                  </Tooltip>
                                 </Box>
                               )
                             })}

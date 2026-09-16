@@ -12,7 +12,6 @@ from .hw import dll_setup  # noqa: F401  (import for side effect)
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from fastapi import FastAPI, HTTPException, Request
@@ -21,6 +20,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from uvicorn.logging import AccessFormatter, DefaultFormatter
 
+from . import capabilities, paths
 from .api import (
     ble_router, chat_router, device_router, instruments_router,
     load_pull_router, motor_router, servo_router, test_router,
@@ -30,8 +30,10 @@ from .ble import manager as ble_manager
 from .motor import manager as motor_manager
 from .servo import manager as servo_manager
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
+# Resolved through `paths` rather than from __file__: frozen into the desktop
+# bundle there is no repo above this module, and the built SPA sits beside the
+# executable instead.
+FRONTEND_DIST = paths.frontend_dist()
 SPA_INDEX = FRONTEND_DIST / "index.html"
 
 _LOG_FMT = "%(asctime)s %(levelprefix)s %(name)s: %(message)s"
@@ -41,7 +43,7 @@ _DATEFMT = "%H:%M:%S"
 # Paths the SPA fallback must not swallow.
 _API_PREFIXES = (
     "/ble", "/chat", "/device", "/instruments", "/motor", "/servo", "/test", "/health",
-    "/assets", "/docs", "/redoc", "/openapi.json",
+    "/capabilities", "/assets", "/docs", "/redoc", "/openapi.json",
 )
 
 
@@ -148,6 +150,18 @@ app.include_router(test_router)
 @app.get("/health")
 async def health() -> dict[str, bool]:
     return {"ok": True}
+
+
+@app.get("/capabilities")
+async def get_capabilities() -> dict[str, Any]:
+    """What this build can drive, asked once by the UI at startup.
+
+    Exists so the DUT-only desktop bundle can grey out the rig pages up front.
+    Without it the first sign that a page cannot work is a 501 from the connect
+    call, which lands after the operator has already set the test up.
+    """
+    available, missing = capabilities.instruments()
+    return {"instruments": available, "missing": missing}
 
 
 @app.get("/")

@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
 import { ThemeModeProvider } from './context/ThemeModeContext'
+import { CapabilitiesProvider } from './context/CapabilitiesContext'
 import { ConnectionProvider } from './context/ConnectionContext'
 import { LogProvider } from './context/LogContext'
 import { ChatProvider } from './context/ChatContext'
@@ -36,6 +37,9 @@ createRoot(document.getElementById('root')!).render(
     <ThemeModeProvider>
       <BrowserRouter>
         <LogProvider>
+          {/* Outside the hardware providers: what this build can drive is
+              settled before anything tries to drive it. */}
+          <CapabilitiesProvider>
           <ConnectionProvider>
             <InstrumentsProvider>
               <NicknamesProvider>
@@ -49,6 +53,7 @@ createRoot(document.getElementById('root')!).render(
               </NicknamesProvider>
             </InstrumentsProvider>
           </ConnectionProvider>
+          </CapabilitiesProvider>
         </LogProvider>
       </BrowserRouter>
     </ThemeModeProvider>

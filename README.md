@@ -436,6 +436,49 @@ The backend serves `frontend/dist` at `/`.
 
 ---
 
+## Ship it to someone who has no rig
+
+There is a second way to run this: a self-contained Windows app that needs
+nothing installed on the machine it lands on -- no Python, no Node, no venv.
+It talks to the DUT over BLE, which goes through the OS Bluetooth stack, so
+there is no driver to install either. What it cannot do is drive the rig:
+VISA, the vendor wrappers and the Arcus motor are deliberately left out.
+
+```powershell
+.\scripts\build-app.ps1 -Zip
+```
+
+That produces `dist\TestConsole\` (~35 MB) and `dist\TestConsole.zip`. The
+person you send it to unzips it anywhere and double-clicks `TestConsole.exe`:
+a console window opens, the server starts on a free port, and their browser
+opens on the console. Closing the window stops it. Deleting the folder is a
+full uninstall -- nothing is written outside it except the assistant's quota
+file, which goes to `%LOCALAPPDATA%\TestConsole`.
+
+First launch trips SmartScreen ("unknown publisher"), because the exe is not
+code-signed: **More info -> Run anyway**.
+
+**What they see.** Every page is there, but the ones that exist only to drive
+rig hardware -- Mode Sweep, Load Pull, Trombone, Switch, Network Analyzer,
+Power Meter, Signal Generator -- are greyed out, with a tooltip saying which
+packages are missing. The TX pages work: those command the DUT and measure
+what comes back, so without instruments they still transmit and the existing
+preflight offers to run without the readings.
+
+**How the switch works.** `backend/capabilities.py` reports whether the
+instrument packages can be imported, and `GET /capabilities` hands that to the
+UI. It is a probe rather than a build-time flag on purpose: a flag can
+disagree with the bundle it is in, and what is importable is the same question
+the connect path asks, so the greyed-out page and the button behind it cannot
+drift apart. `scripts\build-app.ps1` builds in `.venv-build`, made fresh from
+`requirements-desktop.txt` -- so the instrument packages are absent from the
+interpreter PyInstaller analyses and cannot be bundled by accident.
+
+`INSTRUMENTS_ENABLED=1` (or `=0`) overrides the probe, which is how to see
+either UI without building a bundle.
+
+---
+
 ## Troubleshooting
 
 **An instrument is missing from the app's list.** Work down the stack — do not

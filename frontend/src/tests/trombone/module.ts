@@ -12,4 +12,5 @@ export const tromboneModule: TestModule = {
   icon: createElement(TuneIcon, { fontSize: 'small' }),
   Page: TrombonePage,
   requiresConnection: false,
+  requiresInstruments: true,
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box, Drawer, IconButton, Stack, Tooltip, Typography, type Theme,
 } from '@mui/material'
@@ -13,6 +13,9 @@ import { ChatPanel } from './components/ChatPanel'
 import { useChat } from './context/ChatContext'
 import { InstrumentsModal } from './components/InstrumentsModal'
 import { useConnection } from './context/ConnectionContext'
+import {
+  useCapabilities, useInstrumentsUnavailableReason,
+} from './context/CapabilitiesContext'
 import { useThemeMode } from './context/ThemeModeContext'
 import { getAppPalette } from './theme'
 import { testRegistry } from './tests/registry'
@@ -34,10 +37,55 @@ const LOG_DEFAULT_W = 340
  *  than the docked default -- but not so wide the page behind it is gone. */
 const LOG_OVERLAY_MAX_FRAC = 0.62
 
+/** Shown in place of a rig page on a build that has no instrument support. */
+function NoInstrumentsNotice({ label, reason }: { label: string; reason: string }) {
+  return (
+    <Stack
+      alignItems="center"
+      justifyContent="center"
+      spacing={1.5}
+      sx={{ flexGrow: 1, minHeight: 0, p: 4, textAlign: 'center' }}
+    >
+      <ScienceIcon sx={{ fontSize: 40, opacity: 0.35 }} />
+      <Typography sx={{ fontSize: 18, fontWeight: 600 }}>
+        {label} needs an instrument
+      </Typography>
+      <Typography sx={{ fontSize: 14, opacity: 0.7, maxWidth: 440 }}>
+        {reason} The pages that talk to the DUT still work; this one drives rig
+        hardware and has nothing to do without it.
+      </Typography>
+    </Stack>
+  )
+}
+
 function TestArea({ activeId }: { activeId: string }) {
   const { status } = useConnection()
+  const noInstruments = useInstrumentsUnavailableReason()
+  const { known } = useCapabilities()
   const activeMod = testRegistry.find((m) => m.id === activeId) ?? testRegistry[0]
   const gated = activeMod.requiresConnection && !(status?.connected && status?.transport_ready)
+  // The sidebar will not navigate here, but the last-used page is restored
+  // from storage on load -- so a bundle opened on a PC with no rig can land on
+  // a rig page that was left selected the last time the same browser profile
+  // ran the rig build.
+  const unavailable = activeMod.requiresInstruments ? noInstruments : null
+  // Rig pages are not mounted at all on a build without instruments, rather
+  // than mounted and unreachable. Every page mounts at startup (see below) and
+  // these ones go looking for their hardware as they do, so leaving them in
+  // means a DUT-only build greets its user with a log full of red 501s from
+  // scans that were never going to find anything.
+  //
+  // They also wait for `known`, which is the same problem one step earlier:
+  // capabilities arrive a round trip after first paint, and a rig page mounted
+  // in the meantime has already sent its discover. Holding them back costs one
+  // localhost round trip on the rig, where it is invisible, and is the
+  // difference between a clean start and a wall of errors everywhere else.
+  const pages = useMemo(
+    () => (known && !noInstruments
+      ? testRegistry
+      : testRegistry.filter((m) => !m.requiresInstruments)),
+    [known, noInstruments],
+  )
 
   // All pages mount once on app start and we toggle visibility via `display`.
   // This trades a slightly slower first paint for instant sidebar navigation —
@@ -57,9 +105,12 @@ function TestArea({ activeId }: { activeId: string }) {
         minHeight: 0,
       }}
     >
-      {testRegistry.map((mod) => {
+      {unavailable && (
+        <NoInstrumentsNotice label={activeMod.label} reason={unavailable} />
+      )}
+      {pages.map((mod) => {
         const { Page } = mod
-        const isActive = mod.id === activeMod.id
+        const isActive = mod.id === activeMod.id && !unavailable
         return (
           <Box
             key={mod.id}

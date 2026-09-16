@@ -12,4 +12,5 @@ export const networkAnalyzerModule: TestModule = {
   icon: createElement(GraphicEqIcon, { fontSize: 'small' }),
   Page: NetworkAnalyzerPage,
   requiresConnection: false,
+  requiresInstruments: true,
 }

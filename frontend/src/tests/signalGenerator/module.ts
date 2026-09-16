@@ -16,4 +16,5 @@ export const signalGeneratorModule: TestModule = {
   Page: SignalGeneratorPage,
   // Drives the generator over RS-232; nothing here talks to the DUT.
   requiresConnection: false,
+  requiresInstruments: true,
 }

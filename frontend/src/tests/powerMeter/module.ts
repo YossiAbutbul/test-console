@@ -16,4 +16,5 @@ export const powerMeterModule: TestModule = {
   Page: PowerMeterPage,
   // Reads the sensor over VISA; nothing here talks to the DUT.
   requiresConnection: false,
+  requiresInstruments: true,
 }

@@ -11,4 +11,5 @@ export const loadPullModule: TestModule = {
   icon: createElement(ScienceIcon, { fontSize: 'small' }),
   Page: LoadPullPage,
   requiresConnection: false,
+  requiresInstruments: true,
 }
