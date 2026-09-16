@@ -315,10 +315,12 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
   })
   const [expandedGroup, setExpandedGroup] = useState<Record<string, boolean>>(() => {
     const out: Record<string, boolean> = {}
-    // Root groups start open; a protocol's 'Other' drawer starts closed.
+    // A protocol's groups start open except its 'Other' drawer. Root groups
+    // (Components) start closed: they are rig tools rather than the tests
+    // most sessions come for, and open they push LTE and BLE off the bottom.
     for (const p of tree) {
       for (const g of p.groups) {
-        out[`${p.protocol ?? 'root'}/${g.group}`] = p.protocol == null || g.group !== 'Other'
+        out[`${p.protocol ?? 'root'}/${g.group}`] = p.protocol != null && g.group !== 'Other'
       }
     }
     // ...except the one holding the page on screen, which opens even if it is
