@@ -6,6 +6,11 @@ RF instruments, an Arcus trombone motor, and an Arduino RF switch.
 See [`docs/architecture.md`](docs/architecture.md) for the structural overview
 and conventions used across the codebase.
 
+**Operators:** the full user manual — setup, every supported device and
+connection, and a step-by-step guide to each test with screenshots — is in
+[`docs/manual/Test-Console-User-Manual.docx`](docs/manual/Test-Console-User-Manual.docx).
+It is generated from `docs/manual/source/` by the scripts in `docs/manual/tools/`.
+
 - [What to install on a new PC](#what-to-install-on-a-new-pc)
 - [Setup](#setup)
 - [Verify the install](#verify-the-install)

@@ -2,27 +2,13 @@
 
 ## Branching
 
-`dev` is where work lands. `main` is what is published.
+There is no `dev` branch. Work lands on `main`.
 
-- **Every new feature and fix is committed to `dev`**, never straight to `main`.
-- `dev` accumulates several features. When they have been tried on the rig and
-  are good, `dev` is published to `main` in one go.
-- Do not commit to `main` directly. If work has started on `main` by mistake,
-  move it to `dev` before committing.
-
-Publishing, once the operator says to:
-
-```bash
-git checkout main
-git merge --ff-only dev
-git push origin main
-git checkout dev
-```
-
-A fast-forward keeps the individual commits rather than folding them into a
-merge commit, so the history reads the same on both branches. If `main` has
-moved on its own and the fast-forward is refused, say so and ask — do not
-rewrite either branch to force it through.
+- **By default, commit straight to `main`.**
+- **Only when the operator asks for a branch**, create a feature branch off
+  `main` (e.g. `feat/<name>`), do the work there, and merge it back into
+  `main` when told to.
+- Do not reintroduce a long-lived integration branch without being asked.
 
 ## Committing
 
