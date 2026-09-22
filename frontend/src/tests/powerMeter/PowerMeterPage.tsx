@@ -14,7 +14,7 @@ import { useLog } from '../../context/LogContext'
 import { describeMeasureError } from '../../lib/instrumentError'
 import { DASH } from '../../lib/format'
 import {
-  ConnectButton, MONO, PageBody, Section, StatRow, StatTile, StatusChip, TEXT,
+  InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import {
@@ -78,7 +78,7 @@ function clockOf(t: number): string {
 export function PowerMeterPage({ group, active }: TestPageProps) {
   const { log } = useLog()
   const sensor = useInstrumentValue('power-sensor')
-  const { connect, disconnect } = useInstrumentsActions()
+  const { connect, disconnect, setAddress } = useInstrumentsActions()
   // The default rather than a per-frequency entry: the table is keyed by
   // frequency and this page has none, so looking one up would silently pick a
   // correction that belongs to some other measurement.
@@ -262,29 +262,34 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
       </Tabs>
 
       <PageBody width="fluid">
-        <Section title="Sensor" panel>
-          <Stack direction="row" alignItems="center" spacing={2} flexWrap="wrap">
-            <StatusChip
-              label={connected ? 'Connected' : sensor.status === 'connecting' ? 'Connecting' : 'Disconnected'}
-              tone={
-                connected ? 'ok'
-                  : sensor.status === 'error' ? 'error'
-                    : sensor.status === 'connecting' ? 'busy' : 'off'
-              }
-              detail={sensor.idn ?? undefined}
-              spinning={sensor.status === 'connecting'}
-            />
-            <Box sx={{ flexGrow: 1 }} />
-            <ConnectButton
-              connected={connected}
-              pending={connecting || sensor.status === 'connecting'}
-              onConnect={() => void onConnect()}
-              onDisconnect={() => void disconnect('power-sensor')}
-            />
-          </Stack>
-        </Section>
+        <InstrumentBar
+          name="Power sensor"
+          model="Mini-Circuits PWR-SEN-4GHS"
+          status={connecting && !connected ? 'connecting' : sensor.status}
+          detail={sensor.idn}
+          summary={sensor.address ? `serial ${sensor.address}` : 'first sensor found'}
+          onConnect={() => void onConnect()}
+          onDisconnect={() => void disconnect('power-sensor')}
+          config={
+            <Box>
+              <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>Serial number</Typography>
+              <TextField
+                size="small"
+                fullWidth
+                value={sensor.address}
+                disabled={connected}
+                placeholder="blank = first sensor found"
+                onChange={(e) => setAddress('power-sensor', e.target.value.trim())}
+                sx={{ '& input': { fontFamily: MONO, fontSize: 12.5 } }}
+              />
+              <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 0.75 }}>
+                Needed only with more than one sensor plugged in.
+              </Typography>
+            </Box>
+          }
+        />
 
-        <Box sx={{ mt: 2 }}>
+        <Box>
           <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1 }}>
             <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
               Reading

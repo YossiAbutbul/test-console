@@ -203,7 +203,12 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
   const refreshStatus = useCallback(async (): Promise<void> => {
     const apply = (
       id: InstrumentId,
-      st: { connected: boolean; idn: string | null } | undefined,
+      st: {
+        connected: boolean
+        idn: string | null
+        address?: string | null
+        channel?: number | null
+      } | undefined,
     ) => {
       // A backend older than this bundle does not report every instrument the
       // UI knows about — the usual case being a server that has not been
@@ -216,10 +221,21 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
         // A connect in flight owns the row until it settles.
         if (cur.status === 'connecting') return prev
         if (st.connected) {
-          if (cur.status === 'connected' && cur.idn === (st.idn ?? undefined)) return prev
+          // Fill in what the session is bound to when this tab does not know
+          // it -- a reload, or a connect made from another page or tab. Only
+          // into an empty field: a typed address is the operator's.
+          const address = cur.address || st.address || ''
+          const channel = st.channel ?? cur.channel
+          if (
+            cur.status === 'connected' && cur.idn === (st.idn ?? undefined)
+            && cur.address === address && cur.channel === channel
+          ) return prev
           return {
             ...prev,
-            [id]: { ...cur, status: 'connected', idn: st.idn ?? undefined, failure: undefined },
+            [id]: {
+              ...cur, status: 'connected', idn: st.idn ?? undefined, failure: undefined,
+              address, channel,
+            },
           }
         }
         if (cur.status === 'connected') {

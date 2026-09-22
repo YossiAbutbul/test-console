@@ -353,7 +353,10 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
         }
       />
 
+      {/* Switching tabs sends nothing, and the Automation tab holds results
+          to import, export and graph without a DUT. */}
       <Tabs
+        data-ungated
         value={tab}
         onChange={(_, v) => setTab(v)}
         sx={{

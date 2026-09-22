@@ -29,7 +29,7 @@ const HEIGHT = 900
 /** Buttons that are allowed to be clicked. Anything else is refused. */
 const SAFE = new Set([
   'Automation', 'Manual', 'Settings', 'Instruments', 'Edit path loss per frequency',
-  'Bands in use', 'View setup', 'Smith chart', 'Graph', 'LTE', 'OTHER', 'COMPONENTS', 'BLE',
+  'Bands in use', 'View setup', 'Smith chart', 'Graph', 'Config', 'LTE', 'OTHER', 'COMPONENTS', 'BLE',
 ])
 
 /**
@@ -110,13 +110,15 @@ const SHOTS = [
   { file: 'network-analyzer', page: 'network-analyzer' },
   { file: 'power-meter', page: 'power-meter' },
   { file: 'signal-generator', page: 'signal-generator' },
+  { file: 'dc-analyzer', page: 'dc-analyzer' },
+  { file: 'dc-analyzer-config', page: 'dc-analyzer', clicks: ['Config'], modal: true },
 ]
 
 async function clickSafe(page, name) {
   if (!SAFE.has(name)) throw new Error(`refusing to click "${name}" -- not in SAFE`)
   // Every page stays mounted and is hidden with display:none, so a plain text
   // locator finds the hidden copies first. Only a visible match will do.
-  const exact = new RegExp(`^\s*${name}\s*$`, 'i')
+  const exact = new RegExp(`^\\s*${name}\\s*$`, 'i')
   const loc = page.locator(`[aria-label="${name}"]`)
     .or(page.getByRole('tab', { name, exact: true }))
     .or(page.getByRole('button', { name, exact: true }))

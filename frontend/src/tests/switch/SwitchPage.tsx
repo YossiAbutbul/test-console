@@ -11,8 +11,8 @@ import { servo, type ServoTarget } from '../../api/servo'
 import { useLog } from '../../context/LogContext'
 import { DASH } from '../../lib/format'
 import {
-  ACTION_W, CONTROL_H, ConnectButton, MONO, MonoText, PageBody, Section,
-  StatRow, StatTile, StatusChip, TEXT, TwoCol,
+  ACTION_W, CONTROL_H, InstrumentBar, MONO, PageBody, Section,
+  StatRow, StatTile, TEXT, TwoCol,
 } from '../../ui'
 import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
@@ -138,49 +138,43 @@ export function SwitchPage({ group }: TestPageProps) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
-      <PageHeader
-        group={group}
-        label="Switch"
-        actions={
-          <ConnectButton
-            connected={connected}
-            pending={connectM.isPending || disconnectM.isPending}
-            disabled={busy || (!connected && !port)}
-            onConnect={() => connectM.mutate()}
-            onDisconnect={() => disconnectM.mutate()}
-          />
-        }
-      />
+      <PageHeader group={group} label="Switch" />
 
       <PageBody width="fluid">
-        <Box>
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-            <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
-              RF path
-            </Typography>
-            <MonoText sx={{ fontSize: 11 }}>Arduino · 9600 8N1</MonoText>
-            <Box sx={{ flexGrow: 1 }} />
-            {!connected && (
+        <InstrumentBar
+          name="RF switch"
+          model="Servo (Arduino) · 9600 8N1"
+          status={connectM.isPending ? 'connecting' : connected ? 'connected' : 'disconnected'}
+          detail={statusDetail || null}
+          summary={port || null}
+          configReady={!!port}
+          pending={disconnectM.isPending}
+          disabled={busy && !connectM.isPending}
+          onConnect={() => connectM.mutate()}
+          onDisconnect={() => disconnectM.mutate()}
+          config={
+            <Box>
+              <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>Port</Typography>
               <Autocomplete
                 size="small"
                 freeSolo
+                disabled={connected}
                 options={ports}
                 value={port}
                 onChange={(_e, v) => setPort(typeof v === 'string' ? v : (v ?? ''))}
                 onInputChange={(_e, v) => setPort(v ?? '')}
                 onOpen={() => discoverM.mutate()}
                 loading={discoverM.isPending}
-                sx={{ width: 170 }}
-                renderInput={(p) => <TextField {...p} label="Port" placeholder="COM3" />}
+                renderInput={(p) => <TextField {...p} placeholder="COM3" />}
               />
-            )}
-            <StatusChip
-              label={connected ? 'Connected' : 'Disconnected'}
-              tone={connected ? 'ok' : 'off'}
-              detail={connected ? statusDetail || undefined : undefined}
-            />
-          </Stack>
+              <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 0.75 }}>
+                The USB-serial port. Listing ports never opens them, so the Arduino is not reset.
+              </Typography>
+            </Box>
+          }
+        />
 
+        <Box>
           <StatRow>
             <StatTile
               label="Selected"

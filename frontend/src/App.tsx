@@ -97,9 +97,21 @@ function TestArea({ activeId }: { activeId: string }) {
       aria-disabled={gated || undefined}
       sx={{
         minWidth: 0,
-        opacity: gated ? 0.6 : 1,
         pointerEvents: gated ? 'none' : 'auto',
-        transition: 'opacity 0.15s',
+        // Dim everything except panels marked `data-ungated` (results, with
+        // their import/export), which work on data already on screen and have
+        // nothing to wait for from the DUT. Opacity cannot be undone by a
+        // child, so rather than dimming this box the rule dims the topmost
+        // elements that neither are nor contain an ungated panel: the children
+        // of the gate, and of any box on the path down to an ungated panel.
+        ...(gated ? {
+          [`& > :not([data-ungated]):not(:has([data-ungated])),
+            & :has([data-ungated]) > :not([data-ungated]):not(:has([data-ungated]))`]: {
+            opacity: 0.6,
+          },
+          '& [data-ungated]': { pointerEvents: 'auto' },
+        } : null),
+        '& > *': { transition: 'opacity 0.15s' },
         display: 'flex',
         flexDirection: 'column',
         flexGrow: 1,

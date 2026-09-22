@@ -16,10 +16,12 @@ import {
 import { useLog } from '../../context/LogContext'
 import { DASH, fmt, fmtHz, fmtMhz } from '../../lib/format'
 import {
-  ACTION_W, ConnectButton, CONTROL_H, MONO, MonoText, PageBody, Section,
-  StatRow, StatTile, StatusChip, TEXT, TwoCol,
+  ACTION_W, CONTROL_H, InstrumentBar, MONO, PageBody, Section,
+  StatRow, StatTile, TEXT, TwoCol,
 } from '../../ui'
 import type { TestPageProps } from '../types'
+import { pickCandidate } from '../../context/InstrumentsContext'
+import { filterCandidates } from '../../lib/instrumentCandidates'
 import { useActionReporter } from '../engine/useRunReporter'
 
 const MHZ = 1e6
@@ -74,8 +76,16 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
   const discoverM = useMutation({
     mutationFn: vna.discover,
     onSuccess: (r) => {
-      setResources(r.candidates)
-      if (!resource && r.candidates.length > 0) setResource(r.candidates[0])
+      // The DC analyzer shares the VISA bus. Offered unfiltered, the first
+      // resource found -- often the N6705 -- became the preselected "VNA".
+      const found = r.details
+        ? filterCandidates('network-analyzer', r.details)
+        : r.candidates.map((resource) => ({ resource, idn: null }))
+      setResources(found.map((c) => c.resource))
+      if (!resource) {
+        const pick = pickCandidate('network-analyzer', found)
+        if (pick) setResource(pick.resource)
+      }
     },
     onError: onErr('discover'),
   })
@@ -194,47 +204,44 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
                 ? 'Sweeping…'
                 : `Sweep + Read ${sTab === 's11' ? 'S11' : 'S21'}`}
             </Button>
-            <ConnectButton
-              connected={connected}
-              pending={connectM.isPending || disconnectM.isPending}
-              disabled={busy || (!connected && !resource)}
-              onConnect={() => connectM.mutate()}
-              onDisconnect={() => disconnectM.mutate()}
-            />
           </Stack>
         }
       />
 
       <PageBody width="fluid">
-        <Box>
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-            <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
-              Instrument
-            </Typography>
-            <MonoText sx={{ fontSize: 11 }}>
-              {connected ? (cfg?.idn ?? 'E5061B') : 'Agilent E5061B · USBTMC / VISA'}
-            </MonoText>
-            <Box sx={{ flexGrow: 1 }} />
-            {!connected && (
+        <InstrumentBar
+          name="Network analyzer"
+          model="Agilent E5061B · USBTMC / VISA"
+          status={connectM.isPending ? 'connecting' : connected ? 'connected' : 'disconnected'}
+          detail={cfg?.idn ?? null}
+          summary={resource || null}
+          configReady={!!resource}
+          pending={disconnectM.isPending}
+          disabled={busy && !connectM.isPending}
+          onConnect={() => connectM.mutate()}
+          onDisconnect={() => disconnectM.mutate()}
+          config={
+            <Box>
+              <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>VISA resource</Typography>
               <Autocomplete
                 size="small"
                 freeSolo
+                disabled={connected}
                 options={resources}
                 value={resource}
                 onChange={(_e, v) => setResource(typeof v === 'string' ? v : (v ?? ''))}
                 onInputChange={(_e, v) => setResource(v ?? '')}
                 onOpen={() => discoverM.mutate()}
                 loading={discoverM.isPending}
-                sx={{ width: 300 }}
-                renderInput={(p) => <TextField {...p} label="VISA resource" placeholder="USB0::0x0957::…" />}
+                renderInput={(p) => (
+                  <TextField {...p} placeholder="USB0::0x0957::…" sx={{ '& input': { fontFamily: MONO, fontSize: 12 } }} />
+                )}
               />
-            )}
-            <StatusChip
-              label={connected ? 'Online' : 'Offline'}
-              tone={connected ? 'ok' : 'off'}
-            />
-          </Stack>
+            </Box>
+          }
+        />
 
+        <Box>
           {/* Read back from the instrument, not echoed from the form. */}
           <StatRow>
             <StatTile

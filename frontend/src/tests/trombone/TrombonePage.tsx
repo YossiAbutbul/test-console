@@ -13,8 +13,8 @@ import { motor } from '../../api/motor'
 import { useLog } from '../../context/LogContext'
 import { DASH } from '../../lib/format'
 import {
-  ACTION_W, CONTROL_H, ConnectButton, MONO, MonoText, PageBody, Section,
-  StatRow, StatTile, StatusChip, TEXT, TwoCol,
+  ACTION_W, CONTROL_H, InstrumentBar, MONO, PageBody, Section,
+  StatRow, StatTile, TEXT, TwoCol,
 } from '../../ui'
 import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
@@ -145,13 +145,6 @@ export function TrombonePage({ group }: TestPageProps) {
             >
               {stopM.isPending ? 'Stopping…' : 'Stop'}
             </Button>
-            <ConnectButton
-              connected={connected}
-              pending={connectM.isPending || disconnectM.isPending}
-              disabled={busy}
-              onConnect={() => connectM.mutate()}
-              onDisconnect={() => disconnectM.mutate()}
-            />
           </Stack>
         }
       />
@@ -159,36 +152,38 @@ export function TrombonePage({ group }: TestPageProps) {
       <PageBody width="fluid">
         {/* Where the carriage is, and how much travel is left either way —
             the numbers a jog is decided from. */}
-        <Box>
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-            <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
-              Position
-            </Typography>
-            <MonoText sx={{ fontSize: 11 }}>MT986A · Arcus DMX-J-SA</MonoText>
-            <Box sx={{ flexGrow: 1 }} />
-            {!connected && (
-              // Inline in the status row, so the name sits beside the box
-              // rather than above it -- a stacked label here would push the
-              // row taller than the chip it lines up with.
-              <Stack direction="row" alignItems="center" spacing={0.75}>
-                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Index</Typography>
-                <TextField
-                  size="small"
-                  type="number"
-                  value={deviceIndex}
-                  onChange={(e) => setDeviceIndex(Math.max(0, Number(e.target.value) || 0))}
-                  inputProps={{ min: 0, max: 15 }}
-                  sx={{ width: 64, '& .MuiInputBase-root': { height: 26 } }}
-                />
-              </Stack>
-            )}
-            <StatusChip
-              label={statusText}
-              tone={connected ? (moving ? 'busy' : 'ok') : 'off'}
-              spinning={connected && moving}
-            />
-          </Stack>
+        <InstrumentBar
+          name="RF trombone"
+          model="MT986A · Arcus DMX-J-SA"
+          status={connectM.isPending ? 'connecting' : connected ? 'connected' : 'disconnected'}
+          liveLabel={statusText}
+          liveTone={moving ? 'busy' : 'ok'}
+          detail={`device #${deviceIndex}`}
+          summary={`device #${deviceIndex}`}
+          pending={disconnectM.isPending}
+          disabled={busy && !connectM.isPending}
+          onConnect={() => connectM.mutate()}
+          onDisconnect={() => disconnectM.mutate()}
+          config={
+            <Box>
+              <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>Device index</Typography>
+              <TextField
+                size="small"
+                type="number"
+                value={deviceIndex}
+                disabled={connected}
+                onChange={(e) => setDeviceIndex(Math.max(0, Math.min(15, Number(e.target.value) || 0)))}
+                inputProps={{ min: 0, max: 15 }}
+                sx={{ width: 96, '& input': { fontFamily: MONO } }}
+              />
+              <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 0.75 }}>
+                0 with one controller on USB. Connecting energises the motor.
+              </Typography>
+            </Box>
+          }
+        />
 
+        <Box>
           <StatRow>
             <StatTile
               label="Position"

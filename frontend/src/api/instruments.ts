@@ -37,12 +37,21 @@ export interface MeasureResponse {
   error: string | null
 }
 
+/** One row of /instruments/status. `address` and `channel` say what an open
+ *  session is bound to; older backends leave them out. */
+export interface InstrumentLinkStatus {
+  connected: boolean
+  idn: string | null
+  address?: string | null
+  channel?: number | null
+}
+
 export interface StatusResponse {
-  power_sensor: { connected: boolean; idn: string | null }
-  dc_analyzer: { connected: boolean; idn: string | null }
-  spectrum: { connected: boolean; idn: string | null }
-  network_analyzer: { connected: boolean; idn: string | null }
-  signal_generator: { connected: boolean; idn: string | null }
+  power_sensor: InstrumentLinkStatus
+  dc_analyzer: InstrumentLinkStatus
+  spectrum: InstrumentLinkStatus
+  network_analyzer: InstrumentLinkStatus
+  signal_generator: InstrumentLinkStatus
 }
 
 export interface SupplyResponse {

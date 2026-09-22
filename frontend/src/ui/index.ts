@@ -24,3 +24,4 @@ export {
   PANEL_SX, PAGE_W, TEXT, TILE_PAD, type TileAccent,
 } from './tokens'
 export { useShellLayout, type ShellLayout } from './useShellLayout'
+export { InstrumentBar, type InstrumentBarStatus } from './InstrumentBar'

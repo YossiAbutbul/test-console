@@ -26,6 +26,7 @@ export const STORAGE_KEYS = {
   // when nothing is saved.
   powerMeterPage: 'power-meter-page-snapshot-v2',
   signalGeneratorPage: 'signal-generator-page-snapshot-v1',
+  dcAnalyzerPage: 'dc-analyzer-page-snapshot-v1',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

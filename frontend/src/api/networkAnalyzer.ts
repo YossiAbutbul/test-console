@@ -1,3 +1,4 @@
+import type { DiscoverCandidate } from './instruments'
 import { http } from './client'
 
 export interface VnaConfig {
@@ -52,7 +53,9 @@ export interface VnaMeasureS21Response {
 }
 
 export const vna = {
-  discover: () => http<{ candidates: string[] }>('/instruments/discover/network-analyzer'),
+  discover: () => http<{ candidates: string[]; details?: DiscoverCandidate[] | null }>(
+    '/instruments/discover/network-analyzer',
+  ),
   connect: (address: string) =>
     http<{ connected: boolean; idn: string | null }>('/instruments/network-analyzer/connect', {
       method: 'POST',

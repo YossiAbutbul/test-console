@@ -15,8 +15,7 @@ import {
 import { useLog } from '../../context/LogContext'
 import { DASH, fmt } from '../../lib/format'
 import {
-  ConnectButton, FieldGrid, MONO, PageBody, Section, StatRow, StatTile,
-  StatusChip, TEXT,
+  FieldGrid, InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import {
@@ -216,6 +215,12 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
     && Math.abs(typedLevel - st.level_dbm) > 0.01
   const pending = freqPending || levelPending
 
+  // The port in use stays selectable even when the last listing missed it, so
+  // the Config dialog never shows a blank port for an open session.
+  const portOptions: DiscoverCandidate[] = port && !ports.some((p) => p.resource === port)
+    ? [{ resource: port, idn: null }, ...ports]
+    : ports
+
   const rfOn = st?.rf_on === true
   const canSend = connected && !busy
 
@@ -246,98 +251,76 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
       />
 
       <PageBody width="fluid">
-        <Section title="Generator" panel>
-          <Stack direction="row" alignItems="center" spacing={2} flexWrap="wrap">
-            <StatusChip
-              label={
-                connected ? 'Connected'
-                  : gen.status === 'connecting' ? 'Connecting' : 'Disconnected'
-              }
-              tone={
-                connected ? 'ok'
-                  : gen.status === 'error' ? 'error'
-                    : gen.status === 'connecting' ? 'busy' : 'off'
-              }
-              detail={gen.idn ?? undefined}
-              spinning={gen.status === 'connecting'}
-            />
-            <Box sx={{ flexGrow: 1 }} />
-            <ConnectButton
-              connected={connected}
-              pending={gen.status === 'connecting'}
-              onConnect={() => void onConnect()}
-              onDisconnect={() => void onDisconnect()}
-            />
-          </Stack>
+        <InstrumentBar
+          name="Signal generator"
+          model="R&S SML03"
+          status={gen.status}
+          detail={gen.idn}
+          summary={port ? `${port} · ${baud} baud` : null}
+          configReady={!!port}
+          onConnect={() => void onConnect()}
+          onDisconnect={() => void onDisconnect()}
+          config={
+            <>
+              <Box>
+                <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>Port</Typography>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Select
+                    size="small"
+                    fullWidth
+                    value={portOptions.some((p) => p.resource === port) ? port : ''}
+                    displayEmpty
+                    disabled={connected}
+                    onChange={(e) => setAddress('signal-generator', String(e.target.value))}
+                    sx={{ '& .MuiSelect-select': { fontSize: 12.5 } }}
+                  >
+                    <MenuItem value="" disabled>
+                      {scanning ? 'Scanning…' : 'Select a port'}
+                    </MenuItem>
+                    {portOptions.map((p) => (
+                      <MenuItem key={p.resource} value={p.resource} sx={{ fontSize: 12.5 }}>
+                        {p.resource}
+                        {p.detail && (
+                          <Typography component="span" sx={{ ml: 1, fontSize: 11, color: 'text.secondary' }}>
+                            {p.detail}
+                          </Typography>
+                        )}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  <Button
+                    size="small"
+                    onClick={() => void scan()}
+                    disabled={scanning || connected}
+                    startIcon={<RefreshIcon sx={{ fontSize: 15 }} />}
+                    sx={{ minWidth: 0 }}
+                  >
+                    Scan
+                  </Button>
+                </Stack>
+              </Box>
+              <Box>
+                <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>Baud</Typography>
+                <Select
+                  size="small"
+                  value={baud}
+                  disabled={connected}
+                  onChange={(e) => setChannel('signal-generator', Number(e.target.value))}
+                  sx={{ width: 120, '& .MuiSelect-select': { fontFamily: MONO, fontSize: 12.5 } }}
+                >
+                  {BAUD_RATES.map((b) => (
+                    <MenuItem key={b} value={b} sx={{ fontFamily: MONO, fontSize: 12.5 }}>{b}</MenuItem>
+                  ))}
+                </Select>
+                <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 0.75 }}>
+                  The rate must match Utilities → System → RS232 on the instrument, over a null-modem cable.
+                </Typography>
+              </Box>
+            </>
+          }
+        />
 
-          {/* The link's settings on their own row rather than trailing the
-              status chip: five controls in one line wrapped into an order that
-              put "Baud" at one end of the panel and its menu at the other.
-              Only settable while disconnected — changing either mid-session
-              would be describing a link that is already open. */}
-          <Stack
-            direction="row" alignItems="center" flexWrap="wrap" useFlexGap
-            spacing={2} sx={{ mt: 1.75 }}
-          >
-            {/* Each name stays welded to the control it names. Wrapping the
-                five as loose siblings split the pair, leaving "Baud" at the
-                end of one line and its menu at the start of the next. */}
-            <Stack direction="row" alignItems="center" spacing={1} flexWrap="nowrap">
-            <Typography sx={{ ...TEXT.dense, color: 'text.secondary' }}>Port</Typography>
-            <Select
-              size="small"
-              value={ports.some((p) => p.resource === port) ? port : ''}
-              displayEmpty
-              disabled={connected}
-              onChange={(e) => setAddress('signal-generator', String(e.target.value))}
-              sx={{ minWidth: 168, height: 30, '& .MuiSelect-select': { fontSize: 12.5 } }}
-            >
-              <MenuItem value="" disabled>
-                {scanning ? 'Scanning…' : 'Select a port'}
-              </MenuItem>
-              {ports.map((p) => (
-                <MenuItem key={p.resource} value={p.resource} sx={{ fontSize: 12.5 }}>
-                  {p.resource}
-                  {p.detail && (
-                    <Typography component="span" sx={{ ml: 1, fontSize: 11, color: 'text.secondary' }}>
-                      {p.detail}
-                    </Typography>
-                  )}
-                </MenuItem>
-              ))}
-            </Select>
-            <Button
-              size="small"
-              onClick={() => void scan()}
-              disabled={scanning}
-              startIcon={<RefreshIcon sx={{ fontSize: 15 }} />}
-              sx={{ minWidth: 0, height: 30 }}
-            >
-              Scan
-            </Button>
-            </Stack>
-
-            <Stack direction="row" alignItems="center" spacing={1} flexWrap="nowrap">
-            <Typography sx={{ ...TEXT.dense, color: 'text.secondary' }}>Baud</Typography>
-            <Select
-              size="small"
-              value={baud}
-              disabled={connected}
-              onChange={(e) => setChannel('signal-generator', Number(e.target.value))}
-              sx={{ width: 100, height: 30, '& .MuiSelect-select': { fontFamily: MONO, fontSize: 12.5 } }}
-            >
-              {BAUD_RATES.map((b) => (
-                <MenuItem key={b} value={b} sx={{ fontFamily: MONO, fontSize: 12.5 }}>{b}</MenuItem>
-              ))}
-            </Select>
-            </Stack>
-          </Stack>
-          <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 1.25 }}>
-            The rate must match Utilities → System → RS232 on the instrument, over a null-modem cable.
-          </Typography>
-        </Section>
-
-        <Box sx={{ mt: 2 }}>
+        <Box>
           <Section title="Output" panel>
             <FieldGrid columns={2}>
               <LabeledField

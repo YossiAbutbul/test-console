@@ -40,6 +40,11 @@ _aggregate = APIRouter(prefix="/instruments", tags=["instruments"])
 class InstrumentStatus(BaseModel):
     connected: bool
     idn: str | None = None
+    #: What the open session is bound to -- VISA resource or COM port -- so a
+    #: page opened after connecting elsewhere can show it. None when unknown.
+    address: str | None = None
+    #: DC analyzer only: the channel the session measures on.
+    channel: int | None = None
 
 
 class StatusResponse(BaseModel):
@@ -60,18 +65,23 @@ async def status() -> StatusResponse:
         dc_analyzer=InstrumentStatus(
             connected=state.dc_analyzer is not None,
             idn=state.dc_analyzer_idn,
+            address=state.dc_analyzer_resource,
+            channel=state.dc_analyzer_channel if state.dc_analyzer is not None else None,
         ),
         spectrum=InstrumentStatus(
             connected=state.spectrum is not None,
             idn=state.spectrum_idn,
+            address=state.spectrum_resource,
         ),
         network_analyzer=InstrumentStatus(
             connected=state.network_analyzer is not None,
             idn=state.network_analyzer_idn,
+            address=state.network_analyzer_resource,
         ),
         signal_generator=InstrumentStatus(
             connected=state.signal_generator is not None,
             idn=state.signal_generator_idn,
+            address=state.signal_generator_port,
         ),
     )
 

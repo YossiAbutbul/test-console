@@ -8,11 +8,12 @@ import CloseIcon from '@mui/icons-material/Close'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import {
-  EXPECTED_MODEL, pickCandidate,
+  pickCandidate,
   useInstrumentsModal, useInstrumentsActions, useInstrumentsState,
   type InstrumentId, type InstrumentState,
 } from '../context/InstrumentsContext'
 import type { DiscoverCandidate } from '../api/instruments'
+import { filterCandidates } from '../lib/instrumentCandidates'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
 import { MONO } from '../ui'
@@ -48,23 +49,6 @@ function fieldPlaceholder(id: InstrumentId, placeholder?: boolean): string {
   if (id === 'rf-switch') return 'COM port — the USB-serial one, e.g. COM4'
   if (id === 'rf-trombone') return 'Device index — 0'
   return 'VISA — USB0::0x...::INSTR'
-}
-
-/** Drop candidates that clearly belong to a *different* known instrument.
- *  Keeps the model-matched device plus any with no IDN (still unidentified),
- *  so the network-analyzer picker won't list the DC analyzer (N6705) etc. */
-function filterCandidates(id: InstrumentId, list: DiscoverCandidate[]): DiscoverCandidate[] {
-  const want = EXPECTED_MODEL[id]?.toLowerCase()
-  if (!want) return list
-  const others = Object.entries(EXPECTED_MODEL)
-    .filter(([k]) => k !== id)
-    .map(([, v]) => v.toLowerCase())
-  return list.filter((c) => {
-    const idn = c.idn?.toLowerCase()
-    if (!idn) return true // unidentified — keep selectable
-    if (idn.includes(want)) return true
-    return !others.some((o) => idn.includes(o)) // exclude known-other models
-  })
 }
 
 interface RowProps {
