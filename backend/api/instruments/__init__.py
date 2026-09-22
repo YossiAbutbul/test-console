@@ -3,7 +3,7 @@
 Per-device routes live in sibling modules:
   - power_sensor.py     — Mini-Circuits USB power sensors.
   - dc_analyzer.py      — Keysight DC analyzer (also hosts /dc-analyzer/supply).
-  - spectrum.py         — Generic VISA spectrum analyzers.
+  - spectrum.py         — R&S FSC3 spectrum analyzer over LAN (backend/spectrum/).
   - network_analyzer.py — Agilent/Keysight E5061B network analyzer.
   - signal_generator.py — Rohde & Schwarz SML03 over RS-232.
 

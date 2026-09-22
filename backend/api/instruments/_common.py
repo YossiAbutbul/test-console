@@ -89,7 +89,6 @@ def list_visa_resources_idn() -> list[DiscoverCandidate]:
         visa_key(r): idn
         for r, idn in (
             (_state.dc_analyzer_resource, _state.dc_analyzer_idn),
-            (_state.spectrum_resource, _state.spectrum_idn),
             (_state.network_analyzer_resource, _state.network_analyzer_idn),
         ) if r
     }

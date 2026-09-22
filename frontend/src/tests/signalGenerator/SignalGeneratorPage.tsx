@@ -227,7 +227,6 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
       <PageHeader
-        protocol="LoRa"
         group={group}
         label="Signal Generator"
         actions={

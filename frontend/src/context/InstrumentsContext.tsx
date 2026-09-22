@@ -69,7 +69,7 @@ export const CONNECT_TIMEOUT_MS = 15000
 export const EXPECTED_MODEL: Partial<Record<InstrumentId, string>> = {
   'dc-analyzer': 'N6705',
   'network-analyzer': 'E5061',
-  spectrum: 'FSW',
+  spectrum: 'FSC',
 }
 
 /** The candidate that best matches `id`, or null when the scan found nothing. */
@@ -139,10 +139,9 @@ const INITIAL: Record<InstrumentId, InstrumentState> = {
   spectrum: {
     id: 'spectrum',
     label: 'Spectrum analyzer',
-    model: 'FSW26',
+    model: 'R&S FSC3',
     address: '',
     status: 'disconnected',
-    placeholder: true,
   },
   'network-analyzer': {
     id: 'network-analyzer',

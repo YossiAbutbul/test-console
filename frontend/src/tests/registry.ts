@@ -11,6 +11,7 @@ import { networkAnalyzerModule } from './networkAnalyzer/module'
 import { powerMeterModule } from './powerMeter/module'
 import { signalGeneratorModule } from './signalGenerator/module'
 import { dcAnalyzerModule } from './dcAnalyzer/module'
+import { spectrumModule } from './spectrum/module'
 import type { TestModule } from './types'
 
 export const testRegistry: TestModule[] = [
@@ -27,4 +28,5 @@ export const testRegistry: TestModule[] = [
   powerMeterModule,
   signalGeneratorModule,
   dcAnalyzerModule,
+  spectrumModule,
 ]

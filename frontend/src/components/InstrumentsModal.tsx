@@ -48,6 +48,7 @@ function fieldPlaceholder(id: InstrumentId, placeholder?: boolean): string {
   if (id === 'power-sensor') return 'Serial — e.g., MY50000200'
   if (id === 'rf-switch') return 'COM port — the USB-serial one, e.g. COM4'
   if (id === 'rf-trombone') return 'Device index — 0'
+  if (id === 'spectrum') return 'LAN — 172.16.10.1:5555'
   return 'VISA — USB0::0x...::INSTR'
 }
 

@@ -1,5 +1,5 @@
 import { Box, Stack, TextField, Typography, type TextFieldProps } from '@mui/material'
-import { type FocusEvent } from 'react'
+import { type FocusEvent, type ReactNode } from 'react'
 
 function selectOnFocus(e: FocusEvent<HTMLInputElement>) {
   // Only HTMLInputElement / HTMLTextAreaElement expose .select() — guard for
@@ -12,9 +12,14 @@ interface Props extends Omit<TextFieldProps, 'label' | 'variant'> {
   label: string
   hint?: string
   width?: number | string
+  /**
+   * A control beside the input, centred on it — an Auto button, say. Sits on
+   * the input's row rather than the label's, so the label stays over the field.
+   */
+  action?: ReactNode
 }
 
-export function LabeledField({ label, hint, width, sx, onFocus, ...rest }: Props) {
+export function LabeledField({ label, hint, width, action, sx, onFocus, ...rest }: Props) {
   const focusHandler = (e: FocusEvent<HTMLInputElement>) => {
     selectOnFocus(e)
     onFocus?.(e)
@@ -37,7 +42,14 @@ export function LabeledField({ label, hint, width, sx, onFocus, ...rest }: Props
           </Typography>
         )}
       </Box>
-      <TextField size="small" variant="outlined" sx={sx} onFocus={focusHandler} {...rest} />
+      {action ? (
+        <Stack direction="row" spacing={1} alignItems="center">
+          <TextField size="small" variant="outlined" sx={{ flexGrow: 1, minWidth: 0, ...sx }} onFocus={focusHandler} {...rest} />
+          {action}
+        </Stack>
+      ) : (
+        <TextField size="small" variant="outlined" sx={sx} onFocus={focusHandler} {...rest} />
+      )}
     </Stack>
   )
 }

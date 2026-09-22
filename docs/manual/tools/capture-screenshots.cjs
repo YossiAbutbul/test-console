@@ -112,6 +112,8 @@ const SHOTS = [
   { file: 'signal-generator', page: 'signal-generator' },
   { file: 'dc-analyzer', page: 'dc-analyzer' },
   { file: 'dc-analyzer-config', page: 'dc-analyzer', clicks: ['Config'], modal: true },
+  { file: 'spectrum', page: 'spectrum' },
+  { file: 'spectrum-config', page: 'spectrum', clicks: ['Config'], modal: true },
 ]
 
 async function clickSafe(page, name) {
