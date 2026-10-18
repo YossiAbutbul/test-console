@@ -304,7 +304,8 @@ can run at a time.
 | **PA Mode** | Off | Off / On / Auto |
 
 The path loss at this frequency is sent with the sweep and applied by the
-backend. None of these settings are saved.
+backend. The ranges and these settings are saved, so the next sweep starts
+from them.
 
 ### Running
 

@@ -29,7 +29,7 @@ const HEIGHT = 900
 /** Buttons that are allowed to be clicked. Anything else is refused. */
 const SAFE = new Set([
   'Automation', 'Manual', 'Settings', 'Instruments', 'Edit path loss per frequency',
-  'Bands in use', 'View setup', 'Smith chart', 'Graph', 'Config', 'LTE', 'OTHER', 'COMPONENTS', 'BLE',
+  'Bands in use', 'View setup', 'Smith chart', 'Graph', 'Config', 'Close panel', 'LTE', 'OTHER', 'COMPONENTS', 'BLE',
 ])
 
 /**
@@ -77,6 +77,49 @@ function exampleLoadPull() {
     zeroPulses: 0, endPulses: 400 * 2 * (n - 1), results }
 }
 
+/**
+ * A connected FSC3 answering with an example trace. The spectrum routes are
+ * answered by the browser itself (page.route), so a shot that uses this never
+ * reaches the analyzer -- which is also why only such a shot may press the
+ * page's Sweep once (see MOCKED_ONLY).
+ */
+function exampleSpectrum() {
+  const start = 906.2e6, stop = 911.2e6, n = 631
+  let seed = 7
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+  const values = Array.from({ length: n }, (_, i) => {
+    const f = start + ((stop - start) * i) / (n - 1)
+    const carrier = 30 * Math.exp(-(((f - 908.7e6) / 60e3) ** 2))
+    return +(-39 + (rnd() - 0.5) * 6 + carrier).toFixed(2)
+  })
+  const state = {
+    center_hz: 908.7e6, span_hz: 5e6, start_hz: start, stop_hz: stop,
+    ref_level_dbm: 0, ref_offset_db: 20, range_db: 100, rbw_hz: 100e3, vbw_hz: 300e3,
+    atten_db: 10, atten_auto: true, sweep_time_s: 0.02, trace_mode: 'WRIT', detector: 'POS',
+    continuous: true, zero_span: false, markers: 2,
+  }
+  const markers = [{ n: 1, x: 908.7e6, y: -9.1 }, { n: 2, x: 910.3e6, y: -37.4 }]
+  const idn = 'Rohde&Schwarz,FSC3,1314.3006K03/100000,V2.22'
+  const info = {
+    connected: true, idn, address: '172.16.10.1:5555', state, restorable: true, problems: [],
+    markers_max: 6, trace_modes: ['WRIT', 'MAXH', 'MINH', 'AVER', 'VIEW'],
+    detectors: ['APE', 'POS', 'NEG', 'SAMP', 'RMS'],
+  }
+  const off = { connected: false, idn: null, address: null, channel: null }
+  return {
+    '/instruments/status': {
+      power_sensor: off, dc_analyzer: off, network_analyzer: off, signal_generator: off,
+      spectrum: { connected: true, idn, address: '172.16.10.1:5555', channel: null },
+    },
+    '/instruments/spectrum/state': info,
+    '/instruments/spectrum/command': info,
+    '/instruments/spectrum/trace': { swept: true, start_hz: start, stop_hz: stop, zero_span: false, values, markers },
+  }
+}
+
+/** Buttons that may only be pressed while the instrument's routes are mocked. */
+const MOCKED_ONLY = new Set(['Sweep once'])
+
 const SHOTS = [
   { file: 'shell-overview', page: 'power' },
   { file: 'sidebar-expanded', page: 'power', clicks: ['LTE', 'OTHER', 'COMPONENTS'], clip: 'nav' },
@@ -112,12 +155,14 @@ const SHOTS = [
   { file: 'signal-generator', page: 'signal-generator' },
   { file: 'dc-analyzer', page: 'dc-analyzer' },
   { file: 'dc-analyzer-config', page: 'dc-analyzer', clicks: ['Config'], modal: true },
-  { file: 'spectrum', page: 'spectrum' },
+  { file: 'spectrum', page: 'spectrum', mock: exampleSpectrum, clicks: ['Close panel', 'Sweep once'], fixedHeight: true },
   { file: 'spectrum-config', page: 'spectrum', clicks: ['Config'], modal: true },
 ]
 
-async function clickSafe(page, name) {
-  if (!SAFE.has(name)) throw new Error(`refusing to click "${name}" -- not in SAFE`)
+async function clickSafe(page, name, mocked = false) {
+  if (!SAFE.has(name) && !(mocked && MOCKED_ONLY.has(name))) {
+    throw new Error(`refusing to click "${name}" -- not in SAFE`)
+  }
   // Every page stays mounted and is hidden with display:none, so a plain text
   // locator finds the hidden copies first. Only a visible match will do.
   const exact = new RegExp(`^\\s*${name}\\s*$`, 'i')
@@ -170,6 +215,18 @@ async function fitHeight(page) {
     }, { id: s.page, seed })
     const page = await ctx.newPage()
     try {
+      if (s.mock) {
+        const answers = s.mock()
+        await page.route('**/instruments/**', (route) => {
+          const path = new URL(route.request().url()).pathname
+          const body = answers[path]
+          // Anything else under the instrument's own routes is refused rather
+          // than passed on, so a mocked shot can never reach the hardware.
+          if (body) return route.fulfill({ json: body })
+          if (path.startsWith('/instruments/spectrum')) return route.abort()
+          return route.continue()
+        })
+      }
       await page.goto(BASE)
       await page.waitForLoadState('networkidle').catch(() => {})
       // DUT pages are dimmed and click-blocked until a BLE unit is connected.
@@ -180,7 +237,7 @@ async function fitHeight(page) {
         await page.addStyleTag({ content: '[aria-disabled="true"]{opacity:1!important;pointer-events:auto!important}' })
       }
       await page.waitForTimeout(1200)
-      for (const c of s.clicks || []) await clickSafe(page, c)
+      for (const c of s.clicks || []) await clickSafe(page, c, !!s.mock)
       const file = path.join(OUT, `${s.file}.png`)
       if (s.clip === 'nav') {
         await page.screenshot({ path: file, clip: { x: 0, y: 0, width: 330, height: HEIGHT } })
@@ -190,7 +247,7 @@ async function fitHeight(page) {
         if (await dlg.count()) await dlg.last().screenshot({ path: file })
         else await page.screenshot({ path: file })
       } else {
-        await fitHeight(page)
+        if (!s.fixedHeight) await fitHeight(page)
         await page.screenshot({ path: file })
       }
       console.log('ok  ', s.file)

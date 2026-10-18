@@ -41,6 +41,8 @@ This manual covers the whole application:
 | Map power and efficiency against load impedance | LoRa › Other › **Load Pull Test** | 4.6 |
 | Test an LTE (Cat-M) unit | LTE › TX › **CW** / **Modulated** | 5 |
 | Move the trombone, flip the RF switch, read the VNA, use the power meter or signal generator by hand | **Components** | 6 |
+| Set the DUT's supply voltage and current limit, and watch its current | Components › **DC Analyzer** | 6.7 |
+| Look at the spectrum on the FSC3, place markers, find a peak | Components › **Spectrum Analyzer** | 6.8 |
 
 ## Safety first
 
@@ -52,7 +54,7 @@ world **immediately, with no confirmation**:
 | **Keys the PA / transmits RF** | **Send** and **Run** on every TX page; **RF On** on the Signal Generator page. The VNA transmits its stimulus for as long as it is connected. |
 | **Moves the trombone** | **Move**, **Step up/down**, **Go min/max** (Trombone page); **Jog**, **Go to Zero/End** and **Run** (Load Pull) |
 | **Changes the RF path** | **Go VNA / Go PCB / Move** (Switch page); **VNA / PCB** (Load Pull). Connecting the RF switch from the Instruments panel moves it to VNA. |
-| **Powers the DUT** | The **DC analyzer supply** switch in Settings; the LTE **Modem** key |
+| **Powers the DUT** | **Output On** on the DC Analyzer page; the **DC analyzer supply** switch in Settings; the LTE **Modem** key |
 
 These stay on until you turn them off:
 

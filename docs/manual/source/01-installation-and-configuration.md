@@ -28,6 +28,7 @@ the BLE adapter all assume Windows.
 | 4 | **Keysight IO Libraries Suite** | **Required.** Supplies the VISA runtime and the USB instrument driver. | 2026 (21.3.293) |
 | 5 | **Arcus Drivers and Tools Installer** | **Required** for the trombone motor. Supplies its kernel driver. | 1.43 |
 | — | Bluetooth adapter | Talks to the DUT | Windows built-in stack |
+| — | Ethernet port | Talks to the R&S FSC3 spectrum analyzer | — |
 
 The Keysight suite provides:
 
@@ -48,6 +49,7 @@ the USB instruments. They are driven through Keysight VISA.
 | Keysight USB instruments (N6705B, E5061B) | `ausbtmc.sys` (USBTMC) | Nothing more; installed with IO Libraries |
 | Arcus DMX-J-SA trombone motor | Performax USB (WinUSB-based) | **Two-step install**, below |
 | Mini-Circuits power sensor | `mcl_pm_NET45.dll` (.NET 4.5) | Nothing; the DLL is bundled in the repo and .NET 4.x ships with Windows |
+| R&S FSC3 spectrum analyzer | None: it is reached over LAN | Plug its LAN port into the PC. Directly connected, it hands the PC `172.16.10.2`. |
 | Arduino RF switch | **FTDI VCP** (`ftdibus.sys`/`ftser2k.sys`) for the FT232R | Install if the board shows under *Other devices* |
 | R&S SML03 signal generator | the driver for your USB-to-RS-232 adapter, if you use one | As supplied with the adapter |
 | DUT | Windows Bluetooth | Nothing |

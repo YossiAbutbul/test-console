@@ -13,7 +13,11 @@
  * table of contents (docx-js can only write the field; Word computes it) and,
  * with --pdf <path>, to export a PDF for review.
  *
- * Usage: node docs\manual\tools\build-docx.cjs [--pdf out.pdf]
+ * --guide builds the Testing Guide instead: the operator-only subset (how to
+ * run each test, read and save results) from testing-guide/*.md, sharing img/
+ * and this layout so the two documents look like one set.
+ *
+ * Usage: node docs\manual\tools\build-docx.cjs [--guide] [--pdf out.pdf]
  */
 const fs = require('fs')
 const path = require('path')
@@ -25,10 +29,26 @@ const {
   TableCell, TableOfContents, TableRow, TabStopType, TextRun, WidthType,
 } = require('docx')
 
+const EDITIONS = {
+  manual: {
+    src: 'source',
+    out: 'Test-Console-User-Manual.docx',
+    title: 'Operator Manual',
+    blurb: 'Installation, configuration, supported hardware and step-by-step test procedures for the BLE-driven PA test rig.',
+  },
+  guide: {
+    src: 'testing-guide',
+    out: 'Test-Console-Testing-Guide.docx',
+    title: 'Testing Guide',
+    blurb: 'How to set up the bench, run each test, read the results and save them. For operators; no technical background needed.',
+  },
+}
+const EDITION = EDITIONS[process.argv.includes('--guide') ? 'guide' : 'manual']
+
 const ROOT = path.join(__dirname, '..')
-const SRC = path.join(ROOT, 'source')
+const SRC = path.join(ROOT, EDITION.src)
 const IMG = path.join(ROOT, 'img')
-const OUT = path.join(ROOT, 'Test-Console-User-Manual.docx')
+const OUT = path.join(ROOT, EDITION.out)
 
 // ---- page geometry (A4, 2 cm margins) ------------------------------------
 const PAGE_W = 11906
@@ -284,9 +304,9 @@ function cover() {
     new Paragraph({ spacing: { before: 2400 }, children: [] }),
     new Paragraph({ children: [new TextRun({ text: 'TEST CONSOLE', font: FONT, size: 22, bold: true, color: MUTED, characterSpacing: 60 })] }),
     new Paragraph({ border: rule, spacing: { after: 240 },
-      children: [new TextRun({ text: 'Operator Manual', font: FONT, size: 64, bold: true, color: INK })] }),
+      children: [new TextRun({ text: EDITION.title, font: FONT, size: 64, bold: true, color: INK })] }),
     new Paragraph({ spacing: { after: 600 }, children: [new TextRun({
-      text: 'Installation, configuration, supported hardware and step-by-step test procedures for the BLE-driven PA test rig.',
+      text: EDITION.blurb,
       size: 24, color: MUTED })] }),
     new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 600 },
       children: [imageRun(path.join(IMG, 'shell-overview.png'))] }),
@@ -301,8 +321,8 @@ function cover() {
 
 const doc = new Document({
   creator: 'Test Console',
-  title: 'Test Console — Operator Manual',
-  description: 'Operator manual for the Test Console application',
+  title: `Test Console — ${EDITION.title}`,
+  description: `${EDITION.title} for the Test Console application`,
   features: { updateFields: true },
   styles: {
     default: {
@@ -355,7 +375,7 @@ const doc = new Document({
         border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: RULE, space: 4 } },
         tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_W }],
         children: [new TextRun({ text: 'Test Console', bold: true, size: 16, color: MUTED }),
-          new TextRun({ text: '\tOperator Manual', size: 16, color: MUTED })] })] }),
+          new TextRun({ text: `\t${EDITION.title}`, size: 16, color: MUTED })] })] }),
     },
     footers: {
       first: new Footer({ children: [new Paragraph({ children: [] })] }),

@@ -21,7 +21,7 @@
 | RF switch | Servo driven by an **Arduino** (FTDI FT232R, `VID_0403&PID_6001`) | USB serial, 9600 8N1 | COM port, e.g. `COM4` | FTDI VCP |
 | RF trombone motor | Arcus **DMX-J-SA** stepper (3,200 pulses per revolution; 400 pulses/mm on the trombone) | USB, via `PerformaxCom.dll` | Device index 0–15 (the Instruments panel shows the product name, e.g. `jsa00`) | Arcus Performax USB (two-step install) |
 | DUT | LoRa / LTE (Cat-M) meter | Bluetooth LE | MAC address, taken from a scan | Windows Bluetooth |
-| Spectrum analyzer | R&S FSW26 | VISA | — | *Listed as "Coming Soon"; cannot be connected from the UI* |
+| Spectrum analyzer | Rohde & Schwarz **FSC3** handheld | LAN, SCPI over TCP | `host:port`, default `172.16.10.1:5555` | None |
 | Configurable attenuator | 50PA-847 | — | — | *Listed as "Coming Soon"; set by hand* |
 
 Each device's rows in the Instruments panel are shown in
@@ -50,9 +50,10 @@ Each device's rows in the Instruments panel are shown in
 
 - **Role:** supplies the DUT and measures its current (and voltage, where it
   is shown). Default channel is **3**.
-- **Supply control:** the supply is switched from **Settings → DC ANALYZER
-  SUPPLY** (see [3.5](03-using-the-console.md#35-settings)). The app never
-  turns it on by itself.
+- **Supply control:** the output is switched from the **DC Analyzer** page
+  (see [6.7](06-component-pages.md#67-dc-analyzer)), which also sets the
+  voltage and current limit. The **Settings → DC ANALYZER SUPPLY** switch
+  controls the same output. The app never turns it on by itself.
 - **Voltage scaling:** the backend halves the programmed voltage and doubles
   the read-back (`DC_VOLTAGE_SCALE = 2.0`), because this rig's hardware
   doubles it. The figure in the UI is the voltage at the DUT.
@@ -116,6 +117,20 @@ Each device's rows in the Instruments panel are shown in
   set, moves are not limited.**
 - **After a power cycle,** the controller's position counter may no longer
   match the saved Zero/End. Recapture both.
+
+### R&S FSC3 spectrum analyzer
+
+- **LAN only.** SCPI on TCP port **5555** (R&S handhelds do not use the
+  usual 5025). Plugged in directly, the analyzer is `172.16.10.1` and gives
+  the PC `172.16.10.2`. Its USB port needs the R&S driver that ships with
+  R&S InstrumentView; without it Windows binds a generic serial driver that
+  cannot open the port.
+- **Connecting only reads.** The state found at connect is captured.
+  Disconnecting leaves the analyzer sweeping continuously with whatever was
+  set; it does not put the old settings back.
+- **Verified command set.** The driver (`backend/spectrum/`) was ported from
+  a panel whose every command was checked against firmware V2.22. Its
+  measured quirks are listed in [6.8](06-component-pages.md#68-spectrum-analyzer).
 
 ### How instrument calls are serialised
 
@@ -301,25 +316,39 @@ A quick way to measure the path loss of a cable or attenuator:
 3. The difference between the two is the path loss. Enter it in the path-loss
    table at that frequency.
 
+### E. Spectrum analyzer
+
+```mermaid
+flowchart LR
+  DUT["DUT or source<br/>under test"] -- "RF" --> ATT["Attenuator<br/>+ cables"] --> SA["Spectrum analyzer<br/>R&S FSC3"]
+  PC["PC"] -. "LAN · 172.16.10.x" .- SA
+```
+
+Keep the analyzer's input within its rated level: attenuate the DUT's full
+power before it reaches the FSC3, and enter the attenuation as the
+analyzer's **Ref offset** so the levels read at the DUT.
+
 ## 2.5 Which test needs what
 
 ✔ required · ○ used if connected (or you can continue without it) · — not used
 
-| Test | BLE DUT | Power sensor | DC analyzer | VNA | RF switch | Trombone | Signal gen |
-|---|---|---|---|---|---|---|---|
-| LoRa CW (Manual) | ✔ | ○ ticked | ○ ticked | — | — | — | — |
-| LoRa CW (Automation) | ✔ | ○ | ○ | — | — | — | — |
-| LoRa Modulated | ✔ | ○ | ○ | — | — | — | — |
-| LoRa Debug | ✔ | ○ | ○ | — | — | — | — |
-| Mode Sweep | ✔ | ✔ | ✔ | — | — | — | — |
-| Load Pull | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ | — |
-| LTE CW (Manual) | ✔ | ○ ticked | ○ ticked | — | — | — | — |
-| LTE CW / Modulated | ✔ | ○ | ○ | — | — | — | — |
-| Trombone page | — | — | — | — | — | ✔ | — |
-| Switch page | — | — | — | — | ✔ | — | — |
-| Network Analyzer page | — | — | — | ✔ | — | — | — |
-| Power Meter page | — | ✔ | — | — | — | — | — |
-| Signal Generator page | — | — | — | — | — | — | ✔ |
+| Test | BLE DUT | Power sensor | DC analyzer | VNA | RF switch | Trombone | Signal gen | Spectrum |
+|---|---|---|---|---|---|---|---|---|
+| LoRa CW (Manual) | ✔ | ○ ticked | ○ ticked | — | — | — | — | — |
+| LoRa CW (Automation) | ✔ | ○ | ○ | — | — | — | — | — |
+| LoRa Modulated | ✔ | ○ | ○ | — | — | — | — | — |
+| LoRa Debug | ✔ | ○ | ○ | — | — | — | — | — |
+| Mode Sweep | ✔ | ✔ | ✔ | — | — | — | — | — |
+| Load Pull | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ | — | — |
+| LTE CW (Manual) | ✔ | ○ ticked | ○ ticked | — | — | — | — | — |
+| LTE CW / Modulated | ✔ | ○ | ○ | — | — | — | — | — |
+| Trombone page | — | — | — | — | — | ✔ | — | — |
+| Switch page | — | — | — | — | ✔ | — | — | — |
+| Network Analyzer page | — | — | — | ✔ | — | — | — | — |
+| Power Meter page | — | ✔ | — | — | — | — | — | — |
+| Signal Generator page | — | — | — | — | — | — | ✔ | — |
+| DC Analyzer page | — | — | ✔ | — | — | — | — | — |
+| Spectrum Analyzer page | — | — | — | — | — | — | — | ✔ |
 
 "○ ticked" means the instrument is used only when its **Measure** box is
 ticked on the Manual tab.

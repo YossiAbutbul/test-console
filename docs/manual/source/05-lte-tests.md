@@ -241,6 +241,3 @@ where `<test>` is `lte-cw-automation` or `lte-modulated-automation`.
 - **Unresolvable channels are dropped silently.** A channel entry that is
   invalid (red) does not block Run as long as another row is valid. Check each
   row's *N steps* count.
-- **The Modulated graph ignores the signal settings.** Rows with the same
-  channel and power but different bandwidth, MCS or RB overwrite one another
-  on the graph.

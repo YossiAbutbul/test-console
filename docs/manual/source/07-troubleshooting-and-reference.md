@@ -25,6 +25,9 @@
 | **Motor: Code 28 in Device Manager** | The Arcus kernel driver is missing. Run the unpacked `PerformaxUSBInstaller_x64.exe` (step 3 in [1.2](01-installation-and-configuration.md#arcus-motor-driver-two-steps)). Reinstalling the Python package will not help. |
 | **No COM port for the Arduino** | The FTDI VCP driver is missing (FT232R under *Other devices*). |
 | **"PermissionError 13" on the switch** | Windows is still holding the port. Unplug and replug the Arduino. |
+| **Spectrum analyzer: "no SCPI answer from 172.16.10.1:5555"** | Check the LAN cable, and that the PC has an address on the analyzer's subnet (172.16.10.x; the analyzer hands out 172.16.10.2 on a direct link). The port is 5555, not 5025. |
+| **Spectrum analyzer: "Rejected by the analyzer"** | The FSC3 refused a setting and said why; the text is its own. Common ones: a fixed sweep time outside zero span, auto sweep time in zero span. |
+| **DC analyzer: the front panel's Meter Ranges Auto box does not change** | Expected. In the default N6705 mode the front panel keeps its own meter settings, which USB cannot reach. |
 | **Signal generator: no reply** | If CTS and DSR are both low, it is the cable (it must be null-modem) or the instrument is off. Otherwise, check the baud rate under Utilities → System → RS232. |
 
 ### DUT and tests
@@ -81,6 +84,8 @@ and the two must agree.
 | LTE bandwidth → RB | 1.4/3/5/10/15/20 MHz → 6/15/25/50/75/100; MCS 0–28 | `device/lte.py` | `tests/lteModulated/signal.ts` |
 | Discovery timeout | 12 s backend, 20 s frontend (the frontend's must be the longer) | `api/instruments/_common.py` | `context/InstrumentsContext.tsx` |
 | Signal generator baud | 9600 | `api/instruments/signal_generator.py` | `api/signalGenerator.ts` |
+| Spectrum analyzer address | `172.16.10.1:5555` | `spectrum/config.py` | `components/InstrumentsModal.tsx` (placeholder) |
+| DC analyzer limits | 0–60 V, 0–10 A (typo guards) | `api/instruments/dc_analyzer.py` | `api/dcAnalyzer.ts` |
 | Trombone scale | 400 pulses/mm; 3,200 pulses/rev | `motor/manager.py` | `tests/loadPull` |
 
 ## 7.4 Export formats at a glance
@@ -141,6 +146,7 @@ application:
 | Path | Holds |
 |---|---|
 | `docs/manual/source/*.md` | The text of each chapter |
+| `docs/manual/testing-guide/*.md` | The Testing Guide: the operator-only subset (running tests, reading and saving results) |
 | `docs/manual/img/` | Screenshots and rendered diagrams |
 | `docs/manual/tools/` | The scripts below |
 
@@ -158,6 +164,7 @@ Then run:
 node docs\manual\tools\capture-screenshots.cjs
 node docs\manual\tools\render-diagrams.cjs
 node docs\manual\tools\build-docx.cjs
+node docs\manual\tools\build-docx.cjs --guide
 ```
 
 1. `capture-screenshots.cjs` re-takes every screenshot in the Light theme,
@@ -167,4 +174,6 @@ node docs\manual\tools\build-docx.cjs
 2. `render-diagrams.cjs` turns the setup diagrams in chapter 2 into images.
 3. `build-docx.cjs` assembles `Test-Console-User-Manual.docx`. When Microsoft
    Word is installed, it also fills in the table of contents and exports a
-   PDF.
+   PDF. With `--guide` it builds `Test-Console-Testing-Guide.docx` from
+   `testing-guide/` instead, using the same screenshots and layout. When a
+   page changes, update both.

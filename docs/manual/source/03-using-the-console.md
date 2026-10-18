@@ -37,7 +37,7 @@
 - **LTE › TX:** CW, Modulated.
 - **BLE:** *coming soon*.
 - **Components:** Trombone, Switch, Network Analyzer, Power Meter, Signal
-  Generator.
+  Generator, DC Analyzer, Spectrum Analyzer.
 
 "Other" and Components start collapsed, except for the folder holding the
 page you are on.
@@ -48,8 +48,13 @@ automation all survive navigation.
 
 **DUT pages are dimmed until a unit is connected.** The TX pages (LoRa CW,
 Modulated, Debug, Mode Sweep; LTE CW, Modulated) fade to 60 % and ignore
-clicks until the DUT is connected **and** its command channel is ready. The
-Components pages and Load Pull are never dimmed.
+clicks until the DUT is connected **and** its command channel is ready. Two
+parts stay usable, because they send nothing to the DUT:
+
+- the **Results** panel, so you can import, export, graph and clear results;
+- the **Manual / Automation** tabs, so you can reach that panel.
+
+The Components pages and Load Pull are never dimmed.
 
 ![A DUT page with no unit connected](img/dut-page-dimmed.png)
 
@@ -135,7 +140,8 @@ when any instrument is connected.
 | SIGNAL SOURCE | Signal generator (R&S SML03) | COM port. The placeholder wrongly shows a VISA example; use the Signal Generator page to choose the baud rate. |
 | SWITCHING | RF switch (Servo (Arduino)) | The USB-serial COM port, e.g. `COM4` |
 | MOTION | RF trombone motor (Arcus DMX-J-SA) | Device (e.g. `jsa00`) |
-| COMING SOON | Spectrum analyzer (FSW26), Configurable attenuator (50PA-847) | Disabled |
+| RF MEASUREMENT | Spectrum analyzer (R&S FSC3) | `host:port` over LAN, default `172.16.10.1:5555` |
+| COMING SOON | Configurable attenuator (50PA-847) | Disabled |
 
 **How it works**
 
@@ -213,6 +219,11 @@ The gear in the sidebar footer opens **Settings**.
 ![Settings](img/settings.png)
 
 ### DC ANALYZER SUPPLY
+
+A quick switch for the same output the **DC Analyzer** page controls (see
+[6.7](06-component-pages.md#67-dc-analyzer)); use that page to set the
+current limit and watch the current.
+
 
 - The switch turns the N6705B output on or off. The voltage box takes
   0–60 V (default **3.6**); a change applies on **Enter** or when you leave
