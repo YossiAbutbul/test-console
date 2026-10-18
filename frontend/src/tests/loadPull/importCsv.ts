@@ -13,6 +13,24 @@ import type { LoadPullResultRow } from '../../store/loadPullPageStore'
 /** Columns `downloadCsv` writes. `error` may be absent on hand-edited files. */
 const REQUIRED = ['pos_mm', 'pos_pulses', 'power_dbm', 'cc_ma', 'r_ohm', 'x_ohm', 's11_db']
 
+/**
+ * The workbook's names for the same columns ("Pos [mm]", "X [Ω]"...), accepted
+ * as well, so a CSV written with the shared export vocabulary -- or an "All"
+ * sheet saved from Excel as CSV -- imports like one of ours. "J [Ω]" and
+ * "Power [dBm]" are the workbook's own older spellings.
+ */
+const ALIASES: Record<string, readonly string[]> = {
+  pos_mm: ['Pos [mm]'],
+  pos_pulses: ['Pos [pulses]'],
+  freq_mhz: ['Freq [MHz]'],
+  set_power_dbm: ['Set [dBm]'],
+  power_dbm: ['Measured [dBm]', 'Power [dBm]'],
+  cc_ma: ['CC [mA]'],
+  r_ohm: ['R [Ω]'],
+  x_ohm: ['X [Ω]', 'J [Ω]'],
+  s11_db: ['S11 [dB]'],
+}
+
 export interface LoadPullImport {
   rows: LoadPullResultRow[]
   /**
@@ -63,7 +81,9 @@ const numOrNull = (s: string | undefined): number | null => {
 }
 
 export function parseLoadPullCsv(text: string): LoadPullImport {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '')
+  // A UTF-8 BOM (which `downloadCsv` now writes, for Excel's sake) would glue
+  // itself to the first header name, or hide the preamble's leading '#'.
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim() !== '')
   if (lines.length === 0) throw new Error('The file is empty')
 
   const meta: LoadPullImport['meta'] = {}
@@ -92,14 +112,23 @@ export function parseLoadPullCsv(text: string): LoadPullImport {
   if (headerIdx === -1) throw new Error('No column header row found')
 
   const header = splitRow(lines[headerIdx]).map((h) => h.trim())
-  const missing = REQUIRED.filter((c) => !header.includes(c))
+  const index = new Map(header.map((h, i) => [h, i]))
+  for (const [name, old] of Object.entries(ALIASES)) {
+    const found = index.has(name) ? undefined : old.find((o) => index.has(o))
+    if (found != null) index.set(name, index.get(found)!)
+  }
+  const has = (name: string) => index.has(name)
+  const missing = REQUIRED.filter((c) => !has(c))
   if (missing.length) {
     throw new Error(
       `Not a Load Pull export — missing ${missing.join(', ')}. `
       + `Found: ${header.join(', ')}`,
     )
   }
-  const at = (cols: string[], name: string) => cols[header.indexOf(name)]
+  const at = (cols: string[], name: string) => {
+    const i = index.get(name)
+    return i == null ? undefined : cols[i]
+  }
 
   const rows: LoadPullResultRow[] = []
   for (const line of lines.slice(headerIdx + 1)) {
@@ -110,11 +139,16 @@ export function parseLoadPullCsv(text: string): LoadPullImport {
     // or a totals row someone added in Excel.
     if (posPulses == null && posMm == null) continue
     const ccMa = numOrNull(at(cols, 'cc_ma'))
-    const error = header.includes('error') ? (at(cols, 'error') ?? '').trim() : ''
+    // The workbook vocabulary has one "Status" cell -- "ok" or the error --
+    // where these files had a separate `error`.
+    const status = has('Status') ? (at(cols, 'Status') ?? '').trim() : ''
+    const error = has('error')
+      ? (at(cols, 'error') ?? '').trim()
+      : status.toLowerCase() === 'ok' ? '' : status
     // Both optional: a file written before the sweep existed has one frequency
     // and power for the whole run, recorded in the preamble rather than per row.
-    const freq = header.includes('freq_mhz') ? numOrNull(at(cols, 'freq_mhz')) : null
-    const setPower = header.includes('set_power_dbm')
+    const freq = has('freq_mhz') ? numOrNull(at(cols, 'freq_mhz')) : null
+    const setPower = has('set_power_dbm')
       ? numOrNull(at(cols, 'set_power_dbm'))
       : null
     rows.push({

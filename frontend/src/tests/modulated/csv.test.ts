@@ -147,3 +147,56 @@ describe('parseModulatedCsv', () => {
       .toThrow(/No data rows/)
   })
 })
+
+describe('shared export vocabulary', () => {
+  it('uses the workbook column names', () => {
+    for (const name of ['Set [dBm]', 'Measured [dBm]', 'Raw [dBm]', 'CC [mA]', 'V [V]', 'Status']) {
+      expect(CSV_HEADER).toContain(name)
+    }
+  })
+
+  it('round-trips the raw reading and the voltage as columns of their own', () => {
+    const [back] = parseModulatedCsv(asText([row({ measured_dbm_raw: -6.31, voltage_v: 3.61 })]))
+    expect(back.measured_dbm_raw).toBeCloseTo(-6.31, 2)
+    expect(back.voltage_v).toBeCloseTo(3.61, 2)
+  })
+
+  it('round-trips a failure that carried only a DUT status', () => {
+    const [back] = parseModulatedCsv(asText([row({
+      measured_dbm: null, measured_dbm_raw: null, current_a: null,
+      verdict: null, ok: false, status: 7, error: null,
+    })]))
+    expect(back.ok).toBe(false)
+    expect(back.status).toBe(7)
+    expect(back.error).toBeNull()
+  })
+
+  it('reads a file carrying a UTF-8 BOM and a # preamble', () => {
+    const text = '\uFEFF# test: automation\r\n# dut_mac: 80:E1:27:20:76:DD\r\n'
+      + asText([row()]).replace(/\n/g, '\r\n')
+    expect(parseModulatedCsv(text)).toHaveLength(1)
+  })
+})
+
+describe('files written with the old snake_case headers', () => {
+  const old = ['freq_mhz,set_power_dbm,modem,bandwidth_khz,datarate,measured_dbm,current_ma,path_loss_db,margin_db,min_dbm,max_dbm,verdict,ok,status,error', '915,14,LoRa,250 kHz,9,14.2,185.6,20.5,1,13,15,pass,true,0,', '915,14,LoRa,250 kHz,9,,,,1,13,15,,false,3,tx status=3'].join('\n')
+
+  it('still import', () => {
+    const [ok, bad] = parseModulatedCsv(old)
+    expect(ok.measured_dbm).toBe(14.2)
+    expect(ok.current_a).toBeCloseTo(0.1856, 6)
+    // No raw column then: recovered from the corrected value and the loss.
+    expect(ok.measured_dbm_raw).toBeCloseTo(14.2 - 20.5, 6)
+    expect(ok.voltage_v).toBeNull()
+    expect(ok.verdict).toBe('pass')
+    expect(ok.ok).toBe(true)
+    expect(ok.status).toBe(0)
+    expect(bad.ok).toBe(false)
+    expect(bad.status).toBe(3)
+    expect(bad.error).toBe('tx status=3')
+  })
+
+  it('still import with a BOM in front', () => {
+    expect(parseModulatedCsv('\uFEFF' + old)).toHaveLength(2)
+  })
+})

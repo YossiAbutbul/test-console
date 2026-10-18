@@ -32,6 +32,9 @@ backend/
   main.py                FastAPI app, logging filters, SPA fallback, lifespan
   device.py              DUT command surface (PaMode, LoraPower, LoraCw, ...)
   errors.py              DriverUnavailable — shared by drivers and the API
+  workbook.py            shared openpyxl styling (header, 0.00 number formats,
+                         widths, freeze/filter, Run-sheet sections) and the
+                         export filename scheme, used by sweep/ and loadpull/
 
   sweep/                 Mode-sweep domain (served by /test/*)
     models.py              SweepConfig / ResultRow / RunStatus / RunState

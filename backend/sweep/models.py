@@ -158,3 +158,26 @@ class RunStatus(BaseModel):
     error: Optional[str] = None
     config: Optional[SweepConfig] = None
     last_row: Optional[ResultRow] = None
+
+
+class RigInfo(BaseModel):
+    """The bench a sweep ran on, for the workbook's Run sheet.
+
+    Captured when the run starts rather than at export: by then the DUT may be
+    disconnected or another sensor plugged in, and the file would name the rig
+    as it is now instead of the one that produced its numbers.
+    """
+
+    dut_mac: Optional[str] = None
+    #: The DUT's advertised name -- the nearest thing to a device type the BLE
+    #: link carries.
+    dut_name: Optional[str] = None
+    power_sensor_idn: Optional[str] = None
+    #: Serial the sensor was opened by, when the sweep opened it itself.
+    power_sensor_address: Optional[str] = None
+    dc_analyzer_idn: Optional[str] = None
+    dc_analyzer_address: Optional[str] = None
+    dc_channel: Optional[int] = None
+    #: Supplied with the export request, not the run.
+    operator: Optional[str] = None
+    notes: Optional[str] = None

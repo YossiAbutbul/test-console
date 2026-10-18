@@ -91,7 +91,12 @@ export function MeasurementCard({
   const [readTargetDbm, setReadTargetDbm] = useState<number | null>(null)
 
   const measure = useMutation({
-    mutationFn: () => instrumentsApi.measure(freqHz),
+    // Pass the selection through: the backend reads whatever is connected, and
+    // an excluded instrument that is still plugged in would otherwise be read
+    // and its failure shown under a send that never asked for it.
+    mutationFn: () => instrumentsApi.measure(freqHz, {
+      only: { power: wantPower, current: wantCurrent },
+    }),
     onMutate: () => {
       setReadTargetDbm(targetDbm != null && Number.isFinite(targetDbm) ? targetDbm : null)
     },

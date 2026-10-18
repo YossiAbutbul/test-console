@@ -13,8 +13,13 @@ import { tests } from '../../api/tests'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import { TopProgress } from '../../components/TopProgress'
+import { usePublishLiveOutput } from '../../context/liveOutput'
+import { formatDuration } from '../../lib/async'
+import { estimateRunMs } from '../../lib/eta'
+import { RunTiming } from '../../ui/RunTiming'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { useInstruments, type InstrumentId } from '../../context/InstrumentsContext'
+import { persistPowerSweepPage, powerSweepPageSnapshot } from '../../store'
 import { usePathLoss } from '../../context/PathLossContext'
 import { useNotify } from '../../context/NotifyContext'
 import { saveBlob } from '../../lib/download'
@@ -47,6 +52,14 @@ const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
 const resultActionSx = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
 
 /**
+ * Per-step cost on top of the settle, for the pre-run estimate: the CW command
+ * over BLE plus one power and two analyzer reads (see `_measure_step` in
+ * backend/sweep/runner.py, which logs the split). A rough figure -- once the
+ * run is going, the remaining time follows the measured rate instead.
+ */
+const SWEEP_STEP_OVERHEAD_MS = 400
+
+/**
  * Sweep bounds. Must match HP_MAX_RANGE / PA_DC_RANGE / POWER_RANGE in
  * backend/sweep/models.py, which rejects anything outside them before the run
  * starts. All three are 1-based: a 0 on any axis hangs the DUT rather than
@@ -67,6 +80,32 @@ const RANGE_ROW_H = 52
 const RANGE_ROW_GAP = 8
 const RANGE_ROWS_VISIBLE = 3
 
+/**
+ * A stored span endpoint, or the default when it no longer fits.
+ *
+ * A value saved before a bound tightened would otherwise be restored into a
+ * plan the backend refuses before the run starts.
+ */
+function restoredSpan(v: unknown, b: { min: number; max: number }, fallback: number): number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= b.min && v <= b.max ? v : fallback
+}
+
+/**
+ * The stored advanced range list, re-issued fresh ids.
+ *
+ * newBlock numbers ids from a module counter that restarts at zero on load, so
+ * stored ids would collide with the next block added and shuffle React keys.
+ */
+function restoredBlocks(stored: BlockDraft[] | undefined): BlockDraft[] {
+  if (!Array.isArray(stored)) return []
+  return stored
+    .filter((b) => b != null
+      && restoredSpan(b.powerLo, RANGES.power, -1) !== -1 && restoredSpan(b.powerHi, RANGES.power, -1) !== -1
+      && restoredSpan(b.dutyLo, RANGES.duty, -1) !== -1 && restoredSpan(b.dutyHi, RANGES.duty, -1) !== -1
+      && restoredSpan(b.hpLo, RANGES.hp, -1) !== -1 && restoredSpan(b.hpHi, RANGES.hp, -1) !== -1)
+    .map((b) => newBlock(RANGES, b))
+}
+
 const PA_MODES = [
   { value: 0, label: 'Off' },
   { value: 1, label: 'On' },
@@ -82,17 +121,19 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
   const hasBackend = protocol === 'LoRa'
 
-  const [freqMhz, setFreqMhz] = useState('902.3')
-  const [powerLo, setPowerLo] = useState(RANGES.power.min)
-  const [powerHi, setPowerHi] = useState(RANGES.power.max)
-  const [dutyLo, setDutyLo] = useState(RANGES.duty.min)
-  const [dutyHi, setDutyHi] = useState(RANGES.duty.max)
-  const [hpLo, setHpLo] = useState(RANGES.hp.min)
-  const [hpHi, setHpHi] = useState(RANGES.hp.max)
+  // Restored from the page store; see restoredSpan for why each is checked.
+  const snap = powerSweepPageSnapshot
+  const [freqMhz, setFreqMhz] = useState(() => snap.freqMhz ?? '902.3')
+  const [powerLo, setPowerLo] = useState(() => restoredSpan(snap.powerLo, RANGES.power, RANGES.power.min))
+  const [powerHi, setPowerHi] = useState(() => restoredSpan(snap.powerHi, RANGES.power, RANGES.power.max))
+  const [dutyLo, setDutyLo] = useState(() => restoredSpan(snap.dutyLo, RANGES.duty, RANGES.duty.min))
+  const [dutyHi, setDutyHi] = useState(() => restoredSpan(snap.dutyHi, RANGES.duty, RANGES.duty.max))
+  const [hpLo, setHpLo] = useState(() => restoredSpan(snap.hpLo, RANGES.hp, RANGES.hp.min))
+  const [hpHi, setHpHi] = useState(() => restoredSpan(snap.hpHi, RANGES.hp, RANGES.hp.max))
   // Empty means the simple form above is in force. Non-empty supersedes it
   // entirely -- the two are alternatives, not layers, and showing both as
   // editable would leave it ambiguous which one the run used.
-  const [advBlocks, setAdvBlocks] = useState<BlockDraft[]>([])
+  const [advBlocks, setAdvBlocks] = useState<BlockDraft[]>(() => restoredBlocks(snap.advBlocks))
   // Which row the editor is on: a BlockDraft to edit it, null to add one,
   // undefined for closed. Three states rather than a boolean plus an index,
   // so "adding" cannot be confused with "editing row 0".
@@ -105,15 +146,29 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   const enableAdvanced = () => setAdvBlocks([{
     ...newBlock(RANGES), powerLo, powerHi, dutyLo, dutyHi, hpLo, hpHi,
   }])
-  const [settle, setSettle] = useState(DEFAULT_SETTLE_MS)
-  const [paMode, setPaMode] = useState(0)
+  const [settle, setSettle] = useState(
+    () => (snap.settleMs == null ? DEFAULT_SETTLE_MS : clampSettleMs(snap.settleMs)),
+  )
+  const [paMode, setPaMode] = useState(
+    () => (PA_MODES.some((m) => m.value === snap.paMode) ? snap.paMode as number : 0),
+  )
+  // The run configuration only -- results and running state live in the
+  // backend's run status, not here.
+  useEffect(() => {
+    Object.assign(powerSweepPageSnapshot, {
+      freqMhz, powerLo, powerHi, dutyLo, dutyHi, hpLo, hpHi, advBlocks, settleMs: settle, paMode,
+    })
+    persistPowerSweepPage()
+  }, [freqMhz, powerLo, powerHi, dutyLo, dutyHi, hpLo, hpHi, advBlocks, settle, paMode])
   const [graphOpen, setGraphOpen] = useState(false)
   // Rows read from a workbook instead of from this backend's run. Kept in
   // page state rather than pushed into the runner: an imported file is
   // someone else's finished sweep, and loading it into the run would make
   // the status line, Export and Clear all describe something that did not
-  // happen here.
-  const [imported, setImported] = useState<{ rows: ResultRow[]; name: string } | null>(null)
+  // happen here. The file itself is kept for Export, which re-renders it.
+  const [imported, setImported] = useState<
+    { rows: ResultRow[]; name: string; file: File } | null
+  >(null)
   const fileInput = useRef<HTMLInputElement | null>(null)
 
   // The sweep loop lives in the backend; the page starts it, polls it and
@@ -181,7 +236,12 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
       }
       return tests.run(req)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['test-status'] }),
+    onSuccess: () => {
+      // A run started over an open file would otherwise fill in behind it,
+      // unseen, while the table kept showing the file.
+      setImported(null)
+      return qc.invalidateQueries({ queryKey: ['test-status'] })
+    },
     onError: (e: Error) => reporter.failed(e.message),
   })
 
@@ -190,6 +250,15 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['test-status'] }),
     onError: (e: Error) => reporter.note(`Stop failed: ${e.message}`, 'error'),
   })
+
+  // With a file open, Clear closes it and leaves the backend's run alone: the
+  // file is what the operator is looking at, and wiping a run they cannot see
+  // is not what the button promises.
+  const closeImported = () => {
+    if (!imported) return
+    reporter.note(`Closed ${imported.name}`)
+    setImported(null)
+  }
 
   const clearResults = useMutation({
     mutationFn: () => (hasBackend ? tests.clear() : Promise.resolve(null)),
@@ -203,16 +272,22 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   })
 
   const importXlsx = useMutation({
-    mutationFn: (file: File) => tests.importXlsx(file).then((r) => ({ rows: r, name: file.name })),
-    onSuccess: ({ rows: r, name }) => {
-      setImported({ rows: r, name })
+    mutationFn: (file: File) => tests.importXlsx(file).then((r) => ({ rows: r, file })),
+    onSuccess: ({ rows: r, file }) => {
+      const name = file.name
+      setImported({ rows: r, name, file })
       reporter.note(`Imported ${r.length} rows from ${name}`)
     },
     onError: (e: Error) => reporter.note(`Import failed: ${e.message}`, 'error'),
   })
 
+  // An open file is re-rendered from the file, not from the backend's rows, so
+  // Export hands back what is on screen. Saved under the file's own name: it
+  // is the same run, only laid out with the current sheets.
   const exportXlsx = useMutation({
-    mutationFn: tests.exportXlsx,
+    mutationFn: () => (imported
+      ? tests.reexportXlsx(imported.file).then((r) => ({ ...r, filename: imported.name }))
+      : tests.exportXlsx()),
     onSuccess: async ({ blob, filename }) => {
       // Reported only once it is actually written: the operator can dismiss
       // the save dialog, and "Exported" for a file that was never saved sends
@@ -243,6 +318,19 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   const stopping = cancel.isPending || (running && cancel.isSuccess)
   const total = status?.total ?? 0
   const completed = status?.completed ?? 0
+  // Clamped as the run will clamp it, so the estimate is for what is sent.
+  const estimatedRunMs = estimateRunMs(totalSteps, clampSettleMs(settle) + SWEEP_STEP_OVERHEAD_MS)
+  // The backend's clock (epoch seconds), so the elapsed time is still right
+  // after a reload part-way through a run.
+  const runStartedMs = status?.started_at != null ? status.started_at * 1000 : null
+  // A "Run" pill in the top bar, visible from every page while the sweep is
+  // going. Fed by the status poll this page already runs.
+  usePublishLiveOutput('run:power-sweep', running ? {
+    kind: 'run',
+    label: 'Run',
+    detail: `Mode Sweep ${completed}/${total}`,
+    pageId: 'power-sweep',
+  } : null)
 
   const onRun = async () => {
     if (hasBackend && !(await preflight.run())) {
@@ -315,16 +403,27 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
         group={group}
         label="Mode Sweep"
         actions={
-          <RunControls
-            running={running}
-            starting={run.isPending}
-            stopping={stopping}
-            canRun={totalSteps > 0}
-            runLabel="Run sweep"
-            progress={total > 0 ? `${completed}/${total}` : undefined}
-            onRun={() => void onRun()}
-            onStop={() => cancel.mutate()}
-          />
+          <Stack direction="row" alignItems="center" spacing={1.5}>
+            {/* Beside the progress counter it qualifies. Total and completed
+                come from the backend's status, not the form. */}
+            <RunTiming
+              running={running}
+              completed={completed}
+              total={total}
+              plannedTotalMs={estimatedRunMs}
+              startedAt={runStartedMs}
+            />
+            <RunControls
+                running={running}
+                starting={run.isPending}
+                stopping={stopping}
+                canRun={totalSteps > 0}
+                runLabel="Run sweep"
+                progress={total > 0 ? `${completed}/${total}` : undefined}
+                onRun={() => void onRun()}
+                onStop={() => cancel.mutate()}
+            />
+          </Stack>
         }
       />
 
@@ -347,6 +446,8 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                   }}
                 >
                   {totalSteps} step{totalSteps === 1 ? '' : 's'}
+                  {/* What those steps cost, before committing to them. */}
+                  {totalSteps > 0 && !running && ` · ≈ ${formatDuration(estimatedRunMs)}`}
                 </Typography>
                 {/* A toggle rather than an icon: the two modes are exclusive
                     and the control has to show which one is on, which an icon
@@ -571,10 +672,10 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                 variant="text"
                 color="inherit"
                 startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
-                onClick={() => clearResults.mutate()}
+                onClick={() => (imported ? closeImported() : clearResults.mutate())}
                 // Refused mid-run by the backend; disabled here so the refusal
                 // is not the way the operator finds that out.
-                disabled={rows.length === 0 || running || clearResults.isPending || imported != null}
+                disabled={rows.length === 0 || running || clearResults.isPending}
                 sx={resultActionSx}
               >
                 Clear
@@ -604,10 +705,9 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                 variant="text"
                 startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
                 onClick={() => exportXlsx.mutate()}
-                // Export always writes the backend's own rows, so offering it
-                // while a file is on screen would hand back something other
-                // than what is being looked at.
-                disabled={!hasSweep || exportXlsx.isPending || imported != null}
+                // With a file open this re-exports the file (see exportXlsx),
+                // so it needs no run of this backend.
+                disabled={(!hasSweep && !imported) || exportXlsx.isPending}
                 sx={resultActionSx}
               >
                 Export

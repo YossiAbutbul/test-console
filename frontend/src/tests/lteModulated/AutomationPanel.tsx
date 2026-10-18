@@ -33,10 +33,14 @@ import {
   bandwidthLabel, rbForBandwidth,
 } from './signal'
 import { CSV_HEADER, parseLteModulatedCsv, toCsvBody } from './csv'
-import { ResultsGraphModal } from '../power/ResultsGraphModal'
+import { ResultsGraphModal, type GraphableRow } from '../power/ResultsGraphModal'
+import { lteChannelPoint } from '../power/graphSeries'
 import { runSequence } from '../engine/runSequence'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'
+import { TopProgress } from '../../components/TopProgress'
+import { usePublishLiveOutput } from '../../context/liveOutput'
+import { RunTiming } from '../../ui/RunTiming'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import type { LteModulatedRequest } from '../../types/models'
 import type { ChannelUnit } from '../lte/channel'
@@ -82,6 +86,9 @@ const TX_TIME_MS = 20_000
 
 const DEFAULT_POWER = '23'
 const PANEL_HEIGHT = 250
+
+/** The modem power-cycle at the start of a run; see `useLteModem.cycle`. */
+const MODEM_RESTART_MS = 10_000
 
 /**
  * Most channels a spec is rewritten across on a unit switch.
@@ -244,12 +251,22 @@ const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i:
   )
 })
 
+/** Graph row: named by band and EARFCN, with the waveform as the series.
+ *  Without it two waveforms at the same channel and power overwrite each
+ *  other on the graph. */
+const toGraphRow = (r: ResultRow): GraphableRow => ({
+  ...r,
+  point: lteChannelPoint(r.band, r.earfcn, r.freq_mhz),
+  series: `${bandwidthLabel(r.bandwidth)} · MCS ${r.mcs} · ${r.rb_count} RB`,
+})
+
 /** Export the results table. The column list and the row mapping live in
  *  `./csv`, alongside the parser that reads them back. */
 function downloadCsv(rows: ResultRow[], mac: string | null): void {
   void saveCsv(
     [...CSV_HEADER], toCsvBody(rows),
     exportName('lte-modulated-automation', mac, 'csv'),
+    { test: 'LTE modulated automation', dut_mac: mac },
   )
 }
 
@@ -483,6 +500,20 @@ export function AutomationPanel({
   const totalPoints = plan.length
   // Settle dominates; the two commands + measure round trips add roughly 400 ms.
   const estimatedRunMs = totalPoints * (settleMs + 400)
+  // runSequence reports the 1-based point in hand, so the points already
+  // finished are one fewer.
+  const completedPoints = Math.max(0, progressIdx - 1)
+  // The run power-cycles the modem before its first point, inside the
+  // running window, so the countdown has to allow for it too.
+  const plannedRunMs = estimatedRunMs + MODEM_RESTART_MS
+  // A "Run" pill in the top bar, so a sweep left running on this page is
+  // visible from every other one. The id is this page's registry id.
+  usePublishLiveOutput('run:lte-modulated', running ? {
+    kind: 'run',
+    label: 'Run',
+    detail: `LTE Modulated ${progressIdx}/${totalPoints}`,
+    pageId: 'lte-modulated',
+  } : null)
   // A row with a bad tolerance or signal contributes no points, so it would
   // otherwise vanish from the plan silently rather than blocking the run.
   const anyInvalid = rows.some(
@@ -700,9 +731,28 @@ export function AutomationPanel({
   const cellSx = { '& .MuiInputBase-root': { height: 34 } }
   const isEarfcn = unit === 'earfcn'
 
+  // The range-spec syntax under the table. Built once for both the footer
+  // line and its tooltip, which shows it whole when the line is cut short.
+  const syntaxHint = (
+    <>
+      {isEarfcn
+        ? 'EARFCN / Power: "18900" · "18900-18910" · "18900-18910:5" · "18900,20175"'
+        : 'MHz / Power: "1880" · "1850-1910" · "1850-1910:0.5" · "1850,1880,1909.9"'}
+      <Box component="span" sx={{ ml: 1.5 }}>
+        Tolerance: within ± dB of the set power · blank for no verdict
+      </Box>
+    </>
+  )
+
   return (
     <Stack spacing={`${GRID_GAP}px`} sx={{ flexGrow: 1, minHeight: 0 }}>
       <Box sx={{ height: PANEL_HEIGHT, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        {/* Same bar the Mode Sweep pins under the top bar. Fixed, so it takes
+            no room here, and it disappears with the tab or page it is on. */}
+        <TopProgress
+          pct={totalPoints > 0 ? (completedPoints / totalPoints) * 100 : 0}
+          hidden={!running}
+        />
         <Section
           title="Sweep"
           panel
@@ -974,21 +1024,35 @@ export function AutomationPanel({
             spacing={2}
             sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}
           >
-            <Typography sx={{ fontSize: 11, color: 'text.disabled', whiteSpace: 'nowrap' }}>
-              {isEarfcn
-                ? 'EARFCN / Power: "18900" · "18900-18910" · "18900-18910:5" · "18900,20175"'
-                : 'MHz / Power: "1880" · "1850-1910" · "1850-1910:0.5" · "1850,1880,1909.9"'}
-              <Box component="span" sx={{ ml: 1.5 }}>
-                Tolerance: within ± dB of the set power · blank for no verdict
-              </Box>
-            </Typography>
+            {/* Shrinks and ellipsizes rather than pushing the estimate out of the
+                panel: both used to be nowrap in a fixed-height box, and the
+                estimate was the one that got clipped. The full text is on hover. */}
+            <Tooltip title={syntaxHint} placement="top-start">
+              <Typography
+                sx={{
+                  fontSize: 11, color: 'text.disabled', whiteSpace: 'nowrap',
+                  minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
+                }}
+              >
+                {syntaxHint}
+              </Typography>
+            </Tooltip>
             {/* A long settle looks identical to a hung run, so state the cost up
                 front rather than letting the operator guess. */}
-            {totalPoints > 0 && (
+            {running ? (
+              <RunTiming
+                running={running}
+                completed={completedPoints}
+                total={totalPoints}
+                plannedTotalMs={plannedRunMs}
+                sx={{ flexShrink: 0 }}
+              />
+            ) : totalPoints > 0 && (
               <Typography
                 sx={{
                   ...TEXT.micro,
                   whiteSpace: 'nowrap',
+                  flexShrink: 0,
                   color: settleMs >= LONG_SETTLE_MS ? 'warning.main' : 'text.secondary',
                 }}
               >
@@ -1112,7 +1176,7 @@ export function AutomationPanel({
       <ResultsGraphModal
         open={graphOpen}
         onClose={() => setGraphOpen(false)}
-        results={results}
+        results={results.map(toGraphRow)}
       />
       {preflight.dialog}
     </Stack>

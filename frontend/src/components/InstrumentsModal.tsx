@@ -111,7 +111,7 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
     <Box
       sx={{
         position: 'relative',
-        px: 2, py: 1.25,
+        px: 1.5, py: 0.75,
         borderRadius: 1.25,
         border: 1,
         borderColor: highlight ? p.actions.disconnect.bg : 'divider',
@@ -146,7 +146,7 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
             <Typography
               sx={{
                 fontSize: 10.5, color: 'text.secondary',
-                fontFamily: 'ui-monospace, monospace', lineHeight: 1.2,
+                fontFamily: MONO, lineHeight: 1.2,
                 minHeight: 14,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}
@@ -182,7 +182,7 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
                 if (typeof o === 'string') return <li {...props} key={o}>{o}</li>
                 return (
                   <li {...props} key={o.resource} style={{ display: 'block', padding: '6px 12px' }}>
-                    <Typography sx={{ fontFamily: 'ui-monospace, monospace', fontSize: 13, lineHeight: 1.3 }}>
+                    <Typography sx={{ fontFamily: MONO, fontSize: 13, lineHeight: 1.3 }}>
                       {o.resource}
                     </Typography>
                     <Typography
@@ -205,7 +205,7 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
                   placeholder={fieldPlaceholder(id, inst.placeholder)}
                   InputProps={{
                     ...params.InputProps,
-                    sx: { fontFamily: 'ui-monospace, monospace', fontSize: 12.5, height: 34 },
+                    sx: { fontFamily: MONO, fontSize: 12.5, height: 34 },
                   }}
                 />
               )}
@@ -286,8 +286,10 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
         </Stack>
       </Box>
 
-      {/* Footer line: IDN, or the explained failure. Height is reserved either
-          way so the row doesn't jump when a connect resolves. */}
+      {/* Footer line: IDN, or the explained failure. Only drawn when there is
+          one -- a reserved empty line under every row made the list half
+          blank space. The row grows once on connect, which reads as the
+          result arriving rather than as a jump. */}
       {inst.failure ? (
         <Box sx={{ mt: 0.75, pl: 2.5 }}>
           <Typography sx={{ fontSize: 10.5, fontWeight: 700, color: 'error.main' }}>
@@ -295,20 +297,19 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
           </Typography>
           <FailureNote failure={inst.failure} />
         </Box>
-      ) : (
+      ) : connected && inst.idn ? (
         <Typography
           sx={{
-            mt: 0.75, pl: 2.5,
-            minHeight: 14,
+            mt: 0.5, pl: 2.5,
             fontSize: 10.5,
             fontFamily: MONO,
             color: 'text.secondary',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}
         >
-          {connected ? inst.idn ?? ' ' : ' '}
+          {inst.idn}
         </Typography>
-      )}
+      ) : null}
 
       {/* Subtle scanning indicator — thin bar at the bottom edge of the row */}
       {scanning && (
@@ -371,7 +372,9 @@ export function InstrumentsModal() {
       maxWidth="md"
       fullWidth
       transitionDuration={{ enter: 200, exit: 0 }}
-      slotProps={{ paper: { sx: { borderRadius: 2, height: 560, maxHeight: '88vh' } } }}
+      // Height follows the content; the cap only matters on a short screen,
+      // where DialogContent scrolls.
+      slotProps={{ paper: { sx: { borderRadius: 2, maxHeight: '88vh' } } }}
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1.5, pb: 1 }}>
         <Typography sx={{ fontSize: 17, fontWeight: 700 }}>Instruments</Typography>
@@ -397,7 +400,7 @@ export function InstrumentsModal() {
             (id) => instruments[id]?.placeholder,
           )
           return (
-            <Stack spacing={2.5} sx={{ py: 2 }}>
+            <Stack spacing={2} sx={{ py: 1.5 }}>
               {liveGroups.map((g) => (
                 <Box key={g.label}>
                   <Typography

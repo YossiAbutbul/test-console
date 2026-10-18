@@ -12,6 +12,7 @@ import { LogPanel } from './components/LogPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { useChat } from './context/ChatContext'
 import { InstrumentsModal } from './components/InstrumentsModal'
+import { LiveOutputPills } from './components/LiveOutputPills'
 import { useConnection } from './context/ConnectionContext'
 import {
   useCapabilities, useInstrumentsUnavailableReason,
@@ -456,22 +457,39 @@ export default function App() {
               window.scrollTo({ top: 0, behavior: 'smooth' })
             }}
           />
-          {!logOpen && (
-            <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', right: 12 }}>
-              <Tooltip title="Open log">
-                <IconButton size="small" onClick={() => { setDockTab('log'); setLogOpen(true) }}>
-                  <ArticleIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              {chatOn && (
-                <Tooltip title="Open assistant">
-                  <IconButton size="small" onClick={() => { setDockTab('chat'); setLogOpen(true) }}>
-                    <SmartToyOutlinedIcon fontSize="small" />
+          {/* Live-output pills sit with the dock buttons on the right of the
+              bar, and stay there when the dock is open: an RF source keyed on
+              another page is exactly what the operator cannot otherwise see. */}
+          <Stack
+            direction="row"
+            spacing={0.5}
+            alignItems="center"
+            sx={{ position: 'absolute', right: 12 }}
+          >
+            <LiveOutputPills
+              compact={narrow}
+              onSelect={(id) => {
+                setActiveId(id)
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+              }}
+            />
+            {!logOpen && (
+              <>
+                <Tooltip title="Open log">
+                  <IconButton size="small" onClick={() => { setDockTab('log'); setLogOpen(true) }}>
+                    <ArticleIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-              )}
-            </Stack>
-          )}
+                {chatOn && (
+                  <Tooltip title="Open assistant">
+                    <IconButton size="small" onClick={() => { setDockTab('chat'); setLogOpen(true) }}>
+                      <SmartToyOutlinedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </>
+            )}
+          </Stack>
         </Box>
 
         {logOpen && !narrow && (

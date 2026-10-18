@@ -14,6 +14,7 @@ import {
 } from '../../context/InstrumentsContext'
 import { filterCandidates } from '../../lib/instrumentCandidates'
 import { useLog } from '../../context/LogContext'
+import { usePublishLiveOutput } from '../../context/liveOutput'
 import { DASH, fmt } from '../../lib/format'
 import {
   FieldGrid, InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
@@ -209,6 +210,21 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
 
   const outputOn = st?.output_on === true
   const canSend = connected && !busy
+
+  // Into the top bar, so a powered DUT is visible from every page. From this
+  // page's own read-back, not a poll of its own: the analyzer's VISA session
+  // is exclusive. That read-back stops when the page is left, hence the note.
+  usePublishLiveOutput('dc-analyzer', connected && outputOn ? {
+    kind: 'dc',
+    label: 'DC ON',
+    detail: [
+      st?.voltage_set_v == null ? null : `${fmt(st.voltage_set_v, 2)} V`,
+      `ch ${st?.channel ?? channel}`,
+    ].filter(Boolean).join(' · '),
+    pageId: 'dc-analyzer',
+    note: 'DC analyzer output, as last read on its page. '
+      + 'It is only re-read while that page is open.',
+  } : null)
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>

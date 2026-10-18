@@ -190,14 +190,24 @@ def _read_dc() -> tuple[float | None, float | None, str | None]:
 @_aggregate.post("/measure", response_model=MeasureResponse)
 async def measure(
     freq_hz: int | None = None, allow_no_signal: bool = False,
+    power: bool = True, current: bool = True,
 ) -> MeasureResponse:
+    """Read every connected instrument the caller asked for.
+
+    `power` / `current` let a caller exclude one. Connected is not the same as
+    wanted: with "Measure power" unchecked on a CW page, a sensor left on USB
+    but off the RF path was still read, and its "no signal" failure was shown
+    under a send that never asked for power.
+    """
     t0 = time.perf_counter()
     ps_connected = state.power_sensor is not None
     dc_connected = state.dc_analyzer is not None
-    if not ps_connected and not dc_connected:
+    read_ps = ps_connected and power
+    read_dc = dc_connected and current
+    if not read_ps and not read_dc:
         return MeasureResponse(
-            power_sensor_connected=False,
-            dc_analyzer_connected=False,
+            power_sensor_connected=ps_connected,
+            dc_analyzer_connected=dc_connected,
             t_ms=0,
         )
     err: str | None = None
@@ -211,14 +221,14 @@ async def measure(
     # instead of consuming a shared worker thread and eventually stalling the
     # whole API — see _bus.py.
     try:
-        if ps_connected:
+        if read_ps:
             p_dbm = await bus("power-sensor").call(
                 _read_power_dbm, freq_hz, allow_no_signal,
             )
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
     try:
-        if dc_connected:
+        if read_dc:
             cur, volt, dc_err = await bus("dc-analyzer").call(_read_dc)
             if dc_err:
                 err = f"{err}; {dc_err}" if err else dc_err

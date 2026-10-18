@@ -443,7 +443,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
   ].filter(Boolean).join(' · ')
 
   const selectSx = { '& .MuiSelect-select': { fontFamily: MONO, fontSize: 12.5 } }
-  const fieldLabelSx = { fontSize: 13, fontWeight: 500, mb: 0.5 }
+  const fieldLabelSx = { ...TEXT.label, mb: 0.5 }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
@@ -833,10 +833,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                 sx={{ ...PANEL_SX, flexShrink: 0, px: 2, py: 0.5 }}
               >
                 <Typography
-                  sx={{
-                    fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
-                    textTransform: 'uppercase', color: 'text.secondary', flexGrow: 1,
-                  }}
+                  sx={{ ...TEXT.sectionTitle, color: 'text.secondary', flexGrow: 1 }}
                 >
                   Markers
                 </Typography>

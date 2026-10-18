@@ -211,15 +211,18 @@ channel. Send and Stop work as on LTE CW (Modulated opcode `23 50`).
 
 **CSV columns:**
 
-- **CW:** `earfcn, band, freq_mhz, set_power_dbm, measured_dbm, current_ma,
-  path_loss_db, margin_db, min_dbm, max_dbm, verdict, ok, status, error`
-- **Modulated:** adds `bandwidth, mcs, rb_count` after `set_power_dbm`.
+- **CW:** `EARFCN, Band, Freq [MHz], Set [dBm], Measured [dBm], Raw [dBm],
+  Path loss [dB], CC [mA], V [V], Margin [dB], Min [dBm], Max [dBm], Verdict,
+  Status, DUT status`
+- **Modulated:** adds `BW, MCS, RBs` after `Set [dBm]`.
 
-**File names:** `<MAC>-<UTC timestamp>.csv`, or
-`lte-cw-automation-<ts>.csv` / `lte-modulated-automation-<ts>.csv` when no
-MAC is known.
+As on the LoRa pages, the file has a UTF-8 byte-order mark and `#` header
+lines, and older snake_case files still import.
 
-**Import** needs `earfcn, set_power_dbm, measured_dbm`.
+**File names:** `<MAC without colons, or noDUT>_<test>_<local timestamp>.csv`,
+where `<test>` is `lte-cw-automation` or `lte-modulated-automation`.
+
+**Import** needs EARFCN, Set and Measured (old or new header names).
 
 ---
 

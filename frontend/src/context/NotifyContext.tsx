@@ -5,7 +5,8 @@
  *   notify.success('Automation finished')
  *   notify.error('Connect failed', { title: 'DC analyzer' })
  *
- * Design: top-right stack, flat surface bg, severity-colored icon, no
+ * Design: bottom-right stack (clear of the top bar and every page's
+ * instrument bar), flat surface bg, severity-colored icon, no
  * coloring on the body. Quick fade in/out (100 ms). Info/success self-clear
  * after 6 s; warning/error are sticky until the user closes them.
  */

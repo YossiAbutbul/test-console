@@ -7,27 +7,36 @@ Workbook layout:
 The split matters because a load pull contour only means anything at one
 frequency and one drive level: stacking every combination in a single grid
 leaves the reader to filter it back apart before the numbers can be compared.
+
+Presentation (header style, two-decimal display, the red Status rule, the Run
+sheet's sections) comes from `backend/workbook.py`, shared with the sweep.
 """
 from __future__ import annotations
 
-import time
 from io import BytesIO
 from typing import Any, Iterable
 
 from openpyxl import Workbook
 from openpyxl.styles import Font
-from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from .. import workbook as wbk
 from .models import LoadPullMeta, LoadPullRow
 
 #: Columns of the "All" sheet. The per-frequency sheets drop Freq and Set,
 #: which are constant within each of their tables.
+#:
+#: "Measured [dBm]" and "X [Ω]" were "Power [dBm]" and "J [Ω]": the first so the
+#: sweep, load-pull and CSV exports share one vocabulary, the second because
+#: the column holds the reactance X, and "J" named the imaginary unit instead.
 HEADERS = [
     "#", "Pos [mm]", "Pos [pulses]", "Freq [MHz]", "Set [dBm]", "Att [dB]",
-    "Power [dBm]", "Raw [dBm]", "CC [mA]", "R [Ω]", "J [Ω]", "S11 [dB]",
+    "Measured [dBm]", "Raw [dBm]", "CC [mA]", "R [Ω]", "X [Ω]", "S11 [dB]",
     "VSWR", "Status",
 ]
+#: Earlier spellings, accepted on import so files written before a rename
+#: still read back.
+HEADER_ALIASES = {"Measured [dBm]": ("Power [dBm]",), "X [Ω]": ("J [Ω]",)}
 #: Columns added after files were already in circulation. Matching by name
 #: makes a missing one survivable, and an older workbook is still a complete
 #: record of the run it holds, so their absence is not an error.
@@ -40,15 +49,13 @@ DERIVED_HEADERS = {"VSWR"}
 #: *inside* one table, and it is what those rows are sorted by.
 TABLE_HEADERS = [h for h in HEADERS if h not in ("Freq [MHz]", "Set [dBm]")]
 
-HEADER_FONT = Font(bold=True)
 TITLE_FONT = Font(bold=True, size=12)
-
-COL_WIDTH_MIN = 8
-COL_WIDTH_MAX = 24
 
 
 def _milliamps(current_a: float | None) -> float | None:
-    return None if current_a is None else round(current_a * 1000.0, 2)
+    # Not rounded: the cell format shows two decimals, the cell keeps the
+    # reading. See backend/workbook.py.
+    return None if current_a is None else current_a * 1000.0
 
 
 def _status(r: LoadPullRow) -> str:
@@ -74,7 +81,7 @@ def _vswr(s11_db: float | None) -> float | None:
     gamma = 10.0 ** (s11_db / 20.0)
     if gamma >= 1.0:
         return None
-    return round((1.0 + gamma) / (1.0 - gamma), 3)
+    return (1.0 + gamma) / (1.0 - gamma)
 
 
 def _values(idx: int, r: LoadPullRow, *, with_point: bool) -> list[Any]:
@@ -96,20 +103,13 @@ def _values(idx: int, r: LoadPullRow, *, with_point: bool) -> list[Any]:
     return head + point + tail
 
 
-def _autosize(ws: Worksheet) -> None:
-    for col in ws.columns:
-        letter = get_column_letter(col[0].column)
-        width = max((len(str(c.value)) for c in col if c.value is not None), default=4)
-        ws.column_dimensions[letter].width = min(max(width + 2, COL_WIDTH_MIN), COL_WIDTH_MAX)
-
-
 def _write_all(ws: Worksheet, rows: list[LoadPullRow]) -> None:
-    for c, name in enumerate(HEADERS, start=1):
-        ws.cell(row=1, column=c, value=name).font = HEADER_FONT
+    wbk.write_header(ws, HEADERS)
     for i, r in enumerate(rows, start=1):
         for c, v in enumerate(_values(i, r, with_point=True), start=1):
-            ws.cell(row=i + 1, column=c, value=v)
-    _autosize(ws)
+            wbk.write_cell(ws, i + 1, c, v, HEADERS[c - 1])
+    wbk.finish_table(ws, HEADERS, len(rows))
+    wbk.flag_bad_status(ws, HEADERS.index("Status") + 1, 2, len(rows) + 1)
 
 
 def _fmt_freq(mhz: float | None) -> str:
@@ -148,16 +148,21 @@ def _write_frequency_sheet(ws: Worksheet, rows: list[LoadPullRow]) -> None:
         label = "Unspecified" if power is None else f"{power:g} dBm"
         ws.cell(row=row_at, column=1, value=f"Set power: {label}").font = TITLE_FONT
         row_at += 1
-        for c, name in enumerate(TABLE_HEADERS, start=1):
-            ws.cell(row=row_at, column=c, value=name).font = HEADER_FONT
+        wbk.write_header(ws, TABLE_HEADERS, row=row_at)
         row_at += 1
         for i, r in enumerate(group, start=1):
             for c, v in enumerate(_values(i, r, with_point=False), start=1):
-                ws.cell(row=row_at, column=c, value=v)
+                wbk.write_cell(ws, row_at, c, v, TABLE_HEADERS[c - 1])
             row_at += 1
         # One blank line between tables, so a reader can tell where one ends.
         row_at += 1
-    _autosize(ws)
+    # No frozen header and no auto-filter: the tables are stacked, so there is
+    # no single header row to pin, and Excel allows one filter per sheet. The
+    # Status rule spans the whole column and skips the repeated header text.
+    wbk.set_widths(ws, TABLE_HEADERS)
+    wbk.flag_bad_status(
+        ws, TABLE_HEADERS.index("Status") + 1, 1, max(row_at - 1, 1), also_skip=("Status",),
+    )
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -190,6 +195,10 @@ def parse_workbook(data: bytes) -> list[LoadPullRow]:
     # strand every file exported up to that point. Derived columns are not
     # required at all -- they are recomputed from the measurements beside them.
     col = {name: i for i, name in enumerate(header) if isinstance(name, str)}
+    for name, old in HEADER_ALIASES.items():
+        for alias in old:
+            if name not in col and alias in col:
+                col[name] = col[alias]
     missing = [h for h in HEADERS if h not in col and h not in OPTIONAL_HEADERS]
     if missing:
         raise ValueError(
@@ -221,11 +230,11 @@ def parse_workbook(data: bytes) -> list[LoadPullRow]:
             freq_mhz=_float_or_none(cell(values, "Freq [MHz]")),
             power_dbm_setting=_float_or_none(cell(values, "Set [dBm]")),
             att_db=_float_or_none(cell(values, "Att [dB]")),
-            power_dbm=_float_or_none(cell(values, "Power [dBm]")),
+            power_dbm=_float_or_none(cell(values, "Measured [dBm]")),
             power_dbm_raw=_float_or_none(cell(values, "Raw [dBm]")),
             current_a=None if cc_ma is None else cc_ma / 1000.0,
             r_ohm=_float_or_none(cell(values, "R [Ω]")),
-            x_ohm=_float_or_none(cell(values, "J [Ω]")),
+            x_ohm=_float_or_none(cell(values, "X [Ω]")),
             s11_db=_float_or_none(cell(values, "S11 [dB]")),
             # Anything that is not a plain "ok" was the reason the row has no
             # numbers, so it travels back as the error.
@@ -234,49 +243,48 @@ def parse_workbook(data: bytes) -> list[LoadPullRow]:
     return rows
 
 
-_PA_MODE_NAMES = {0: "OFF", 1: "ON", 2: "AUTO"}
-
-TITLE_FONT_SM = Font(bold=True)
+#: Spelt as the CSV exports and the app spell it -- see the sweep's copy.
+_PA_MODE_NAMES = {0: "Off", 1: "On", 2: "Auto"}
 
 
 def _mm(pulses: int | None) -> str:
     return "—" if pulses is None else f"{pulses / 400:.2f} mm ({pulses} pulses)"
 
 
-def _write_run_sheet(ws: Worksheet, meta: LoadPullMeta, row_count: int) -> None:
+def _write_run_sheet(ws: Worksheet, meta: LoadPullMeta, rows: list[LoadPullRow]) -> None:
     """Label/value pairs — read top to bottom, not a table."""
+    def dash(v: Any) -> Any:
+        return "—" if v is None else v
+
     entries: list[tuple[str, Any]] = [
-        ("Exported", time.strftime("%Y-%m-%d %H:%M:%S")),
-        ("Points", row_count),
-        ("", ""),
+        ("Points", len(rows)),
         ("Frequencies", meta.freq_spec or "—"),
         ("Powers", meta.power_spec or "—"),
         ("PA mode", f"{_PA_MODE_NAMES.get(meta.pa_mode, '?')} ({meta.pa_mode})"
                     if meta.pa_mode is not None else "—"),
-        ("Settle [ms]", meta.settle_ms if meta.settle_ms is not None else "—"),
-        ("", ""),
+        ("Settle [ms]", dash(meta.settle_ms)),
         ("Trombone zero", _mm(meta.zero_pulses)),
         ("Trombone end", _mm(meta.end_pulses)),
-        ("Delta X [mm]", meta.delta_x_mm if meta.delta_x_mm is not None else "—"),
-        ("", ""),
-        ("Path loss default [dB]",
-         meta.path_loss_default_db if meta.path_loss_default_db is not None else "—"),
+        ("Delta X [mm]", dash(meta.delta_x_mm)),
+        ("Path loss default [dB]", dash(meta.path_loss_default_db)),
     ]
     # Per frequency, so a reader can see which figure corrected which column -
     # and which of them was a guess.
     for pt in meta.path_loss_points:
         label = f"Path loss @ {pt.freq_mhz:g} MHz [dB]"
         entries.append((label, f"{pt.db:g}" + ("" if pt.calibrated else "  (uncalibrated)")))
-    if meta.dut_mac:
-        entries.extend([("", ""), ("DUT", meta.dut_mac)])
-
-    ws.cell(row=1, column=1, value="Setting").font = HEADER_FONT
-    ws.cell(row=1, column=2, value="Value").font = HEADER_FONT
-    for i, (label, value) in enumerate(entries, start=2):
-        if label:
-            ws.cell(row=i, column=1, value=label).font = TITLE_FONT_SM
-        ws.cell(row=i, column=2, value=value)
-    _autosize(ws)
+    entries += wbk.summary_entries(
+        [r.error is None for r in rows], (r.power_dbm for r in rows), "Measured",
+        meta.started_at, meta.finished_at,
+    )
+    entries += wbk.rig_entries(
+        dut_mac=meta.dut_mac, dut_name=meta.dut_name,
+        power_sensor_idn=meta.power_sensor_idn, power_sensor_address=meta.power_sensor_address,
+        dc_analyzer_idn=meta.dc_analyzer_idn, dc_analyzer_address=meta.dc_analyzer_address,
+        dc_channel=meta.dc_channel,
+    )
+    entries += wbk.export_entries(meta.operator, meta.notes)
+    wbk.write_run_entries(ws, entries)
 
 
 def build_workbook(
@@ -293,7 +301,7 @@ def build_workbook(
     # Right after "All" rather than last: appended behind a dozen frequency
     # tabs it would not be found.
     if meta is not None:
-        _write_run_sheet(wb.create_sheet(title="Run", index=1), meta, len(rows))
+        _write_run_sheet(wb.create_sheet(title="Run", index=1), meta, rows)
 
     # Ascending, with unspecified last so a real frequency is never buried.
     freqs = sorted({r.freq_mhz for r in rows}, key=lambda f: (f is None, f))

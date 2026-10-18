@@ -87,12 +87,12 @@ and the two must agree.
 
 | Page | Format | File name | Import? |
 |---|---|---|---|
-| LoRa CW automation | CSV | `<MAC>-<UTC ts>.csv` / `tx-cw-automation-<ts>.csv` | yes (replaces the table) |
-| LoRa Modulated automation | CSV | `<MAC>-<ts>.csv` / `lora-modulated-automation-<ts>.csv` | yes |
-| LTE CW automation | CSV | `<MAC>-<ts>.csv` / `lte-cw-automation-<ts>.csv` | yes |
-| LTE Modulated automation | CSV | `<MAC>-<ts>.csv` / `lte-modulated-automation-<ts>.csv` | yes |
-| Mode Sweep | xlsx: All, Run, one sheet per dBm level | `pa_modes_YYYYMMDD_HHMMSS.xlsx` | yes (view only) |
-| Load Pull | xlsx: All, Run, one sheet per frequency | `load_pull_YYYYMMDD_HHMMSS.xlsx` | yes (.xlsx or older .csv) |
+| LoRa CW automation | CSV | `<MAC>_tx-cw-automation_<ts>.csv` | yes (replaces the table) |
+| LoRa Modulated automation | CSV | `<MAC>_lora-modulated-automation_<ts>.csv` | yes |
+| LTE CW automation | CSV | `<MAC>_lte-cw-automation_<ts>.csv` | yes |
+| LTE Modulated automation | CSV | `<MAC>_lte-modulated-automation_<ts>.csv` | yes |
+| Mode Sweep | xlsx: All, Run, Best settings, one sheet per dBm level | `<MAC>_power-sweep_<ts>.xlsx` | yes (view only) |
+| Load Pull | xlsx: All, Run, one sheet per frequency | `<MAC>_load-pull_<ts>.xlsx` | yes (.xlsx or older .csv) |
 | Results graph | PNG | `<MAC>-<power\|current>-<ts>.png` | — |
 | Smith chart | PNG to the clipboard | — | — |
 | Log | TXT | `log-<ts>.txt` | — |
@@ -107,16 +107,12 @@ Each one is described as the code behaves today.
 2. **Load Pull setup drawing** labels the equipment N5224B / N6705C / MT986A,
    with an FSW26 on the coupler. The app drives an E5061B, an N6705B and an
    Arcus DMX-J-SA, and measures power with the Mini-Circuits sensor.
-3. **Load Pull's empty table** says "Import a previous CSV", but Export
-   writes xlsx only. Import accepts both.
-4. **DC analyzer channel:** the connect route defaults to 1; the UI and the
+3. **DC analyzer channel:** the connect route defaults to 1; the UI and the
    Mode Sweep default to 3.
-5. **The signal generator's Instruments-panel placeholder** shows a VISA
+4. **The signal generator's Instruments-panel placeholder** shows a VISA
    string, but its address is a COM port.
-6. **The signal generator** is not released on a graceful backend shutdown.
+5. **The signal generator** is not released on a graceful backend shutdown.
    Its COM port is freed when the process exits.
-7. **Export file names** from the CW and Modulated pages (LoRa and LTE) are
-   identical when a MAC is known, so rename them to keep track.
 
 ## 7.6 Glossary
 

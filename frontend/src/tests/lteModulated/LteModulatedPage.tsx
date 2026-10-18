@@ -137,7 +137,8 @@ export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
   // to render the buttons in the same slot the manual tab uses.
   const [autoCtl, setAutoCtl] = useState<AutomationControls | null>(null)
 
-  const modem = useLteModem({ onFrame: setLast })
+  // The id is this page's registry id, for the top bar's LTE TX pill.
+  const modem = useLteModem({ onFrame: setLast, pageId: 'lte-modulated' })
 
   const focusBind = (key: string) => ({
     onFocus: () => setFocusKey(key),
@@ -259,6 +260,8 @@ export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
   const modulatedTest = (params: LteModulatedRequest): LiveTest => ({
     label: 'modulated',
     abort: () => device.lteModulated({ ...params, start: false }),
+    // Lets the top bar count down a manual Send; 0 has no countdown.
+    durationMs: params.time_ms,
   })
 
   const send = useMutation({

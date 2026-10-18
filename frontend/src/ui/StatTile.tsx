@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Box, Typography } from '@mui/material'
 import { useAppPalette } from '../context/ThemeModeContext'
-import { GRID_GAP, MONO, TILE_PAD } from './tokens'
+import { GRID_GAP, MONO, TEXT, TILE_PAD } from './tokens'
 
 /** How a reading compares to what was expected. Drives the only colour on the
  *  strip, so a value that needs attention is the one thing that stands out. */
@@ -37,8 +37,8 @@ export function StatTile({ label, value, unit, sub, off, tone }: StatTileProps) 
     <Box sx={{ minWidth: 0, px: `${TILE_PAD}px`, py: 1.25 }}>
       <Typography
         sx={{
-          fontSize: 11, fontWeight: 600, letterSpacing: 0.4,
-          textTransform: 'uppercase', color: 'text.secondary',
+          ...TEXT.eyebrow,
+          color: 'text.secondary',
           mb: 0.5,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}

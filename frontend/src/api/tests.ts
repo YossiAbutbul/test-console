@@ -9,7 +9,17 @@ export const tests = {
   results: () => http<ResultRow[]>('/test/results'),
   /** Discard the finished run's rows. 409 while a sweep is still running. */
   clear: () => http<RunStatus>('/test/clear', { method: 'POST' }),
-  exportXlsx: () => httpBlob('/test/export'),
+  /**
+   * Render the finished run to a workbook. `operator` and `notes` are optional
+   * free text for its Run sheet; the backend names the file (Content-Disposition).
+   */
+  exportXlsx: (opts: { operator?: string; notes?: string } = {}) => {
+    const q = new URLSearchParams()
+    if (opts.operator) q.set('operator', opts.operator)
+    if (opts.notes) q.set('notes', opts.notes)
+    const qs = q.toString()
+    return httpBlob(qs ? `/test/export?${qs}` : '/test/export')
+  },
   /**
    * Read a previously exported workbook back into rows.
    *
@@ -19,6 +29,18 @@ export const tests = {
    */
   importXlsx: (file: File) =>
     http<ResultRow[]>('/test/import', {
+      method: 'POST',
+      body: file,
+      headers: { 'Content-Type': 'application/octet-stream' },
+    }),
+  /**
+   * Re-export an imported workbook in the current layout.
+   *
+   * The file goes back up rather than the rows: its Run sheet holds the path
+   * loss and settle time the rows were measured with, and only the file has it.
+   */
+  reexportXlsx: (file: File) =>
+    httpBlob('/test/reexport', {
       method: 'POST',
       body: file,
       headers: { 'Content-Type': 'application/octet-stream' },

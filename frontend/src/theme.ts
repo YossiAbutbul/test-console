@@ -34,6 +34,24 @@ export interface DataPalette {
   highlight: string
 }
 
+/**
+ * Colours for plotted data.
+ *
+ * The one place the palette admits hues beyond the ok/warn/bad triad: a chart
+ * with several lines needs them told apart, and that is still a measurement
+ * talking. Series hues keep their order across modes and only shift lightness,
+ * for the same reason the triad does — line 2 is the same colour whichever
+ * mode the bench is in. The light set is the one the TX graph always used.
+ */
+export interface ChartPalette {
+  /** Categorical series colours, assigned in order and cycled. */
+  series: string[]
+  grid: string
+  /** Axis lines and tick labels. Recharts' default `#666` vanishes on the
+   *  dark grounds. */
+  axis: string
+}
+
 export interface AppPalette {
   appBar: string
   appBarBorder: string
@@ -42,6 +60,7 @@ export interface AppPalette {
   logBg: string
   sidebar: SidebarPalette
   data: DataPalette
+  chart: ChartPalette
   actions: {
     scan: ActionColor
     connect: ActionColor
@@ -94,6 +113,11 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
       bad: '#B02A20',
       highlight: 'rgba(58,66,73,0.07)',
     },
+    chart: {
+      series: ['#2563EB', '#DC2626', '#16A34A', '#D97706', '#7C3AED', '#0891B2', '#DB2777', '#65A30D'],
+      grid: 'rgba(27,31,35,0.10)',
+      axis: '#5C646B',
+    },
     sidebar: {
       bg: '#EAECEE',
       bg2: '#EAECEE',
@@ -132,6 +156,11 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
       bad: '#F07068',
       highlight: 'rgba(198,206,213,0.10)',
     },
+    chart: {
+      series: ['#6EA8FE', '#F47F78', '#5CC584', '#EDB04F', '#B49AF7', '#4CC9DE', '#F17FB6', '#A8D25A'],
+      grid: 'rgba(255,255,255,0.10)',
+      axis: '#949AA0',
+    },
     sidebar: {
       bg: '#24272B',
       bg2: '#24272B',
@@ -167,6 +196,11 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
       warn: '#E7AE4B',
       bad: '#F57C74',
       highlight: 'rgba(214,221,227,0.10)',
+    },
+    chart: {
+      series: ['#74ADFF', '#F7867F', '#62CC8A', '#F0B658', '#BBA2F9', '#55CFE3', '#F488BC', '#AED862'],
+      grid: 'rgba(255,255,255,0.08)',
+      axis: '#838A90',
     },
     sidebar: {
       bg: '#0E1012',

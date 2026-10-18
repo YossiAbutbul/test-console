@@ -91,3 +91,29 @@ describe('parseLoadPullCsv', () => {
     expect(() => parseLoadPullCsv([PREAMBLE, HEADER].join('\n'))).toThrow(/No data rows/)
   })
 })
+
+describe('BOM and workbook-style headers', () => {
+  it('reads a file that starts with a UTF-8 BOM', () => {
+    const { rows, meta } = parseLoadPullCsv(
+      ['\uFEFF' + PREAMBLE, HEADER, '1,0,0,14,20,50,0,-10,'].join('\r\n'),
+    )
+    expect(rows).toHaveLength(1)
+    expect(meta.pathLossDb).toBe(20.5)
+  })
+
+  it('accepts the workbook column names, including the old J and new X', () => {
+    for (const x of ['X [Ω]', 'J [Ω]']) {
+      const header = `#,Pos [mm],Pos [pulses],Measured [dBm],CC [mA],R [Ω],${x},S11 [dB],Status`
+      const { rows } = parseLoadPullCsv([header, '1,1.5,600,12.5,22.1,48.2,-3.1,-14.8,ok'].join('\n'))
+      expect(rows[0].x_ohm).toBe(-3.1)
+      expect(rows[0].power_dbm).toBe(12.5)
+      expect(rows[0].error).toBeNull()
+    }
+  })
+
+  it('takes a non-ok Status as the error', () => {
+    const header = '#,Pos [mm],Pos [pulses],Measured [dBm],CC [mA],R [Ω],X [Ω],S11 [dB],Status'
+    const { rows } = parseLoadPullCsv([header, '1,1.5,600,,,,,,no signal'].join('\n'))
+    expect(rows[0].error).toBe('no signal')
+  })
+})

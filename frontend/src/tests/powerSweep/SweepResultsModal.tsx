@@ -19,17 +19,14 @@ import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import {
-  CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip,
-  XAxis, YAxis,
+  CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import type { ResultRow } from '../../types/models'
 import { useAppPalette } from '../../context/ThemeModeContext'
-import { MONO } from '../../ui'
+import { ChartFrame, ChartToolbar, MONO, fileTimestamp, useChart } from '../../ui'
 import {
   buildLevels, comboLabel as combo, milliamps as mA,
 } from './bestSettings'
-
-const CURVE_COLOR = '#2563EB'
 
 interface Props {
   open: boolean
@@ -39,6 +36,9 @@ interface Props {
 
 export function SweepResultsModal({ open, onClose, rows }: Props) {
   const p = useAppPalette()
+  // One series and no legend, so the frame's legend switch is hidden below.
+  const chart = useChart({ showLegend: false })
+  const { theme } = chart
   const levels = useMemo(() => buildLevels(rows), [rows])
   const [picked, setPicked] = useState<number | null>(null)
 
@@ -95,63 +95,82 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
           <>
             {/* The trade-off itself: what each dB of output costs in current. */}
             <Box>
-              <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'text.secondary', mb: 0.5 }}>
-                Lowest current per power reached
-              </Typography>
-              <Box sx={{ height: 210 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={curve}
-                    margin={{ top: 6, right: 12, bottom: 20, left: 0 }}
-                    onClick={(e: { activeLabel?: string | number }) => {
-                      const v = Number(e?.activeLabel)
-                      if (Number.isFinite(v)) setPicked(v)
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'text.secondary' }}>
+                  Lowest current per power reached
+                </Typography>
+                <Stack direction="row" spacing={0.5}>
+                  <ChartToolbar
+                    chart={chart}
+                    legendToggle={false}
+                    disabled={curve.length === 0}
+                    onDownload={() => chart.exportPng(`mode-sweep-best-current-${fileTimestamp()}.png`)}
+                  />
+                </Stack>
+              </Stack>
+              <ChartFrame chart={chart} height={210}>
+                <LineChart
+                  data={curve}
+                  margin={{ top: 6, right: 12, bottom: 20, left: 0 }}
+                  onClick={(e: { activeLabel?: string | number }) => {
+                    const v = Number(e?.activeLabel)
+                    if (Number.isFinite(v)) setPicked(v)
+                  }}
+                >
+                  {chart.opts.showGrid && (
+                    <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
+                  )}
+                  <XAxis
+                    dataKey="power"
+                    type="number"
+                    domain={['dataMin', 'dataMax']}
+                    tick={theme.tick}
+                    stroke={theme.axisStroke}
+                    label={{ value: 'Measured power (dBm)', position: 'bottom', offset: 2, ...theme.labelStyle, fontSize: 11 }}
+                  />
+                  <YAxis
+                    // [0, 'auto'] is Recharts' own default, kept while the
+                    // fields are blank: a current axis from zero shows the
+                    // saving between settings in proportion.
+                    domain={chart.yDomain([0, 'auto'])}
+                    // Without this Recharts widens a typed range to fit the
+                    // data, so Y min/max could only ever zoom out.
+                    allowDataOverflow
+                    tick={theme.tick}
+                    stroke={theme.axisStroke}
+                    width={50}
+                    label={{ value: 'Current (mA)', angle: -90, position: 'insideLeft', offset: 12, ...theme.labelStyle, fontSize: 11 }}
+                  />
+                  <Tooltip
+                    contentStyle={theme.tooltipStyle}
+                    formatter={(v: number | string) => (typeof v === 'number' ? `${v.toFixed(1)} mA` : v)}
+                    labelFormatter={(x) => {
+                      const pt = curve.find((c) => c.power === Number(x))
+                      return pt ? `${x} dBm — ${pt.combo}` : `${x} dBm`
                     }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.18)" />
-                    <XAxis
-                      dataKey="power"
-                      type="number"
-                      domain={['dataMin', 'dataMax']}
-                      tick={{ fontSize: 11 }}
-                      label={{ value: 'Measured power (dBm)', position: 'bottom', offset: 2, fontSize: 11 }}
+                  />
+                  {/* Without this the list below can be showing a power the
+                      chart gives no sign of, and the two stop being one view. */}
+                  {active && (
+                    <ReferenceLine
+                      x={active.power}
+                      stroke={p.data.ok}
+                      strokeWidth={1.5}
+                      strokeDasharray="3 3"
                     />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      width={50}
-                      label={{ value: 'Current (mA)', angle: -90, position: 'insideLeft', offset: 12, fontSize: 11 }}
-                    />
-                    <Tooltip
-                      contentStyle={{ fontSize: 12 }}
-                      formatter={(v: number | string) => (typeof v === 'number' ? `${v.toFixed(1)} mA` : v)}
-                      labelFormatter={(x) => {
-                        const pt = curve.find((c) => c.power === Number(x))
-                        return pt ? `${x} dBm — ${pt.combo}` : `${x} dBm`
-                      }}
-                    />
-                    {/* Without this the list below can be showing a power the
-                        chart gives no sign of, and the two stop being one view. */}
-                    {active && (
-                      <ReferenceLine
-                        x={active.power}
-                        stroke={p.data.ok}
-                        strokeWidth={1.5}
-                        strokeDasharray="3 3"
-                      />
-                    )}
-                    <Line
-                      name="Lowest current"
-                      type="monotone"
-                      dataKey="current"
-                      stroke={CURVE_COLOR}
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
-                      activeDot={{ r: 5 }}
-                      isAnimationActive={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </Box>
+                  )}
+                  <Line
+                    name="Lowest current"
+                    type="monotone"
+                    dataKey="current"
+                    stroke={theme.seriesColor(0)}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ChartFrame>
             </Box>
 
             {/* Drill-down: every combination that held the chosen power.

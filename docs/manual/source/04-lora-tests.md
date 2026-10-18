@@ -68,10 +68,9 @@ The CW and Modulated pages share the same automation panel.
 - **Results:** kept across navigation and reload. **Import** replaces the
   table with a previously exported CSV; it does not merge. **Graph** plots the
   results. **Export** writes a CSV.
-- **CSV file name:** `<MAC without colons>-<UTC timestamp>.csv`, or
-  `tx-cw-automation-<ts>.csv` / `lora-modulated-automation-<ts>.csv` when no
-  MAC is known.
-  > The name does not say which page produced the file. Rename your exports.
+- **CSV file name:** `<MAC without colons, or noDUT>_<test>_<local timestamp>.csv`,
+  where `<test>` is `tx-cw-automation` or `lora-modulated-automation`, e.g.
+  `D4A1B2C3E4F5_tx-cw-automation_2026-10-18T14-05-31.csv`.
 
 ---
 
@@ -172,11 +171,17 @@ more distinct values, with one line per value of the other.
 
 ### CSV export columns
 
-`freq_mhz, set_power_dbm, pa_mode, measured_dbm, current_ma, path_loss_db,
-margin_db, min_dbm, max_dbm, verdict, ok, status, error`
+`Freq [MHz], Set [dBm], PA mode, Measured [dBm], Raw [dBm], Path loss [dB],
+CC [mA], V [V], Margin [dB], Min [dBm], Max [dBm], Verdict, Status, DUT status`
 
-- Timestamps are UTC.
-- **Import** needs at least `freq_mhz`, `set_power_dbm` and `measured_dbm`.
+- The file starts with a UTF-8 byte-order mark, so Excel reads it correctly,
+  and a few `#` lines naming the test, the DUT and the export time. Importers
+  skip `#` lines.
+- The column names match the Excel workbooks. Files with the older snake_case
+  headers (`freq_mhz`, `measured_dbm`, …) still import.
+
+- Timestamps are local time.
+- **Import** needs at least Freq, Set and Measured (old or new header names).
 - A verdict already in the file is kept as recorded; it is only recalculated
   when blank.
 
@@ -223,13 +228,11 @@ no Measure boxes.
 **Results columns:** #, Freq, Set, Modem, BW (`—` for FSK), DR, Measured, CC,
 Verdict, Status.
 
-**CSV columns:** `freq_mhz, set_power_dbm, modem, bandwidth_khz, datarate,
-measured_dbm, current_ma, path_loss_db, margin_db, min_dbm, max_dbm, verdict,
-ok, status, error`
+**CSV columns:** the CW columns, with `Modem, BW, Datarate` in place of
+`PA mode`.
 
-> The graph plots only frequency and set power. Rows that differ only in
-> modem, bandwidth or datarate overwrite one another on it. Use the table for
-> those comparisons.
+On the graph, each modem / bandwidth / datarate combination gets its own line,
+so rows that differ only in those settings are no longer merged.
 
 ---
 
@@ -349,15 +352,23 @@ on. For example, *DUT rejected the command (status=N)*.
 - **The chart** plots *lowest current per power reached*. Click it to jump to
   a level.
 
-**Export** saves `pa_modes_YYYYMMDD_HHMMSS.xlsx`, which has these sheets:
+**Export** saves `<MAC>_power-sweep_<local timestamp>.xlsx`, which has these sheets:
 
-- **All:** every row. It adds **Raw [dBm]** (the uncorrected reading), and
-  writes PA DC and HP Max in hex, e.g. `0x02`.
-- **Run:** the settings the sweep ran with.
+- **All:** every row. It adds **Raw [dBm]** (the uncorrected reading). PA DC
+  and HP Max are plain numbers (older files with `0x02` still import).
+- **Run:** the settings the sweep ran with, a summary (points ok/failed,
+  measured min/max, start, finish, duration), the rig (DUT, power sensor and
+  DC analyzer IDN and address, DC channel) and the app build.
+- **Best settings:** one row per power level reached, strongest first, with
+  the combination that held it for the least current — the same table as the
+  **Best settings** view.
 - **"N dBm":** one sheet per rounded power level, sorted by closeness to N.
 
 **Import** opens a workbook exported by this app, for viewing only. While an
-imported file is shown, **Clear** and **Export** are disabled.
+imported file is shown, **Clear** closes it and goes back to the live run (the
+run itself is kept), and **Export** saves the file again in the current layout
+— an older export gains the **Best settings** sheet and keeps its own **Run**
+sheet. Starting a run also closes the file.
 
 > **Where results are kept.** They are held in backend memory until **Clear**,
 > the next run, or a backend restart. **Export before restarting the
@@ -491,7 +502,7 @@ attenuator**:
 *Example data.*
 
 **Result columns:** #, Pos (mm), Freq, Set, Att, **Power (dBm)**, CC (mA),
-R (Ω), J (Ω), S11 (dB), VSWR, Status.
+R (Ω), X (Ω), S11 (dB), VSWR, Status.
 
 **Power confidence:** the Power cell is coloured by where the **raw** sensor
 reading sat in the sensor's range:
@@ -527,7 +538,7 @@ eff = P_out[W] / (3.6 V × I_cc[A])
 
 ### Export and import
 
-**Export** saves `load_pull_YYYYMMDD_HHMMSS.xlsx` (there is no CSV export),
+**Export** saves `<MAC>_load-pull_<local timestamp>.xlsx` (there is no CSV export),
 with these sheets:
 
 - **All:** every point. It adds Pos [pulses] and Raw [dBm].

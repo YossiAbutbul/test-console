@@ -5,9 +5,11 @@ from __future__ import annotations
 from io import BytesIO
 
 import pytest
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
-from backend.sweep.export import HEADERS, build_workbook, parse_workbook
+from backend.sweep.export import (
+    BEST_HEADERS, HEADERS, build_workbook, parse_workbook, rebuild_workbook,
+)
 from backend.sweep.models import SweepBlock
 from backend.sweep.models import ResultRow, SweepConfig
 
@@ -102,7 +104,7 @@ class TestBuildWorkbook:
         ]
         wb = load_workbook(BytesIO(build_workbook(rows)))
 
-        assert wb.sheetnames == ["All", "20 dBm", "14 dBm"]
+        assert wb.sheetnames == ["All", "Best settings", "20 dBm", "14 dBm"]
         assert wb["20 dBm"].max_row == 3
 
     def test_bucket_rows_run_from_closest_to_nominal_outwards(self) -> None:
@@ -120,7 +122,7 @@ class TestBuildWorkbook:
         ]
         wb = load_workbook(BytesIO(build_workbook(rows)))
 
-        assert wb.sheetnames == ["All", "14 dBm"]
+        assert wb.sheetnames == ["All", "Best settings", "14 dBm"]
         # They are still present in All — the run happened, it just didn't read.
         assert wb["All"].max_row == 4
 
@@ -138,11 +140,15 @@ class TestBuildWorkbook:
         wb = load_workbook(BytesIO(build_workbook([r])))
         assert wb["All"].cell(row=2, column=col("V [V]")).value is None
 
-    def test_hp_and_duty_are_exported_as_hex_bytes(self) -> None:
+    def test_hp_and_duty_are_exported_as_integers(self) -> None:
+        """They used to be "0x07" text, which Excel cannot sort or filter
+        numerically. The importer still reads the hex form (see the old-layout
+        test below)."""
         wb = load_workbook(BytesIO(build_workbook([make_row(0, measured=14.0, hp=7, duty=3)])))
         sheet = wb["All"]
-        assert sheet.cell(row=2, column=col("HP Max")).value == "0x07"
-        assert sheet.cell(row=2, column=col("PA DC")).value == "0x03"
+        assert sheet.cell(row=2, column=col("HP Max")).value == 7
+        assert sheet.cell(row=2, column=col("PA DC")).value == 3
+        assert sheet.cell(row=2, column=col("HP Max")).number_format == "0"
 
     def test_the_number_column_is_the_sweep_index_in_every_sheet(self) -> None:
         """A bucket sheet reorders its rows, so a per-sheet counter could not be
@@ -196,6 +202,44 @@ class TestBuildWorkbook:
         assert pairs["Power Set values"] == "1–3 (3 values)"
         assert pairs["Finished"] == "—", "an unfinished run must not invent an end time"
 
+    def test_best_settings_sheet_sits_after_run_and_before_the_buckets(self) -> None:
+        cfg = SweepConfig(freq_hz=902_300_000, power_values=[14], duty_values=[1], hp_values=[1])
+        wb = load_workbook(BytesIO(build_workbook([make_row(0, measured=14.0)], cfg)))
+        assert wb.sheetnames == ["All", "Run", "Best settings", "14 dBm"]
+
+    def test_best_settings_picks_the_cheapest_row_per_level_strongest_first(self) -> None:
+        def at(idx: int, measured: float, amps: float | None, hp: int) -> ResultRow:
+            r = make_row(idx, measured=measured, hp=hp)
+            r.current_a = amps
+            return r
+
+        rows = [
+            at(0, 14.2, 0.040, hp=1),
+            at(1, 13.8, 0.021, hp=2),   # same level, cheaper
+            at(2, 14.0, None, hp=3),    # no reading: never the recommendation
+            at(3, 20.0, 0.090, hp=4),
+            at(4, 8.0, None, hp=5),     # level reached, nothing to recommend
+        ]
+        ws = load_workbook(BytesIO(build_workbook(rows)))["Best settings"]
+        assert [c.value for c in ws[1]] == BEST_HEADERS
+
+        def best(name: str) -> int:
+            return BEST_HEADERS.index(name) + 1
+
+        table = [
+            (ws.cell(row=r, column=1).value,
+             ws.cell(row=r, column=best("#")).value,
+             ws.cell(row=r, column=best("CC [mA]")).value,
+             ws.cell(row=r, column=best("Status")).value,
+             ws.cell(row=r, column=best("Rows at level")).value)
+            for r in range(2, ws.max_row + 1)
+        ]
+        assert table == [
+            (20, 4, 90.0, "ok", 1),
+            (14, 2, 21.0, "ok", 3),
+            (8, None, None, "no current reading", 1),
+        ]
+
     def test_run_sheet_is_omitted_when_no_config_is_supplied(self) -> None:
         wb = load_workbook(BytesIO(build_workbook([make_row(0, measured=14.0)])))
         assert "Run" not in wb.sheetnames
@@ -204,6 +248,56 @@ class TestBuildWorkbook:
         wb = load_workbook(BytesIO(build_workbook([])))
         assert wb.sheetnames == ["All"]
         assert [c.value for c in wb["All"][1]] == HEADERS
+
+
+class TestRebuildWorkbook:
+    """Re-exporting an imported file: same rows, current sheets, its own Run."""
+
+    @staticmethod
+    def _old_export(cfg: SweepConfig | None) -> bytes:
+        """A workbook as written before the Best settings sheet existed."""
+        wb = load_workbook(BytesIO(build_workbook(
+            [make_row(0, measured=20.2), make_row(1, measured=14.0)], cfg, 1_700_000_000.0, None,
+        )))
+        del wb["Best settings"]
+        buf = BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    def test_an_old_export_gains_the_best_settings_sheet(self) -> None:
+        cfg = SweepConfig(freq_hz=902_300_000, power_values=[14], duty_values=[1], hp_values=[1])
+        wb = load_workbook(BytesIO(rebuild_workbook(self._old_export(cfg))))
+        assert wb.sheetnames == ["All", "Run", "Best settings", "20 dBm", "14 dBm"]
+        assert wb["Best settings"].max_row == 3
+
+    def test_the_run_sheet_is_carried_over_unchanged(self) -> None:
+        cfg = SweepConfig(
+            freq_hz=902_300_000, power_values=[14], duty_values=[1], hp_values=[1],
+            settle_ms=450, path_loss_db=20.5,
+        )
+        source = self._old_export(cfg)
+
+        def pairs(data: bytes) -> list[tuple]:
+            return [tuple(r) for r in load_workbook(BytesIO(data))["Run"].iter_rows(values_only=True)]
+
+        # Copied, not rebuilt: a re-export must not invent a different
+        # path loss, row count or end time for a run it did not make.
+        assert pairs(rebuild_workbook(source)) == pairs(source)
+
+    def test_rows_survive_the_round_trip(self) -> None:
+        source = self._old_export(None)
+        assert parse_workbook(rebuild_workbook(source)) == parse_workbook(source)
+
+    def test_a_file_without_a_run_sheet_gets_none(self) -> None:
+        wb = load_workbook(BytesIO(rebuild_workbook(self._old_export(None))))
+        assert "Run" not in wb.sheetnames
+
+    def test_refuses_a_workbook_that_is_not_ours(self) -> None:
+        wb = Workbook()
+        buf = BytesIO()
+        wb.save(buf)
+        with pytest.raises(ValueError, match="not a sweep workbook"):
+            rebuild_workbook(buf.getvalue())
 
 
 class TestParseWorkbook:
@@ -275,11 +369,11 @@ class TestParseWorkbook:
         position. This is that promise, written down.
         """
         from openpyxl import Workbook
+        # Also the old "Power Set [dBm]" spelling, since renamed "Set [dBm]".
         old_headers = [
             "#", "HP Max", "PA DC", "Power Set [dBm]", "Measured [dBm]",
             "Raw [dBm]", "CC [mA]", "V [V]", "Status",
         ]
-        assert sorted(old_headers) == sorted(HEADERS), "same columns, different order"
         wb = Workbook()
         ws = wb.active
         ws.title = "All"
@@ -386,3 +480,107 @@ class TestSweepBlocks:
         run = {r[0]: r[1] for r in wb["Run"].iter_rows(min_row=2, values_only=True) if r[0]}
         assert "Power Set values" in run
         assert "Block 1" not in run
+
+
+class TestWorkbookFormatting:
+    """Display only: the cells keep full precision, the format rounds."""
+
+    def test_readings_are_stored_unrounded_and_shown_to_two_decimals(self) -> None:
+        r = make_row(0, measured=14.123456)
+        r.tx_power_dbm_raw = -6.376544
+        r.current_a = 0.18567891
+        ws = load_workbook(BytesIO(build_workbook([r])))["All"]
+        meas = ws.cell(row=2, column=col("Measured [dBm]"))
+        cc = ws.cell(row=2, column=col("CC [mA]"))
+        assert meas.value == 14.123456
+        assert cc.value == pytest.approx(185.67891)
+        assert meas.number_format == "0.00"
+        assert cc.number_format == "0.00"
+        assert ws.cell(row=2, column=col("Raw [dBm]")).number_format == "0.00"
+        assert ws.cell(row=2, column=col("V [V]")).number_format == "0.00"
+        assert ws.cell(row=2, column=col("#")).number_format == "0"
+        assert ws.cell(row=2, column=col("Set [dBm]")).number_format == "0"
+
+    def test_data_sheets_are_frozen_filtered_and_styled(self) -> None:
+        rows = [make_row(0, measured=14.0), make_row(1, measured=14.2)]
+        wb = load_workbook(BytesIO(build_workbook(rows)))
+        for name in ("All", "Best settings", "14 dBm"):
+            ws = wb[name]
+            assert ws.freeze_panes == "B2", name
+            assert ws.auto_filter.ref and ws.auto_filter.ref.startswith("A1:"), name
+            assert ws.cell(row=1, column=1).font.b, name
+            assert ws.cell(row=1, column=1).fill.fgColor.rgb.endswith("DDE5F0"), name
+
+    def test_failed_status_is_flagged_and_current_is_colour_scaled(self) -> None:
+        wb = load_workbook(BytesIO(build_workbook(
+            [make_row(0, measured=14.0), make_row(1, measured=14.3)],
+        )))
+
+        def rules(ws):
+            return [(str(rng.sqref), r.type) for rng in ws.conditional_formatting for r in rng.rules]
+
+        status = chr(ord("A") + col("Status") - 1)
+        cc_best = chr(ord("A") + BEST_HEADERS.index("CC [mA]"))
+        cc = chr(ord("A") + col("CC [mA]") - 1)
+        assert (f"{status}2:{status}3", "expression") in rules(wb["All"])
+        assert (f"{cc}2:{cc}3", "colorScale") in rules(wb["14 dBm"])
+        # One level, so a one-cell range (openpyxl writes it as "X2").
+        assert (f"{cc_best}2", "colorScale") in rules(wb["Best settings"])
+        # All mixes drive levels, so ranking its currents would mean nothing.
+        assert not any(t == "colorScale" for _, t in rules(wb["All"]))
+
+    def test_run_sheet_carries_the_rig_and_a_summary(self) -> None:
+        from backend.sweep.models import RigInfo
+        cfg = SweepConfig(freq_hz=902_300_000, power_values=[14], duty_values=[1], hp_values=[1])
+        bad = make_row(1, measured=None)
+        bad.ok = False
+        bad.error = "tx status=3"
+        rig = RigInfo(
+            dut_mac="80:E1:27:20:76:DD", dut_name="CATM2-DUT",
+            power_sensor_idn="PWR-8GHS,12345,A1", power_sensor_address="12345",
+            dc_analyzer_idn="Keysight N6705B", dc_analyzer_address="USB0::X::INSTR",
+            dc_channel=3, operator="RF", notes="after rework",
+        )
+        wb = load_workbook(BytesIO(build_workbook(
+            [make_row(0, measured=14.2), bad], cfg, 1_700_000_000.0, 1_700_000_065.0, rig,
+        )))
+        run = {r[0]: r[1] for r in wb["Run"].iter_rows(min_row=2, values_only=True) if r[0]}
+        assert run["DUT MAC"] == "80:E1:27:20:76:DD"
+        assert run["DUT device"] == "CATM2-DUT"
+        assert run["Power sensor"] == "PWR-8GHS,12345,A1"
+        assert run["DC analyzer address"] == "USB0::X::INSTR"
+        assert run["DC channel"] == 3
+        assert run["Operator"] == "RF" and run["Notes"] == "after rework"
+        assert (run["Points ok"], run["Points failed"]) == (1, 1)
+        assert run["Measured min [dBm]"] == run["Measured max [dBm]"] == 14.2
+        assert run["Duration"] == "0:01:05"
+        assert run["PA mode"] == "Off (0)", "one PA-mode spelling across CSV and xlsx"
+        assert run["App build"]
+        assert "Run" in wb.sheetnames and run["Path loss [dB]"] == 0.0
+
+    def test_a_run_sheet_without_rig_details_says_so(self) -> None:
+        cfg = SweepConfig(freq_hz=902_300_000, power_values=[14], duty_values=[1], hp_values=[1])
+        wb = load_workbook(BytesIO(build_workbook([make_row(0, measured=14.0)], cfg)))
+        run = {r[0]: r[1] for r in wb["Run"].iter_rows(min_row=2, values_only=True) if r[0]}
+        assert run["Power sensor"] == "—"
+        assert "Operator" not in run
+
+    def test_an_export_re_imports_with_full_precision(self) -> None:
+        cfg = SweepConfig(freq_hz=902_312_500)
+        r = make_row(0, measured=14.123456)
+        back = parse_workbook(build_workbook([r], cfg))[0]
+        assert back.tx_power_dbm == 14.123456
+        assert back.freq_hz == 902_312_500
+        assert back.current_a == pytest.approx(0.1234)
+
+
+class TestExportFilename:
+    def test_mac_slug_test_slug_and_timestamp(self) -> None:
+        import re
+        from backend.workbook import export_filename
+        name = export_filename("80:e1:27:20:76:dd", "power-sweep", "xlsx")
+        assert re.fullmatch(r"80E1272076DD_power-sweep_\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.xlsx", name)
+
+    def test_no_dut(self) -> None:
+        from backend.workbook import export_filename
+        assert export_filename(None, "load-pull", "xlsx").startswith("noDUT_load-pull_")

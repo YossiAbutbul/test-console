@@ -1,6 +1,6 @@
 import {
-  Box, Button, Chip, CircularProgress, Divider, IconButton, Stack, Tooltip,
-  Typography,
+  Box, Button, Chip, CircularProgress, Divider, IconButton, Stack, Tabs, Tooltip,
+  Typography, type ButtonProps, type TabsProps,
 } from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import PowerIcon from '@mui/icons-material/Power'
@@ -313,5 +313,49 @@ export function LastFrameSection({ result }: { result: CommandResponse | null })
         </Typography>
       )}
     </Section>
+  )
+}
+
+/**
+ * Small text button for a panel heading's secondary actions ("Add", "Apply",
+ * "Store as VNA"). 24px tall so it sits inside a Section header row without
+ * pushing it taller than the title.
+ *
+ * Pass an icon through `startIcon` at fontSize 15 to match the others.
+ */
+export function MiniAction({ sx, ...rest }: ButtonProps) {
+  return (
+    <Button
+      size="small"
+      variant="text"
+      {...rest}
+      sx={[{ minWidth: 0, height: 24, fontSize: 12, px: 1 }, ...(Array.isArray(sx) ? sx : [sx])]}
+    />
+  )
+}
+
+const DENSE_TABS = {
+  /** A page's own sub-tabs, under the header. */
+  md: { h: 36, fontSize: 13, tab: { py: 0.25 } },
+  /** A view switch inside a panel heading. */
+  sm: { h: 28, fontSize: 12, tab: { py: 0, px: 1.25 } },
+} as const
+
+/**
+ * MUI Tabs at the app's density. The default 48px is a touch-screen size and
+ * makes a sub-tab row as tall as the page header above it.
+ *
+ * Placement (a bottom border, a nudge up) stays with the caller via `sx`.
+ */
+export function DenseTabs({ size = 'md', sx, ...rest }: TabsProps & { size?: 'md' | 'sm' }) {
+  const d = DENSE_TABS[size]
+  return (
+    <Tabs
+      {...rest}
+      sx={[
+        { minHeight: d.h, '& .MuiTab-root': { minHeight: d.h, fontSize: d.fontSize, ...d.tab } },
+        ...(Array.isArray(sx) ? sx : [sx]),
+      ]}
+    />
   )
 }

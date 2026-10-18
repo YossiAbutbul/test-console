@@ -60,6 +60,24 @@ class LoadPullMeta(BaseModel):
     path_loss_default_db: Optional[float] = None
     path_loss_points: list[PathLossPoint] = []
     dut_mac: Optional[str] = None
+    #: The DUT's advertised name -- the nearest thing to a device type the BLE
+    #: link carries.
+    dut_name: Optional[str] = None
+    #: Epoch seconds. Optional because the run loop is in the browser and older
+    #: clients do not send them; the Run sheet says "—" rather than guessing.
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    #: The rig. Filled by the export route from the sessions `/instruments`
+    #: holds when the client does not send them -- which it normally does not,
+    #: since the backend is the side that knows.
+    power_sensor_idn: Optional[str] = None
+    power_sensor_address: Optional[str] = None
+    dc_analyzer_idn: Optional[str] = None
+    dc_analyzer_address: Optional[str] = None
+    dc_channel: Optional[int] = None
+    #: Free text for the Run sheet, optional.
+    operator: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class LoadPullExportRequest(BaseModel):

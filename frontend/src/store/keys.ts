@@ -28,6 +28,7 @@ export const STORAGE_KEYS = {
   signalGeneratorPage: 'signal-generator-page-snapshot-v1',
   dcAnalyzerPage: 'dc-analyzer-page-snapshot-v1',
   spectrumPage: 'spectrum-page-snapshot-v1',
+  powerSweepPage: 'power-sweep-page-snapshot-v1',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

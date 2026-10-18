@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Box, CircularProgress, Dialog, DialogContent, Stack, Typography,
 } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
+import { useLiveOutputActions } from '../../context/liveOutput'
 import type { CommandResponse } from '../../types/models'
 
 /**
@@ -34,6 +35,12 @@ export interface LiveTest {
   /** For the log line — "CW" or "modulated". */
   label: string
   abort: () => Promise<CommandResponse>
+  /**
+   * How long the test was asked to run, when it ends on its own -- the manual
+   * Send's "Time". Drives the countdown on the top bar's LTE TX pill. Absent
+   * for a run's points, which are aborted rather than left to expire.
+   */
+  durationMs?: number
 }
 
 export interface LteModem {
@@ -75,10 +82,16 @@ export interface LteModem {
 interface Options {
   /** Called with each power frame, so the page can show it under Last frame. */
   onFrame?: (r: CommandResponse) => void
+  /**
+   * Registry id of the page holding the modem. When given, a live test is
+   * published to the top bar's live-output pills, which navigate here.
+   */
+  pageId?: string
 }
 
-export function useLteModem({ onFrame }: Options = {}): LteModem {
+export function useLteModem({ onFrame, pageId }: Options = {}): LteModem {
   const { log } = useLog()
+  const { publish } = useLiveOutputActions()
 
   // Mirrored into a ref because an automation run spans many renders and reads
   // the power state long after the one it started in.
@@ -90,6 +103,37 @@ export function useLteModem({ onFrame }: Options = {}): LteModem {
   }, [])
 
   const runningRef = useRef<LiveTest | null>(null)
+
+  /**
+   * Record the live test, and mirror it to the top bar.
+   *
+   * Published from here rather than from the pages because this is the one
+   * place every start, abort and power change already passes through. It is a
+   * belief, like `on`: the DUT never reports whether the modem is
+   * transmitting, so the pill says so. A test with a duration drops out of
+   * the bar once that has run out, since the modem stops by itself then.
+   */
+  const setLive = useCallback((t: LiveTest | null) => {
+    runningRef.current = t
+    if (!pageId) return
+    const key = `lte-tx:${pageId}`
+    if (!t) { publish(key, null); return }
+    publish(key, {
+      kind: 'lte',
+      label: 'LTE TX',
+      detail: t.label,
+      pageId,
+      ...(t.durationMs ? { untilMs: Date.now() + t.durationMs } : {}),
+      note: 'Presumed, not read back: the DUT does not report whether the modem '
+        + 'is transmitting. Based on the last command sent from this console.',
+    })
+  }, [pageId, publish])
+
+  // A page that goes away takes its pill with it.
+  useEffect(() => {
+    if (!pageId) return
+    return () => publish(`lte-tx:${pageId}`, null)
+  }, [pageId, publish])
 
   /**
    * True only while a MODEM_ON frame is actually in flight.
@@ -116,7 +160,7 @@ export function useLteModem({ onFrame }: Options = {}): LteModem {
       // command that just failed, with no way to send MODEM_OFF and get back
       // to a known state. On is the state the operator can act on.
       setOn(true)
-      runningRef.current = null
+      setLive(null)
       if (!r.ok) {
         throw new Error(
           `modem on rejected (status ${r.status}). `
@@ -126,7 +170,7 @@ export function useLteModem({ onFrame }: Options = {}): LteModem {
     } finally {
       setStarting(false)
     }
-  }, [log, onFrame, setOn])
+  }, [log, onFrame, setOn, setLive])
 
   const cycle = useCallback(async () => {
     // Down first and unconditionally, rather than skipping the boot when we
@@ -144,9 +188,9 @@ export function useLteModem({ onFrame }: Options = {}): LteModem {
       log('DUT', `LTE modem off (run start) failed: ${(e as Error).message}`, 'warn')
     }
     setOn(false)
-    runningRef.current = null
+    setLive(null)
     await startModem()
-  }, [log, setOn, startModem])
+  }, [log, setOn, setLive, startModem])
 
   const prepare = useCallback(async () => {
     // Sending with the modem down is a normal way to work, not a mistake, so
@@ -156,8 +200,8 @@ export function useLteModem({ onFrame }: Options = {}): LteModem {
     if (!live) return
     const prev = await live.abort()
     log('DUT', `LTE abort (previous ${live.label}): ok=${prev.ok} status=${prev.status}`)
-    runningRef.current = null
-  }, [log, startModem])
+    setLive(null)
+  }, [log, setLive, startModem])
 
   const toggleM = useMutation({
     mutationFn: async (next: boolean) => {
@@ -169,7 +213,7 @@ export function useLteModem({ onFrame }: Options = {}): LteModem {
       // claiming it is still on would make the next Send skip a MODEM_ON it
       // may well need.
       setOn(false)
-      runningRef.current = null
+      setLive(null)
     },
     onError: (e: Error) => log('DUT', `LTE modem toggle failed: ${e.message}`, 'error'),
   })
@@ -179,7 +223,7 @@ export function useLteModem({ onFrame }: Options = {}): LteModem {
   const busy = toggleM.isPending
 
   const getRunning = useCallback(() => runningRef.current, [])
-  const setRunning = useCallback((t: LiveTest | null) => { runningRef.current = t }, [])
+  const setRunning = setLive
 
   const dialog = useMemo(() => (
     <Dialog open={starting} maxWidth="xs">

@@ -171,9 +171,11 @@ class TestParseWorkbook:
 
     def test_reads_a_file_exported_before_the_newer_columns_existed(self) -> None:
         """Columns are matched by name, so an older export still imports —
-        without Raw or VSWR, which were added after files were in circulation."""
+        without Raw or VSWR, which were added after files were in circulation,
+        and under the old "Power [dBm]" / "J [Ω]" names, since renamed."""
         from openpyxl import Workbook
-        old = [h for h in HEADERS if h not in ("Raw [dBm]", "VSWR")]
+        renamed = {"Measured [dBm]": "Power [dBm]", "X [Ω]": "J [Ω]"}
+        old = [renamed.get(h, h) for h in HEADERS if h not in ("Raw [dBm]", "VSWR")]
         wb = Workbook()
         wb.active.title = "All"
         for c, name in enumerate(old, start=1):
@@ -191,6 +193,7 @@ class TestParseWorkbook:
         back = parse_workbook(buf.getvalue())
         assert len(back) == 1
         assert (back[0].pos_mm, back[0].freq_mhz, back[0].s11_db) == (1.5, 902.3, -14.8)
+        assert (back[0].power_dbm, back[0].x_ohm) == (12.5, -3.1)
         # Absent, not guessed at: the page falls back to undoing the path loss.
         assert back[0].power_dbm_raw is None
 
@@ -215,7 +218,7 @@ class TestRunSheet:
         assert pairs["Powers"] == "0,14"
         assert pairs["Settle [ms]"] == 400
         assert pairs["Points"] == 1
-        assert pairs["DUT"] == "80:E1:27:20:76:DD"
+        assert pairs["DUT MAC"] == "80:E1:27:20:76:DD"
         # A timestamp, not a placeholder.
         assert len(str(pairs["Exported"])) == len("2026-08-11 10:41:13")
 
@@ -277,3 +280,74 @@ class TestAttenuation:
         """Frequency and power are stated by the tab and title; attenuation
         varies within a table, so it has to stay a column."""
         assert "Att [dB]" in TABLE_HEADERS
+
+
+class TestFormatting:
+    """Display only: cells keep full precision, the format rounds."""
+
+    def test_headers_use_the_shared_vocabulary(self) -> None:
+        assert "Measured [dBm]" in HEADERS and "X [Ω]" in HEADERS
+        assert "Power [dBm]" not in HEADERS and "J [Ω]" not in HEADERS
+
+    def test_readings_are_unrounded_and_shown_to_two_decimals(self) -> None:
+        ws = wb_of([row(1.234567, 902.3, 14, power_dbm=12.345678, current_a=0.02212345)])["All"]
+
+        def cell(name):
+            return ws.cell(row=2, column=HEADERS.index(name) + 1)
+
+        assert cell("Measured [dBm]").value == 12.345678
+        assert cell("CC [mA]").value == pytest.approx(22.12345)
+        for name in ("Measured [dBm]", "CC [mA]", "Pos [mm]", "R [Ω]", "X [Ω]", "S11 [dB]", "VSWR"):
+            assert cell(name).number_format == "0.00", name
+        assert cell("Pos [pulses]").number_format == "0"
+        assert cell("#").number_format == "0"
+
+    def test_all_sheet_is_frozen_and_filtered(self) -> None:
+        ws = wb_of([row(0, 902.3, 14)])["All"]
+        assert ws.freeze_panes == "B2"
+        assert ws.auto_filter.ref == "A1:N2"
+
+    def test_a_failed_status_is_flagged_on_every_data_sheet(self) -> None:
+        wb = wb_of([row(0, 902.3, 14, error="tx status=3")])
+        for name in ("All", "902.3 MHz"):
+            types = [r.type for rng in wb[name].conditional_formatting for r in rng.rules]
+            assert "expression" in types, name
+
+    def test_full_precision_survives_a_round_trip(self) -> None:
+        back = parse_workbook(build_workbook([row(0, 902.3, 14, power_dbm=12.345678)]))
+        assert back[0].power_dbm == 12.345678
+
+
+class TestRunSheetRig:
+    def test_rig_summary_and_timing(self) -> None:
+        meta = LoadPullMeta(
+            dut_mac="80:E1:27:20:76:DD", dut_name="CATM2-DUT",
+            power_sensor_idn="PWR-8GHS,12345", dc_analyzer_idn="N6705B",
+            dc_analyzer_address="USB0::X::INSTR", dc_channel=3,
+            started_at=1_700_000_000.0, finished_at=1_700_003_661.0,
+            operator="RF", notes="trombone recalibrated",
+        )
+        rows = [row(0, 902.3, 14, power_dbm=10.0), row(1, 902.3, 14, power_dbm=12.0),
+                row(2, 902.3, 14, power_dbm=None, error="no signal")]
+        wb = load_workbook(BytesIO(build_workbook(rows, meta)))
+        pairs = {r[0]: r[1] for r in wb["Run"].iter_rows(min_row=2, values_only=True) if r[0]}
+        assert (pairs["Points ok"], pairs["Points failed"]) == (2, 1)
+        assert (pairs["Measured min [dBm]"], pairs["Measured max [dBm]"]) == (10.0, 12.0)
+        assert pairs["Duration"] == "1:01:01"
+        assert pairs["DUT device"] == "CATM2-DUT"
+        assert pairs["DC analyzer address"] == "USB0::X::INSTR"
+        assert pairs["DC channel"] == 3
+        assert pairs["Operator"] == "RF"
+        assert pairs["Notes"] == "trombone recalibrated"
+        assert pairs["App build"]
+
+    def test_unknown_timing_is_not_invented(self) -> None:
+        wb = load_workbook(BytesIO(build_workbook([row(0, 902.3, 14)], LoadPullMeta())))
+        pairs = {r[0]: r[1] for r in wb["Run"].iter_rows(min_row=2, values_only=True) if r[0]}
+        assert pairs["Started"] == pairs["Finished"] == pairs["Duration"] == "—"
+        assert pairs["PA mode"] == "—"
+
+    def test_pa_mode_is_spelt_as_the_csvs_spell_it(self) -> None:
+        wb = load_workbook(BytesIO(build_workbook([row(0, 902.3, 14)], LoadPullMeta(pa_mode=2))))
+        pairs = {r[0]: r[1] for r in wb["Run"].iter_rows(min_row=2, values_only=True) if r[0]}
+        assert pairs["PA mode"] == "Auto (2)"

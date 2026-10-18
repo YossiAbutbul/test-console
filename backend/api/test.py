@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
@@ -20,8 +19,12 @@ from ..ble import manager
 from ..hw.adapters import KeysightDCPowerAnalyzer, MiniCircuitsPowerMeter
 from ..hw.base import CurrentMeter, PowerMeter
 from ..sweep import (
-    ResultRow, RunStatus, SweepConfig, build_workbook, parse_workbook, runner,
+    ResultRow, RunStatus, SweepConfig, build_workbook, parse_workbook, rebuild_workbook,
+    runner,
 )
+from ..sweep.export import run_entry
+from ..sweep.models import RigInfo
+from ..workbook import export_filename
 from .errors import handle_driver_errors
 from .instruments._state import state
 
@@ -64,6 +67,61 @@ def _build_current_meter(req: StartRequest) -> CurrentMeter:
     )
 
 
+#: The rig the last sweep started on, for its export's Run sheet. Kept here
+#: rather than looked up at export time: by then the DUT may be disconnected or
+#: a different sensor connected, and the file would name the wrong bench.
+_last_rig: RigInfo | None = None
+
+#: The test slug in export filenames -- see `export_filename`. It was
+#: "pa_modes", which named neither the page nor the test.
+EXPORT_SLUG = "power-sweep"
+
+
+def _capture_rig(req: StartRequest, pm: PowerMeter, cm: CurrentMeter) -> RigInfo:
+    """Who and what the sweep is about to measure with. Best-effort throughout:
+    a missing IDN must never stop a run, so every lookup falls back to None.
+
+    Borrowed sessions use what `/instruments` recorded when it opened them.
+    Sessions the sweep opened itself are asked the same way those routes ask
+    (attributes on the driver object, see power_sensor.py and dc_analyzer.py) --
+    once, here, before the runner owns them, so nothing shares the session.
+    """
+    ble = manager.status()
+
+    ps_idn = state.power_sensor_idn if state.power_sensor is not None else None
+    if ps_idn is None:
+        try:
+            from .instruments.power_sensor import _format_idn
+            sensor = getattr(pm, "_sensor", None)
+            ps_idn = (_format_idn(sensor) or None) if sensor is not None else None
+        except Exception as e:  # identity is a nicety, the run is not
+            log.debug("power sensor IDN not captured: %s", e)
+
+    if state.dc_analyzer is not None:
+        dc_idn = state.dc_analyzer_idn
+        dc_address = state.dc_analyzer_resource
+        dc_channel = state.dc_analyzer_channel
+    else:
+        dc_idn = None
+        try:
+            idn = getattr(getattr(cm, "_analyzer", None), "idn", None)
+            dc_idn = str(idn) if idn else None
+        except Exception as e:
+            log.debug("DC analyzer IDN not captured: %s", e)
+        dc_address = req.dc_analyzer_resource or DEFAULT_DC_RESOURCE
+        dc_channel = req.dc_analyzer_channel
+
+    return RigInfo(
+        dut_mac=ble.address,
+        dut_name=ble.name,
+        power_sensor_idn=ps_idn,
+        power_sensor_address=req.power_sensor_serial or None,
+        dc_analyzer_idn=dc_idn,
+        dc_analyzer_address=dc_address,
+        dc_channel=dc_channel,
+    )
+
+
 def _close_quietly(*instruments: PowerMeter | CurrentMeter | None) -> None:
     for inst in instruments:
         if inst is None:
@@ -90,6 +148,12 @@ async def start(req: StartRequest) -> RunStatus:
             await asyncio.to_thread(pm.connect)
             await asyncio.to_thread(cm.connect)
 
+        try:
+            rig = await asyncio.to_thread(_capture_rig, req, pm, cm)
+        except Exception as e:
+            log.warning("Rig details not captured: %s", e)
+            rig = None
+
         with handle_driver_errors("sweep start"):
             status = await runner.start(req.config, device, pm, cm)
     except Exception:
@@ -97,6 +161,8 @@ async def start(req: StartRequest) -> RunStatus:
         _close_quietly(pm, cm)
         raise
 
+    global _last_rig
+    _last_rig = rig
     return status
 
 
@@ -123,7 +189,8 @@ async def clear() -> RunStatus:
 
 
 @router.get("/export")
-async def export() -> Response:
+async def export(operator: str | None = None, notes: str | None = None) -> Response:
+    """`operator` and `notes` are optional free text for the Run sheet."""
     rows = runner.results()
     if not rows:
         raise HTTPException(status_code=404, detail="No results to export")
@@ -132,13 +199,17 @@ async def export() -> Response:
     # which path loss and settle time produced its numbers.
     status = runner.status()
 
+    rig = (_last_rig or RigInfo(dut_mac=manager.status().address)).model_copy(
+        update={"operator": operator or None, "notes": notes or None},
+    )
+
     with handle_driver_errors("sweep export"):
         # openpyxl rendering is CPU-bound and grows with the row count.
         data = await asyncio.to_thread(
-            build_workbook, rows, status.config, status.started_at, status.finished_at,
+            build_workbook, rows, status.config, status.started_at, status.finished_at, rig,
         )
 
-    filename = time.strftime("pa_modes_%Y%m%d_%H%M%S.xlsx")
+    filename = export_filename(rig.dut_mac, EXPORT_SLUG, "xlsx")
     return Response(
         content=data,
         media_type=XLSX_MEDIA_TYPE,
@@ -162,12 +233,7 @@ async def import_xlsx(request: Request) -> list[ResultRow]:
     process's, and pushing it into the run state would make Export, Clear and
     the status line all lie about what the backend just did.
     """
-    data = await request.body()
-    if not data:
-        raise HTTPException(status_code=400, detail="No file received")
-    if len(data) > MAX_IMPORT_BYTES:
-        raise HTTPException(status_code=413, detail="File too large")
-
+    data = await _workbook_body(request)
     try:
         # openpyxl parsing is CPU-bound and grows with the row count.
         return await asyncio.to_thread(parse_workbook, data)
@@ -175,3 +241,43 @@ async def import_xlsx(request: Request) -> list[ResultRow]:
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not read the workbook: {e}") from e
+
+
+@router.post("/reexport")
+async def reexport_xlsx(request: Request) -> Response:
+    """Write an imported workbook back out in the current layout.
+
+    Export proper writes the runner's rows, which are not what is on screen
+    while a file is open. This takes the file itself instead, so an old export
+    gains the sheets added since (Best settings) and keeps its own Run sheet.
+    Like import, it never touches the run state.
+    """
+    data = await _workbook_body(request)
+    try:
+        out = await asyncio.to_thread(rebuild_workbook, data)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not read the workbook: {e}") from e
+
+    # The client names the saved file after the one it imported; this is only
+    # the fallback. Named after the DUT the file records, when it records one.
+    try:
+        mac = run_entry(data, "DUT MAC")
+    except Exception:
+        mac = None
+    filename = export_filename(mac if isinstance(mac, str) and mac != "—" else None, EXPORT_SLUG, "xlsx")
+    return Response(
+        content=out,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+async def _workbook_body(request: Request) -> bytes:
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=400, detail="No file received")
+    if len(data) > MAX_IMPORT_BYTES:
+        raise HTTPException(status_code=413, detail="File too large")
+    return data

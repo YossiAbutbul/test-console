@@ -139,7 +139,8 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
   // to render the buttons in the same slot the manual tab uses.
   const [autoCtl, setAutoCtl] = useState<AutomationControls | null>(null)
 
-  const modem = useLteModem({ onFrame: setLast })
+  // The id is this page's registry id, for the top bar's LTE TX pill.
+  const modem = useLteModem({ onFrame: setLast, pageId: 'lte-cw' })
 
   const focusBind = (key: string) => ({
     onFocus: () => setFocusKey(key),
@@ -242,6 +243,8 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
   const cwTest = (params: LteCwRequest): LiveTest => ({
     label: 'CW',
     abort: () => device.lteCw({ ...params, start: false }),
+    // Lets the top bar count down a manual Send; 0 has no countdown.
+    durationMs: params.time_ms,
   })
 
   const send = useMutation({

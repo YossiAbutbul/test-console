@@ -9,12 +9,12 @@ import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import { useThemeMode } from '../../context/ThemeModeContext'
 import { MONO, TEXT } from '../../ui'
 import type { LoadPullResultRow } from '../../store/loadPullPageStore'
-import { Z0, VCC, RAMP, reflection, dbmToW, efficiency, rampColor } from './smith'
+import { Z0, VCC, RAMP, reflection, dbmToW, efficiency, rampColor, chartRows } from './smith'
 
 interface Pt {
   x: number; y: number
   gr: number; gi: number
-  idx: number
+  idx: number // index in the whole run, so idx + 1 matches the results table's #
   row: LoadPullResultRow
   eff: number | null // drain efficiency (fraction), null if not computable
 }
@@ -100,18 +100,9 @@ export function SmithChartModal({
   const freq = pickedFreq != null && freqs.includes(pickedFreq) ? pickedFreq : freqs[0] ?? null
   const power = pickedPower != null && powers.includes(pickedPower) ? pickedPower : powers[0] ?? null
 
-  // Rows that predate the sweep carry no frequency or power; they are the whole
-  // run, so no filter applies to them.
-  const shown = useMemo(
-    () => results.filter(
-      (r) => (r.freq_mhz == null || freq == null || r.freq_mhz === freq)
-        // Attenuation is deliberately not filtered: sweeping it is what moves
-        // the load, so every setting belongs on the same chart. Frequency and
-        // power are the axes that make one chart mean one thing.
-        && (r.power_dbm_setting == null || power == null || r.power_dbm_setting === power),
-    ),
-    [results, freq, power],
-  )
+  // Each row keeps its index in the whole run, so "Step N" here is "#N" in
+  // the results table. The filtering rules are documented on chartRows.
+  const shown = useMemo(() => chartRows(results, freq, power), [results, freq, power])
 
   const S = 520
   const R = S / 2 - 24
@@ -120,7 +111,7 @@ export function SmithChartModal({
 
   const points: Pt[] = useMemo(() => {
     const out: Pt[] = []
-    shown.forEach((row, idx) => {
+    shown.forEach(({ row, idx }) => {
       if (row.r_ohm == null || row.x_ohm == null) return
       const { gr, gi } = reflection(row.r_ohm, row.x_ohm)
       if (!Number.isFinite(gr) || !Number.isFinite(gi)) return

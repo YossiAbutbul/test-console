@@ -83,9 +83,17 @@ export function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url)
 }
 
-/** `2026-07-28T14-05-31` — filesystem-safe, sorts chronologically. */
-export function timestamp(): string {
-  return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+/**
+ * `2026-07-28T14-05-31` — filesystem-safe, sorts chronologically.
+ *
+ * Local time, not UTC: the backend names its workbooks with the same form in
+ * local time (`export_filename` in backend/workbook.py), and a CSV saved at
+ * 14:05 was being stamped with whatever the UTC offset made of it.
+ */
+export function timestamp(d: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+    + `T${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`
 }
 
 /**
@@ -97,20 +105,22 @@ export function macSlug(mac: string | null | undefined): string {
 }
 
 /**
- * Build a timestamped download filename, keyed on the DUT when one is known.
+ * `<MAC or noDUT>_<test-slug>_<YYYY-MM-DDTHH-MM-SS>.<ext>`.
  *
- * @param fallback Base name when there is no MAC.
- * @param suffix   Appended after the MAC, to name the test in the file.
+ * The one filename scheme for every export, CSV and workbook alike: the
+ * backend builds the same name for the workbooks it renders (`export_filename`
+ * in backend/workbook.py), so files from every page sort by DUT, then test,
+ * then time. It used to drop the test name whenever a MAC was known, so two
+ * pages' exports for one DUT could not be told apart by name.
+ *
+ * @param testSlug Names the test, e.g. `tx-cw-automation`.
  */
 export function exportName(
-  fallback: string,
+  testSlug: string,
   mac: string | null | undefined,
   ext: string,
-  suffix = '',
 ): string {
-  const slug = macSlug(mac)
-  const base = slug ? `${slug}${suffix}` : fallback
-  return `${base}-${timestamp()}.${ext}`
+  return `${macSlug(mac) || 'noDUT'}_${testSlug}_${timestamp()}.${ext}`
 }
 
 /** RFC 4180 quoting: wrap in quotes only when the cell needs it. */
@@ -124,12 +134,47 @@ export function toCsv(header: string[], rows: unknown[][]): string {
   return [header, ...rows].map((cols) => cols.map(csvCell).join(',')).join('\r\n')
 }
 
-/** Serialise and save in one step, asking where the file should go. */
+/**
+ * Optional `#` lines written ahead of the header: which test, when, on which
+ * DUT. Every importer skips lines starting with `#` (`csvDataLines` in
+ * lib/csv.ts), so a file carrying them still reads back.
+ */
+export type CsvMeta = Record<string, string | number | null | undefined>
+
+/** The `#` preamble lines for `meta`, with the export time always included. */
+export function csvPreamble(meta: CsvMeta, now: Date = new Date()): string[] {
+  const entries: Array<[string, unknown]> = [
+    ...Object.entries(meta),
+    // Readable here, unlike the filename form: "2026-07-28 14:05:31".
+    ['exported', timestamp(now).replace(/T(\d\d)-(\d\d)-(\d\d)$/, ' $1:$2:$3')],
+    ['app', 'Test Console'],
+  ]
+  return entries
+    .filter(([, v]) => v != null && v !== '')
+    // A newline inside a value would end the comment and start a data row.
+    .map(([k, v]) => `# ${k}: ${String(v).replace(/[\r\n]+/g, ' ')}`)
+}
+
+/**
+ * UTF-8 byte-order mark. Excel opens a BOM-less CSV in the system code page,
+ * which turns "Ω", "—" and "µ" into mojibake; with it, Excel reads UTF-8.
+ * Importers strip it again (`csvDataLines`).
+ */
+const BOM = '\uFEFF'
+
+/**
+ * Serialise and save in one step, asking where the file should go.
+ *
+ * @param meta Optional preamble -- see `CsvMeta`. Left out, the file starts at
+ *             its header row as it always has.
+ */
 export function downloadCsv(
   header: string[],
   rows: unknown[][],
   filename: string,
+  meta?: CsvMeta,
 ): Promise<SaveOutcome> {
-  const blob = new Blob([toCsv(header, rows)], { type: 'text/csv;charset=utf-8' })
+  const preamble = meta ? csvPreamble(meta).join('\r\n') + '\r\n' : ''
+  const blob = new Blob([BOM + preamble + toCsv(header, rows)], { type: 'text/csv;charset=utf-8' })
   return saveBlob(blob, filename)
 }

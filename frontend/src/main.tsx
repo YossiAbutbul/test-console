@@ -10,6 +10,7 @@ import { InstrumentsProvider } from './context/InstrumentsContext'
 import { NicknamesProvider } from './context/NicknamesContext'
 import { PathLossProvider } from './context/PathLossContext'
 import { NotifyProvider } from './context/NotifyContext'
+import { LiveOutputProvider } from './context/LiveOutputContext'
 import App from './App'
 import './index.css'
 
@@ -46,7 +47,11 @@ createRoot(document.getElementById('root')!).render(
                 <PathLossProvider>
                   <NotifyProvider>
                     <ChatProvider>
-                      <App />
+                      {/* Pages publish into it and the top bar reads it; it
+                          talks to no hardware itself. */}
+                      <LiveOutputProvider>
+                        <App />
+                      </LiveOutputProvider>
                     </ChatProvider>
                   </NotifyProvider>
                 </PathLossProvider>

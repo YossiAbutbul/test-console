@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Autocomplete, Box, Button, IconButton, Stack, Table, TableBody,
-  Tab, TableCell, TableHead, TableRow, Tabs, TextField, Typography,
+  Tab, TableCell, TableHead, TableRow, TextField, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -16,7 +16,7 @@ import {
 import { useLog } from '../../context/LogContext'
 import { DASH, fmt, fmtHz, fmtMhz } from '../../lib/format'
 import {
-  ACTION_W, CONTROL_H, InstrumentBar, MONO, PageBody, Section,
+  ACTION_W, CONTROL_H, DenseTabs, InstrumentBar, MiniAction, MONO, PageBody, Section,
   StatRow, StatTile, TEXT, TwoCol,
 } from '../../ui'
 import type { TestPageProps } from '../types'
@@ -329,25 +329,19 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
                 <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
                   {markerHzList.length}/{MAX_MARKERS}
                 </Typography>
-                <Button
-                  size="small"
-                  variant="text"
+                <MiniAction
                   startIcon={<AddIcon sx={{ fontSize: 15 }} />}
                   onClick={addMarker}
                   disabled={markersMHz.length >= MAX_MARKERS || busy}
-                  sx={{ minWidth: 0, height: 24, fontSize: 12, px: 1 }}
                 >
                   Add
-                </Button>
-                <Button
-                  size="small"
-                  variant="text"
+                </MiniAction>
+                <MiniAction
                   onClick={() => setMarkersM.mutate()}
                   disabled={!connected || busy}
-                  sx={{ minWidth: 0, height: 24, fontSize: 12, px: 1 }}
                 >
                   Apply
-                </Button>
+                </MiniAction>
               </Stack>
             }
           >
@@ -387,17 +381,10 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
                   switch the view rather than the setup. Each keeps its own
                   last result: switching should show what that parameter
                   measured, not blank it. */}
-              <Tabs
-                value={sTab}
-                onChange={(_, v) => setSTab(v)}
-                sx={{
-                  minHeight: 28,
-                  '& .MuiTab-root': { minHeight: 28, py: 0, px: 1.25, fontSize: 12 },
-                }}
-              >
+              <DenseTabs size="sm" value={sTab} onChange={(_, v) => setSTab(v)}>
                 <Tab value="s11" label="S11" />
                 <Tab value="s21" label="S21" />
-              </Tabs>
+              </DenseTabs>
               <Button
                 size="small"
                 variant="outlined"

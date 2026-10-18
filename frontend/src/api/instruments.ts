@@ -78,14 +78,20 @@ export const instrumentsApi = {
    * instead of failing, and skips the ~1.5 s of retries that a no-signal read
    * otherwise spends. For the Power Meter page, where "the sensor sees
    * nothing" is an answer; never for a sweep, which must not record it.
+   *
+   * `only` restricts the read to the selected instruments. Without it the
+   * backend reads everything connected — so a sensor left on USB was read,
+   * and failed, under a send that had "Measure power" unchecked.
    */
   measure: (
     freqHz?: number,
-    opts?: { signal?: AbortSignal; allowNoSignal?: boolean },
+    opts?: { signal?: AbortSignal; allowNoSignal?: boolean; only?: { power: boolean; current: boolean } },
   ) => {
     const q = new URLSearchParams()
     if (freqHz) q.set('freq_hz', String(Math.round(freqHz)))
     if (opts?.allowNoSignal) q.set('allow_no_signal', 'true')
+    if (opts?.only && !opts.only.power) q.set('power', 'false')
+    if (opts?.only && !opts.only.current) q.set('current', 'false')
     const qs = q.toString()
     return http<MeasureResponse>(
       `/instruments/measure${qs ? `?${qs}` : ''}`,

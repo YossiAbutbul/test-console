@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { reflection, dbmToW, efficiency, rampColor, RAMP, gammaMag, vswr, vswrLabel } from './smith'
+import { reflection, dbmToW, efficiency, rampColor, RAMP, gammaMag, vswr, vswrLabel, chartRows } from './smith'
 import type { LoadPullResultRow } from '../../store/loadPullPageStore'
 
 const row = (p: Partial<LoadPullResultRow>): LoadPullResultRow => ({
@@ -98,5 +98,24 @@ describe('vswrLabel', () => {
     expect(vswrLabel(row({ s11_db: -20 }))).toBe('1.22')
     expect(vswrLabel(row({}))).toBe('—')
     expect(vswrLabel(row({ s11_db: 0 }))).toBe('∞')
+  })
+})
+
+describe('chartRows', () => {
+  it('keeps each row\'s index in the whole run, so chart step == table #', () => {
+    const results = [
+      row({ freq_mhz: 900, power_dbm_setting: 10 }),
+      row({ freq_mhz: 915, power_dbm_setting: 10 }),
+      row({ freq_mhz: 900, power_dbm_setting: 14 }),
+      row({ freq_mhz: 900, power_dbm_setting: 10 }),
+    ]
+    const shown = chartRows(results, 900, 10)
+    expect(shown.map((s) => s.idx)).toEqual([0, 3])
+    expect(shown[1].row).toBe(results[3])
+  })
+  it('applies no filter to rows that carry no frequency or power', () => {
+    const results = [row({}), row({ freq_mhz: 915 }), row({ power_dbm_setting: 14 })]
+    expect(chartRows(results, 900, 10).map((s) => s.idx)).toEqual([0])
+    expect(chartRows(results, null, null).map((s) => s.idx)).toEqual([0, 1, 2])
   })
 })

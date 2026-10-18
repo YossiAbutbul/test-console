@@ -63,6 +63,14 @@ export const TEXT = {
   section: { fontSize: 17, fontWeight: 700 },
   /** Dialog title. */
   dialog: { fontSize: 17, fontWeight: 700 },
+  /** The uppercase title Section draws over a panel. For a slim stand-in row
+   *  that has to read as the same panel (e.g. a folded-away table). */
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase' as const,
+  },
   /** Uppercase micro-label above a value. */
   eyebrow: {
     fontSize: 10.5,

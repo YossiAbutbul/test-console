@@ -29,7 +29,11 @@ import { useConnection } from '../../context/ConnectionContext'
 import { usePathLoss } from '../../context/PathLossContext'
 import { useLog } from '../../context/LogContext'
 import { useNotify } from '../../context/NotifyContext'
-import { sleep } from '../../lib/async'
+import { formatDuration, sleep } from '../../lib/async'
+import { estimateRunMs } from '../../lib/eta'
+import { TopProgress } from '../../components/TopProgress'
+import { usePublishLiveOutput } from '../../context/liveOutput'
+import { formatRunTiming, useRunEta } from '../../ui/useRunEta'
 import { parseRangeSpec } from '../../lib/numericList'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import { saveBlob } from '../../lib/download'
@@ -58,13 +62,24 @@ import { useAttPrompt } from './AttPrompt'
 import { parseLoadPullCsv } from './importCsv'
 import { SetupDiagramModal } from './SetupDiagramModal'
 import { confidenceColor, powerConfidence } from './powerConfidence'
-
-const PULSES_PER_MM = 400
+// Shared with the Trombone page so both agree on what a mm is.
+import { PULSES_PER_MM } from '../../lib/trombone'
 
 /** Every stage of a point touches one of these. */
 const REQUIRED_INSTRUMENTS: InstrumentId[] = [
   'power-sensor', 'dc-analyzer', 'network-analyzer', 'rf-switch', 'rf-trombone',
 ]
+
+/**
+ * Rough costs for the pre-run estimate, on top of the settle delays.
+ *
+ * Per position: the trombone move, two switch moves and a VNA acquisition.
+ * Per point: the TX command, the power/current read and TX off. Guesses, not
+ * measurements -- once the run is going the remaining time follows the
+ * measured rate. Operator waits at attenuator steps are not in either.
+ */
+const EST_POSITION_OVERHEAD_MS = 6000
+const EST_POINT_OVERHEAD_MS = 500
 
 /** Budget for the motor travel, switching and measuring around the delays. */
 const STEP_OVERHEAD_TIMEOUT_MS = 90_000
@@ -383,7 +398,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       'Power (dBm)': r.power_dbm,
       'CC (mA)': mA(r.current_a),
       'R (Ohm)': r.r_ohm,
-      'J (Ohm)': r.x_ohm,
+      'X (Ohm)': r.x_ohm,
       'S11 (dB)': r.s11_db,
       VSWR: vswr(r),
       Status: r.error ?? 'ok',
@@ -421,6 +436,10 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // points at that position skip the move. Reset per run, never read for
   // rendering — a ref rather than state.
   const posRef = useRef<number | null>(null)
+  // Epoch seconds of the run the table holds, for the workbook's Run sheet.
+  // Cleared on import and Clear, so a file's rows are never stamped with the
+  // timing of whatever run happened to precede them.
+  const runTimesRef = useRef<{ started_at: number; finished_at: number | null } | null>(null)
   // Attenuator setting the operator has confirmed for the cycle in progress.
   const attRef = useRef<number | null>(null)
   // VNA markers for the current position, keyed by requested frequency (Hz).
@@ -446,6 +465,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         : parseLoadPullCsv(await file.text())
       setResults(rows)
       setImportedName(file.name)
+      runTimesRef.current = null
       // The preamble's frequency and path loss are reported, not applied:
       // silently rewriting the run's settings from a file would change what
       // the next Run does.
@@ -513,6 +533,27 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     }
   }
   const totalPoints = plan.length
+  // Each attenuator step re-runs the trombone cycle, and every position visit
+  // settles twice (VNA, then PCB) on top of each point's own settle.
+  const positionVisits = totalPoints > 0 ? attSteps.length * positions.length : 0
+  const estimatedRunMs = estimateRunMs(
+    totalPoints,
+    settleEffectiveMs + EST_POINT_OVERHEAD_MS,
+    positionVisits * (2 * settleEffectiveMs + EST_POSITION_OVERHEAD_MS),
+  )
+  // runSequence reports the 1-based point in hand.
+  const completedPoints = Math.max(0, progressIdx - 1)
+  const runEta = useRunEta({
+    running, completed: completedPoints, total: totalPoints, plannedTotalMs: estimatedRunMs,
+  })
+  // A "Run" pill in the top bar, visible from every page while this runs:
+  // it moves the trombone and keys the DUT. The id is this page's registry id.
+  usePublishLiveOutput('run:load-pull', running ? {
+    kind: 'run',
+    label: 'Run',
+    detail: `Load Pull ${progressIdx}/${totalPoints}`,
+    pageId: 'load-pull',
+  } : null)
 
   // The chip covers the whole plan: with several frequencies in a run, one
   // of them being uncalibrated is what the operator needs to know.
@@ -665,6 +706,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       setResults([])
       setImportedName(null)
       setProgressIdx(0)
+      runTimesRef.current = { started_at: Date.now() / 1000, finished_at: null }
       posRef.current = null
       attRef.current = null
       markersRef.current = new Map()
@@ -700,6 +742,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           reporter,
         })
       } finally {
+        if (runTimesRef.current) runTimesRef.current.finished_at = Date.now() / 1000
         setRunning(false)
       }
     },
@@ -746,6 +789,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         return { freq_mhz: f, db: l.db, calibrated: l.calibrated }
       }),
       dut_mac: bleStatus?.address ?? null,
+      started_at: runTimesRef.current?.started_at ?? null,
+      finished_at: runTimesRef.current?.finished_at ?? null,
     }),
     onSuccess: async ({ blob, filename }) => {
       // Logged only once it is written -- see the note on the sweep export.
@@ -789,6 +834,10 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
+      <TopProgress
+        pct={totalPoints > 0 ? (completedPoints / totalPoints) * 100 : 0}
+        hidden={!running}
+      />
       <PageHeader
         protocol={protocol}
         group={group}
@@ -839,7 +888,12 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
             label="Plan"
             value={totalPoints === 0 ? DASH : String(totalPoints)}
             unit={totalPoints === 0 ? undefined : 'points'}
-            sub={totalPoints === 0 ? 'incomplete' : `every ${deltaXmm} mm`}
+            // The cost of the plan before Run, and how far through it during.
+            sub={totalPoints === 0
+              ? 'incomplete'
+              : runEta
+                ? formatRunTiming(runEta)
+                : `every ${deltaXmm} mm · ≈ ${formatDuration(estimatedRunMs)}`}
             off={totalPoints === 0}
           />
         </StatRow>
@@ -1237,7 +1291,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               <Button
                 size="small" variant="text" color="inherit"
                 startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
-                onClick={() => { setResults([]); setImportedName(null) }}
+                onClick={() => { setResults([]); setImportedName(null); runTimesRef.current = null }}
                 disabled={results.length === 0 || running}
                 sx={RESULT_ACTION_SX}
               >
@@ -1300,7 +1354,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               }}
             >
               <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-                No data yet. Press Run, or Import a previous CSV.
+                No data yet. Press Run, or Import a previous run (.xlsx or .csv).
               </Typography>
             </Box>
           ) : (
@@ -1351,7 +1405,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     <TableCell>Power (dBm)</TableCell>
                     <TableCell>CC (mA)</TableCell>
                     <TableCell>R (Ω)</TableCell>
-                    <TableCell>J (Ω)</TableCell>
+                    <TableCell>X (Ω)</TableCell>
                     <TableCell>S11 (dB)</TableCell>
                     <TableCell>VSWR</TableCell>
                     <TableCell>Status</TableCell>

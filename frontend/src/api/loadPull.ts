@@ -13,6 +13,14 @@ export interface LoadPullExportMeta {
   path_loss_default_db?: number
   path_loss_points?: Array<{ freq_mhz: number; db: number; calibrated: boolean }>
   dut_mac?: string | null
+  /** Epoch seconds, when the page knows them; the Run sheet says "—" otherwise. */
+  started_at?: number | null
+  finished_at?: number | null
+  /** Optional free text for the Run sheet. */
+  operator?: string
+  notes?: string
+  // The rig (instrument IDNs, VISA address, DC channel, DUT name) is filled in
+  // by the backend from the sessions it holds, so it is not sent from here.
 }
 
 export const loadPullApi = {

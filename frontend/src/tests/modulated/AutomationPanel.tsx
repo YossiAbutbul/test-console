@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Box, Button, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
-  TableHead, TableRow, TextField, Typography,
+  TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -31,10 +31,13 @@ import {
   DEFAULT_SETTLE_MS as SHARED_DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs,
 } from '../../lib/settle'
 import { GRID_GAP, Section, TEXT } from '../../ui'
-import { ResultsGraphModal } from '../power/ResultsGraphModal'
+import { ResultsGraphModal, type GraphableRow } from '../power/ResultsGraphModal'
 import { runSequence } from '../engine/runSequence'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'
+import { TopProgress } from '../../components/TopProgress'
+import { usePublishLiveOutput } from '../../context/liveOutput'
+import { RunTiming } from '../../ui/RunTiming'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import {
   modulatedPageSnapshot,
@@ -207,10 +210,21 @@ const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i:
   )
 })
 
+/** Graph row, with the signal configuration as the series. Without it two
+ *  waveforms at the same freq and power overwrite each other on the graph. */
+const toGraphRow = (r: ResultRow): GraphableRow => ({
+  ...r,
+  series: r.modem === MODEM_FSK
+    ? `FSK · ${r.datarate} bps`
+    : `${MODEM_LABEL[r.modem] ?? r.modem} · ${BW_OPTIONS[r.bandwidth]?.label ?? r.bandwidth} · SF${r.datarate}`,
+})
+
 /** Export the results table. The column list and the row mapping live in
  *  `./csv`, alongside the parser that reads them back. */
 function downloadCsv(rows: ResultRow[], mac: string | null): void {
-  void saveCsv([...CSV_HEADER], toCsvBody(rows), exportName('lora-modulated-automation', mac, 'csv'))
+  void saveCsv([...CSV_HEADER], toCsvBody(rows), exportName('lora-modulated-automation', mac, 'csv'), {
+    test: 'LoRa modulated automation', dut_mac: mac,
+  })
 }
 
 /** Nested snapshot — auto-created on first write so the page-level store stays
@@ -357,6 +371,18 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
   const totalPoints = plan.length
   // Settle dominates; the command + measure round trips add roughly 300 ms.
   const estimatedRunMs = totalPoints * (settleMs + 300)
+  // runSequence reports the 1-based point in hand, so the points already
+  // finished are one fewer.
+  const completedPoints = Math.max(0, progressIdx - 1)
+  const plannedRunMs = estimatedRunMs
+  // A "Run" pill in the top bar, so a sweep left running on this page is
+  // visible from every other one. The id is this page's registry id.
+  usePublishLiveOutput('run:modulated', running ? {
+    kind: 'run',
+    label: 'Run',
+    detail: `LoRa Modulated ${progressIdx}/${totalPoints}`,
+    pageId: 'modulated',
+  } : null)
   // A row with a bad datarate contributes no points, so it would otherwise
   // vanish from the plan silently rather than blocking the run.
   const anyInvalid = rows.some(
@@ -450,6 +476,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
       abortRef.current = abort
       setRunning(true)
       setResults([])
+      resultsRef.current = []
       setProgressIdx(0)
       uncalibrated.current.clear()
       try {
@@ -538,9 +565,26 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
 
   const cellSx = { '& .MuiInputBase-root': { height: 34 } }
 
+  // The range-spec syntax under the table. Built once for both the footer
+  // line and its tooltip, which shows it whole when the line is cut short.
+  const syntaxHint = (
+    <>
+      Freq / Power: "915" · "900-930" · "900-930:5" · "902.3,915,927.5"
+      <Box component="span" sx={{ ml: 1.5 }}>
+        Tolerance: within ± dB of the set power · blank for no verdict
+      </Box>
+    </>
+  )
+
   return (
     <Stack spacing={`${GRID_GAP}px`} sx={{ flexGrow: 1, minHeight: 0 }}>
       <Box sx={{ height: PANEL_HEIGHT, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        {/* Same bar the Mode Sweep pins under the top bar. Fixed, so it takes
+            no room here, and it disappears with the tab or page it is on. */}
+        <TopProgress
+          pct={totalPoints > 0 ? (completedPoints / totalPoints) * 100 : 0}
+          hidden={!running}
+        />
         <Section
           title="Sweep"
           panel
@@ -763,19 +807,35 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
             spacing={2}
             sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}
           >
-            <Typography sx={{ fontSize: 11, color: 'text.disabled', whiteSpace: 'nowrap' }}>
-              Freq / Power: "915" · "900-930" · "900-930:5" · "902.3,915,927.5"
-              <Box component="span" sx={{ ml: 1.5 }}>
-                Tolerance: within ± dB of the set power · blank for no verdict
-              </Box>
-            </Typography>
+            {/* Shrinks and ellipsizes rather than pushing the estimate out of the
+                panel: both used to be nowrap in a fixed-height box, and the
+                estimate was the one that got clipped. The full text is on hover. */}
+            <Tooltip title={syntaxHint} placement="top-start">
+              <Typography
+                sx={{
+                  fontSize: 11, color: 'text.disabled', whiteSpace: 'nowrap',
+                  minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
+                }}
+              >
+                {syntaxHint}
+              </Typography>
+            </Tooltip>
             {/* A long settle looks identical to a hung run, so state the cost up
                 front rather than letting the operator guess. */}
-            {totalPoints > 0 && (
+            {running ? (
+              <RunTiming
+                running={running}
+                completed={completedPoints}
+                total={totalPoints}
+                plannedTotalMs={plannedRunMs}
+                sx={{ flexShrink: 0 }}
+              />
+            ) : totalPoints > 0 && (
               <Typography
                 sx={{
                   ...TEXT.micro,
                   whiteSpace: 'nowrap',
+                  flexShrink: 0,
                   color: settleMs >= LONG_SETTLE_MS ? 'warning.main' : 'text.secondary',
                 }}
               >
@@ -812,7 +872,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
               variant="text"
               color="inherit"
               startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
-              onClick={() => setResults([])}
+              onClick={() => { resultsRef.current = []; setResults([]) }}
               disabled={results.length === 0 || running}
               sx={resultActionSx}
             >
@@ -901,7 +961,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
       <ResultsGraphModal
         open={graphOpen}
         onClose={() => setGraphOpen(false)}
-        results={results}
+        results={results.map(toGraphRow)}
       />
       {preflight.dialog}
     </Stack>

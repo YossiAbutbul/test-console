@@ -87,3 +87,30 @@ export function vswrLabel(row: LoadPullResultRow): string {
   if (v == null) return '—'
   return Number.isFinite(v) ? v.toFixed(2) : '∞'
 }
+
+/**
+ * The rows one chart shows, each carrying its index in the whole run.
+ *
+ * The chart filters to one frequency and power, but the results table numbers
+ * every row of the run. Numbering within the filtered list made chart
+ * "Step 3" a different point from table "#3"; carrying `idx` through keeps
+ * `idx + 1` equal to the table's number.
+ *
+ * Rows that predate the sweep carry no frequency or power; they are the whole
+ * run, so no filter applies to them. Attenuation is deliberately not filtered:
+ * sweeping it is what moves the load, so every setting belongs on the same
+ * chart. Frequency and power are the axes that make one chart mean one thing.
+ */
+export function chartRows(
+  results: LoadPullResultRow[],
+  freq: number | null,
+  power: number | null,
+): Array<{ row: LoadPullResultRow; idx: number }> {
+  const out: Array<{ row: LoadPullResultRow; idx: number }> = []
+  results.forEach((row, idx) => {
+    if (row.freq_mhz != null && freq != null && row.freq_mhz !== freq) return
+    if (row.power_dbm_setting != null && power != null && row.power_dbm_setting !== power) return
+    out.push({ row, idx })
+  })
+  return out
+}

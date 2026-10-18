@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Box, Button, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
+import { Box, Button, Stack, Tab, TextField, Typography } from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import StopIcon from '@mui/icons-material/Stop'
 import RefreshIcon from '@mui/icons-material/Refresh'
@@ -14,7 +14,7 @@ import { useLog } from '../../context/LogContext'
 import { describeMeasureError } from '../../lib/instrumentError'
 import { DASH } from '../../lib/format'
 import {
-  InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
+  DenseTabs, Eyebrow, InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import {
@@ -242,7 +242,7 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
         }
       />
 
-      <Tabs
+      <DenseTabs
         value={tab}
         onChange={(_, v: PowerMeterTab) => {
           // Leaving the tab stops the loop rather than letting it run behind
@@ -250,15 +250,11 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
           if (v !== 'continuous') setTracing(false)
           setTab(v)
         }}
-        sx={{
-          minHeight: 36, mt: -0.5,
-          borderBottom: 1, borderColor: 'divider',
-          '& .MuiTab-root': { minHeight: 36, py: 0.25, fontSize: 13 },
-        }}
+        sx={{ mt: -0.5, borderBottom: 1, borderColor: 'divider' }}
       >
         <Tab value="read" label="Read" />
         <Tab value="continuous" label="Continuous" />
-      </Tabs>
+      </DenseTabs>
 
       <PageBody width="fluid">
         <InstrumentBar
@@ -290,9 +286,7 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
 
         <Box>
           <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1 }}>
-            <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
-              Reading
-            </Typography>
+            <Eyebrow>Reading</Eyebrow>
             {tracing && (
               <Typography sx={{ fontSize: 11, color: 'success.main', fontWeight: 600 }}>
                 tracing

@@ -12,6 +12,8 @@ import { ValidationAdornment, shouldShowValidation } from '../../components/Vali
 import { motor } from '../../api/motor'
 import { useLog } from '../../context/LogContext'
 import { DASH } from '../../lib/format'
+import { fmtMm, mmToPulses, pulsesToMm } from '../../lib/trombone'
+import { loadPullPageSnapshot } from '../../store/loadPullPageStore'
 import {
   ACTION_W, CONTROL_H, InstrumentBar, MONO, PageBody, Section,
   StatRow, StatTile, TEXT, TwoCol,
@@ -36,14 +38,23 @@ const IDLE_POLL_MS = 2000
 /** Used only to bound a jog when the motor has no soft limits configured. */
 const OPEN_TRAVEL = 1_000_000
 
+/**
+ * One jog step. 8 mm is the 3,200 pulses the page always stepped by -- the
+ * unit changed, the distance did not.
+ */
+const JOG_STEP_MM = 8
+const JOG_STEP_PULSES = mmToPulses(JOG_STEP_MM)
+
 export function TrombonePage({ group }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
   const reporter = useActionReporter('Trombone move', 'Motor')
+  // Typed in mm; the motor is commanded in the whole pulse nearest to it.
   const [targetStr, setTargetStr] = useState<string>('0')
   const [targetFocused, setTargetFocused] = useState(false)
   const targetNum = Number(targetStr)
   const targetValid = targetStr.trim() !== '' && Number.isFinite(targetNum)
+  const targetPulses = targetValid ? mmToPulses(targetNum) : 0
   const [deviceIndex, setDeviceIndex] = useState<number>(0)
 
   const statusQ = useQuery({
@@ -85,23 +96,23 @@ export function TrombonePage({ group }: TestPageProps) {
 
   // Absolute moves can take seconds of travel, so they announce themselves
   // through the reporter; jogs and connect stay as plain log lines.
-  const pulses = (n: number) => `to ${n.toLocaleString()} pulses`
+  const pulses = (n: number) => `to ${fmtMm(n)} (${n.toLocaleString()} pulses)`
   const onMoveErr = (e: Error) => reporter.failed(e.message)
   const onMoveOk = (n: number) => () => { reporter.succeeded(pulses(n)); refresh() }
 
   const connectM = useMutation({ mutationFn: () => motor.connect(deviceIndex), onSuccess: onOk('connect'), onError: onErr('connect') })
   const disconnectM = useMutation({ mutationFn: motor.disconnect, onSuccess: onOk('disconnect'), onError: onErr('disconnect') })
   const moveM = useMutation({
-    mutationFn: () => motor.move(targetNum, true),
-    onMutate: () => reporter.started(pulses(targetNum)),
-    onSuccess: onMoveOk(targetNum),
+    mutationFn: () => motor.move(targetPulses, true),
+    onMutate: () => reporter.started(pulses(targetPulses)),
+    onSuccess: onMoveOk(targetPulses),
     onError: onMoveErr,
   })
 
-  const targetInRange = targetValid && targetNum >= softMin && targetNum <= softMax
+  const targetInRange = targetValid && targetPulses >= softMin && targetPulses <= softMax
   const targetOutOfRange = targetValid && !targetInRange
-  const jogPosM = useMutation({ mutationFn: () => motor.move(clampInc(3200), false), onSuccess: onOk('move +'), onError: onErr('move +') })
-  const jogNegM = useMutation({ mutationFn: () => motor.move(clampInc(-3200), false), onSuccess: onOk('move -'), onError: onErr('move -') })
+  const jogPosM = useMutation({ mutationFn: () => motor.move(clampInc(JOG_STEP_PULSES), false), onSuccess: onOk('move +'), onError: onErr('move +') })
+  const jogNegM = useMutation({ mutationFn: () => motor.move(clampInc(-JOG_STEP_PULSES), false), onSuccess: onOk('move -'), onError: onErr('move -') })
   const goMinM = useMutation({
     mutationFn: () => motor.move(softMin, true),
     onMutate: () => reporter.started(pulses(softMin)),
@@ -122,7 +133,13 @@ export function TrombonePage({ group }: TestPageProps) {
     goMaxM.isPending || stopM.isPending
 
   const statusText = !connected ? 'Disconnected' : moving ? 'Moving' : 'Idle'
-  const num = (n: number | null) => (n == null ? DASH : n.toLocaleString())
+  const mmNum = (n: number | null) => (n == null ? DASH : pulsesToMm(n).toFixed(2))
+  const pulseNum = (n: number) => `${n.toLocaleString()} pulses`
+  // Captured on the Load Pull page; shown here so a manual move can be judged
+  // against the cycle the sweep will use. Read at render, which the status
+  // poll repeats often enough to pick up a fresh capture.
+  const lpZero = loadPullPageSnapshot.zeroPulses ?? null
+  const lpEnd = loadPullPageSnapshot.endPulses ?? null
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
@@ -187,23 +204,27 @@ export function TrombonePage({ group }: TestPageProps) {
           <StatRow>
             <StatTile
               label="Position"
-              value={num(pos)}
-              unit={pos == null ? undefined : 'pulses'}
-              sub={pctOfTravel == null ? undefined : `${pctOfTravel.toFixed(0)}% of travel`}
+              value={mmNum(pos)}
+              unit={pos == null ? undefined : 'mm'}
+              sub={pos == null
+                ? undefined
+                : pctOfTravel == null || !hasLimits
+                  ? pulseNum(pos)
+                  : `${pulseNum(pos)} · ${pctOfTravel.toFixed(0)}% of travel`}
               off={!connected}
             />
             <StatTile
               label="Room below"
-              value={hasLimits ? num(roomBelow) : DASH}
-              unit={hasLimits && roomBelow != null ? 'pulses' : undefined}
-              sub={hasLimits ? `min ${softMin.toLocaleString()}` : 'no soft limit'}
+              value={hasLimits ? mmNum(roomBelow) : DASH}
+              unit={hasLimits && roomBelow != null ? 'mm' : undefined}
+              sub={hasLimits ? `min ${fmtMm(softMin)} · ${pulseNum(softMin)}` : 'no soft limit'}
               off={!connected || !hasLimits}
             />
             <StatTile
               label="Room above"
-              value={hasLimits ? num(roomAbove) : DASH}
-              unit={hasLimits && roomAbove != null ? 'pulses' : undefined}
-              sub={hasLimits ? `max ${softMax.toLocaleString()}` : 'no soft limit'}
+              value={hasLimits ? mmNum(roomAbove) : DASH}
+              unit={hasLimits && roomAbove != null ? 'mm' : undefined}
+              sub={hasLimits ? `max ${fmtMm(softMax)} · ${pulseNum(softMax)}` : 'no soft limit'}
               off={!connected || !hasLimits}
             />
           </StatRow>
@@ -230,13 +251,13 @@ export function TrombonePage({ group }: TestPageProps) {
               </Box>
               <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
                 <Typography sx={{ fontSize: 10.5, color: 'text.secondary', fontFamily: MONO }}>
-                  {softMin.toLocaleString()}
+                  {fmtMm(softMin)}
                 </Typography>
                 <Typography sx={{ fontSize: 10.5, color: 'text.disabled' }}>
-                  {travel.toLocaleString()} pulses of travel
+                  {fmtMm(travel)} of travel ({pulseNum(travel)})
                 </Typography>
                 <Typography sx={{ fontSize: 10.5, color: 'text.secondary', fontFamily: MONO }}>
-                  {softMax.toLocaleString()}
+                  {fmtMm(softMax)}
                 </Typography>
               </Stack>
             </Box>
@@ -251,13 +272,13 @@ export function TrombonePage({ group }: TestPageProps) {
           <Section title="Move to" panel>
             <Stack direction="row" spacing={1} alignItems="flex-start">
               <LabeledField
-                label="Target"
+                label="Target (mm)"
                 hint={hasLimits
-                  ? `${softMin.toLocaleString()} … ${softMax.toLocaleString()}`
-                  : 'pulses'}
+                  ? `${pulsesToMm(softMin).toFixed(2)} … ${pulsesToMm(softMax).toFixed(2)}`
+                  : 'mm'}
                 type="number"
                 value={targetStr}
-                inputProps={{ min: softMin, max: softMax, step: 100 }}
+                inputProps={{ min: pulsesToMm(softMin), max: pulsesToMm(softMax), step: 0.25 }}
                 onChange={(e) => setTargetStr(e.target.value)}
                 onFocus={() => setTargetFocused(true)}
                 onBlur={() => setTargetFocused(false)}
@@ -270,7 +291,7 @@ export function TrombonePage({ group }: TestPageProps) {
                         targetStr.trim() === ''
                           ? 'Enter a value'
                           : targetOutOfRange
-                            ? `Out of range — must be ${softMin.toLocaleString()} … ${softMax.toLocaleString()}`
+                            ? `Out of range — must be ${fmtMm(softMin)} … ${fmtMm(softMax)}`
                             : 'Invalid number'
                       }
                     />
@@ -286,9 +307,22 @@ export function TrombonePage({ group }: TestPageProps) {
                 Move
               </Button>
             </Stack>
+            <Typography sx={{ ...TEXT.hint, color: 'text.secondary', mt: 0.75 }}>
+              {targetValid ? `Sends ${pulseNum(targetPulses)}.` : DASH}
+              {(lpZero != null || lpEnd != null) && (
+                <>
+                  {' '}Load Pull zero {lpZero == null ? 'not set' : fmtMm(lpZero)}
+                  {' · '}end {lpEnd == null ? 'not set' : fmtMm(lpEnd)}.
+                </>
+              )}
+            </Typography>
           </Section>
 
-          <Section title="Jog" panel hint="Steps of 3,200 pulses, clamped to the soft limits.">
+          <Section
+            title="Jog"
+            panel
+            hint={`Steps of ${JOG_STEP_MM} mm (${pulseNum(JOG_STEP_PULSES)}), clamped to the soft limits.`}
+          >
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Button
                 variant="outlined"

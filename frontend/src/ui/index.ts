@@ -17,7 +17,7 @@ export {
 export { Eyebrow, Readout, StatusChip, StatusDot, MonoText } from './Readout'
 export {
   ConnectButton, EmergencyStop, RunControls, SendStopControls, PathLossChip,
-  FrameDump, LastFrameSection,
+  FrameDump, LastFrameSection, MiniAction, DenseTabs,
 } from './controls'
 export {
   ACTION_W, CARD_SX, CARD_PAD, CONTROL_H, FIELD_MAX_W, GRID_GAP, MONO,
@@ -25,3 +25,11 @@ export {
 } from './tokens'
 export { useShellLayout, type ShellLayout } from './useShellLayout'
 export { InstrumentBar, type InstrumentBarStatus } from './InstrumentBar'
+export { RunTiming } from './RunTiming'
+export { useRunEta, formatRunTiming } from './useRunEta'
+export { ChartFrame, ChartToolbar, ChartSwitch } from './chart/ChartFrame'
+export { useChart, useChartTheme, type ChartHandle, type ChartTheme } from './chart/useChart'
+export {
+  DEFAULT_CHART_OPTIONS, yDomain, type ChartOptions, type DomainBound,
+} from './chart/chartOptions'
+export { downloadChartPng, fileTimestamp, type LegendItem } from './chart/exportPng'

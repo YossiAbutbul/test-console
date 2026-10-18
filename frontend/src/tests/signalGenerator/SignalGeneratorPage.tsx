@@ -13,6 +13,7 @@ import {
   useInstrumentValue, useInstrumentsActions,
 } from '../../context/InstrumentsContext'
 import { useLog } from '../../context/LogContext'
+import { usePublishLiveOutput } from '../../context/liveOutput'
 import { DASH, fmt } from '../../lib/format'
 import {
   FieldGrid, InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
@@ -223,6 +224,22 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
 
   const rfOn = st?.rf_on === true
   const canSend = connected && !busy
+
+  // Into the top bar, so a keyed source is visible from every page. Taken from
+  // this page's own read-back rather than a poll of its own: the generator is
+  // on one serial session and a second caller would desync it. That read-back
+  // stops when the page is left, hence the note.
+  usePublishLiveOutput('signal-generator', connected && rfOn ? {
+    kind: 'rf',
+    label: 'RF ON',
+    detail: [
+      liveFreqMhz == null ? null : `${fmt(liveFreqMhz, 3)} MHz`,
+      st?.level_dbm == null ? null : `${fmt(st.level_dbm, 1)} dBm`,
+    ].filter(Boolean).join(' · ') || undefined,
+    pageId: 'signal-generator',
+    note: 'Signal generator output, as last read on its page. '
+      + 'It is only re-read while that page is open.',
+  } : null)
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>

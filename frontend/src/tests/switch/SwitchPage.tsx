@@ -11,7 +11,7 @@ import { servo, type ServoTarget } from '../../api/servo'
 import { useLog } from '../../context/LogContext'
 import { DASH } from '../../lib/format'
 import {
-  ACTION_W, CONTROL_H, InstrumentBar, MONO, PageBody, Section,
+  ACTION_W, CONTROL_H, InstrumentBar, MiniAction, MONO, PageBody, Section,
   StatRow, StatTile, TEXT, TwoCol,
 } from '../../ui'
 import { useActionReporter } from '../engine/useRunReporter'
@@ -285,24 +285,20 @@ export function SwitchPage({ group }: TestPageProps) {
               <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
                 Store current position as
               </Typography>
-              <Button
-                size="small" variant="text"
+              <MiniAction
                 startIcon={<SaveIcon sx={{ fontSize: 15 }} />}
                 onClick={() => saveM.mutate('VNA')}
                 disabled={!connected || busy}
-                sx={{ minWidth: 0, height: 24, fontSize: 12, px: 1 }}
               >
                 VNA
-              </Button>
-              <Button
-                size="small" variant="text"
+              </MiniAction>
+              <MiniAction
                 startIcon={<SaveIcon sx={{ fontSize: 15 }} />}
                 onClick={() => saveM.mutate('PCB')}
                 disabled={!connected || busy}
-                sx={{ minWidth: 0, height: 24, fontSize: 12, px: 1 }}
               >
                 PCB
-              </Button>
+              </MiniAction>
             </Stack>
           </Section>
         </TwoCol>
