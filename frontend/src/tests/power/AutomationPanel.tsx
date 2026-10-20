@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useMemo, useState } from 'react'
 import {
   Box, Button, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Tooltip, Typography,
@@ -221,6 +221,12 @@ export interface AutomationControls {
   progress: string
   onRun: () => void
   onStop: () => void
+  /** Size of the plan and its time estimate, for the Settings check on the
+   *  page's course. */
+  totalPoints: number
+  plannedMs: number
+  /** Frequencies the plan measures at, for the Path loss check. */
+  freqsMhz: number[]
 }
 
 interface AutomationPanelProps {
@@ -338,6 +344,13 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
 
   const plan: PlanPoint[] = rows.flatMap(rowPoints)
   const totalPoints = plan.length
+  // Joined into a key so the list keeps its identity between renders; the
+  // controls effect below would otherwise re-publish on every one.
+  const planFreqKey = [...new Set(plan.map((p) => p.freq))].join(',')
+  const planFreqs = useMemo(
+    () => (planFreqKey ? planFreqKey.split(',').map(Number) : []),
+    [planFreqKey],
+  )
   // Settle dominates; the command + measure round trips add roughly 300 ms.
   const estimatedRunMs = totalPoints * (settleMs + 300)
   // runSequence reports the 1-based point in hand, so the points already
@@ -503,8 +516,14 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
       progress: `${progressIdx}/${totalPoints}`,
       onRun,
       onStop,
+      totalPoints,
+      plannedMs: plannedRunMs,
+      freqsMhz: planFreqs,
     })
-  }, [running, totalPoints, anyInvalid, progressIdx, onRun, onStop, onControlsChange])
+  }, [
+    running, totalPoints, anyInvalid, progressIdx, onRun, onStop, onControlsChange,
+    plannedRunMs, planFreqs,
+  ])
 
   // Runs when a row is added or removed; only acts when Add asked it to.
   useEffect(() => {

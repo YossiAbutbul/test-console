@@ -103,7 +103,9 @@ export function SearchBar({ activeId, onSelect }: Props) {
 
   return (
     <ClickAwayListener onClickAway={() => setOpen(false)}>
-      <Box sx={{ position: 'relative', width: 'min(420px, 50%)' }}>
+      {/* Fills the slot the top bar gives it (at most 420 px); the bar decides
+          how much room search gets beside the status lamps. */}
+      <Box sx={{ position: 'relative', width: '100%' }}>
         <Stack
           direction="row"
           alignItems="center"

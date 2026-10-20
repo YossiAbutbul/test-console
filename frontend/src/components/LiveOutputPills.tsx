@@ -85,15 +85,18 @@ function Pill({
         sx={(t) => ({
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 0.6,
-          height: 24,
-          px: 1,
+          gap: 0.75,
+          // Sized to the bench lamps beside it, and big enough to register
+          // from across the bench: at 24 px and 11.5 px an RF ON pill was the
+          // smallest thing on a page it was meant to dominate.
+          height: 30,
+          px: 1.25,
           border: `1px solid ${alpha(t.palette[tone].main, 0.55)}`,
-          borderRadius: 12,
+          borderRadius: 15,
           bgcolor: alpha(t.palette[tone].main, 0.14),
           color: t.palette[tone].main,
           font: 'inherit',
-          fontSize: 11.5,
+          fontSize: 13,
           fontWeight: 700,
           letterSpacing: 0.3,
           whiteSpace: 'nowrap',
@@ -106,7 +109,7 @@ function Pill({
         <Box
           component="span"
           sx={(t) => ({
-            width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
             bgcolor: t.palette[tone].main,
             animation: 'tcLivePulse 1.4s ease-in-out infinite',
             '@keyframes tcLivePulse': {

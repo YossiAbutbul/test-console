@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Box, MenuItem } from '@mui/material'
 import { PageHeader } from '../../components/PageHeader'
+import { BenchCourse } from '../../components/BenchCourse'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
@@ -97,6 +98,8 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
           />
         }
       />
+
+      <BenchCourse instruments={REQUIRED_INSTRUMENTS} freqsMhz={[freqMhz]} />
 
       <PageBody width="fluid">
         <Section title="Transmit" panel>

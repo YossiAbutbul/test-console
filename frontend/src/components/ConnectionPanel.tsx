@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Autocomplete, Box, Button, CircularProgress, FormControl, IconButton, MenuItem, Select, Stack,
   TextField, Tooltip, Typography,
@@ -13,14 +13,10 @@ import { usePathLoss } from '../context/PathLossContext'
 import { MeterInfoModal } from './MeterInfoModal'
 import { NicknameModal } from './NicknameModal'
 import { PathLossModal } from './PathLossModal'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ble, scanStream } from '../api/ble'
 import { useConnection } from '../context/ConnectionContext'
-import { useLog } from '../context/LogContext'
+import { useDutLink } from '../context/dutLink'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
-import type { ScannedDevice } from '../types/models'
-import { STORAGE_KEYS, usePersistedState } from '../store'
 
 function actionSx(c: { bg: string; bgHover: string; fg: string }) {
   return {
@@ -51,106 +47,37 @@ function stripMac(v: string): string {
   return v.replace(/[\s:-]/g, '')
 }
 
-export function ConnectionPanel() {
-  const { status, selectedAddr, setSelectedAddr } = useConnection()
-  const { log } = useLog()
+/**
+ * The DUT link controls: scan duration, device type, the MAC picker, meter
+ * info, Scan and Connect.
+ *
+ * Shown in each test page's DUT step and in the top bar's DUT popover. Every
+ * copy drives the same scan through `useDutLink`, so they never disagree.
+ */
+export function DutControls() {
+  const { selectedAddr, setSelectedAddr } = useConnection()
+  const {
+    duration, setDuration, nameFilter, setNameFilter, filteredDevices, scanning,
+    toggleScan, isConnected, busy, isKnownDevice, canConnect, toggleConnect,
+  } = useDutLink()
   const { mode } = useThemeMode()
   const a = getAppPalette(mode).actions
   const nicknames = useNicknames()
-  const { pathLossDb, setPathLossDb, points } = usePathLoss()
-  const [pathLossOpen, setPathLossOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const [editMac, setEditMac] = useState<string | null>(null)
-  const qc = useQueryClient()
-  const [duration, setDuration] = useState(5)
-  // Persisted: the rig is wired for one device type at a time, so resetting to
-  // the default on every reload just meant re-picking it before every scan.
-  const [nameFilter, setNameFilter] = usePersistedState(STORAGE_KEYS.deviceType, 'Sonata2IL')
-  const [devices, setDevices] = useState<ScannedDevice[]>([])
+  // Per instance: each copy of the controls opens its own device list, so the
+  // list drops from the field the operator is actually looking at.
   const [acOpen, setAcOpen] = useState(false)
-  const [scanning, setScanning] = useState(false)
   const acInputRef = useRef<HTMLInputElement>(null)
-  const stopScanRef = useRef<(() => void) | null>(null)
-
-  useEffect(() => () => stopScanRef.current?.(), [])
 
   const startScan = () => {
-    if (scanning) {
-      stopScanRef.current?.()
-      stopScanRef.current = null
-      setScanning(false)
-      return
+    if (!scanning) {
+      setAcOpen(true)
+      acInputRef.current?.focus()
     }
-    setDevices([])
-    setScanning(true)
-    setAcOpen(true)
-    acInputRef.current?.focus()
-    log('DUT', `Scan started (${duration}s)`)
-    stopScanRef.current = scanStream(duration, {
-      onDevice: (d) => {
-        setDevices((prev) => {
-          const idx = prev.findIndex((p) => p.address === d.address)
-          const next = idx >= 0 ? [...prev.slice(0, idx), d, ...prev.slice(idx + 1)] : [...prev, d]
-          next.sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999))
-          return next
-        })
-      },
-      onDone: () => {
-        setScanning(false)
-        stopScanRef.current = null
-      },
-      onError: (msg) => {
-        setScanning(false)
-        stopScanRef.current = null
-        log('DUT', `Scan failed: ${msg}`, 'error')
-      },
-    })
+    toggleScan()
   }
-
-  const connect = useMutation({
-    mutationFn: (addr: string) => ble.connect(addr),
-    onSuccess: (s) => {
-      log('DUT', `Connected: ${s.address}`)
-      qc.invalidateQueries({ queryKey: ['ble-status'] })
-    },
-    onError: (e: Error) => log('DUT', `Connect failed: ${e.message}`, 'error'),
-  })
-
-  const disconnect = useMutation({
-    mutationFn: async () => {
-      const addr = status?.address ?? selectedAddr ?? ''
-      await ble.disconnect()
-      return addr
-    },
-    onSuccess: (addr) => {
-      log('DUT', `Disconnected: ${addr || '(unknown)'}`)
-      setSelectedAddr(null)
-      qc.invalidateQueries({ queryKey: ['ble-status'] })
-    },
-    onError: (e: Error) => log('DUT', `Disconnect failed: ${e.message}`, 'error'),
-  })
-
-  const filteredDevices = useMemo(() => {
-    if (!nameFilter) return devices
-    const q = nameFilter.toLowerCase()
-    return devices.filter((d) => (d.name ?? '').toLowerCase().includes(q))
-  }, [devices, nameFilter])
-
-  const isConnected = !!status?.connected
-  const busy = connect.isPending || disconnect.isPending
-  const isKnownDevice = !!selectedAddr && devices.some((d) => d.address === selectedAddr)
-  const canConnect = isKnownDevice && !busy
-  const toggle = () => {
-    if (isConnected) disconnect.mutate()
-    else if (selectedAddr) {
-      if (scanning) {
-        stopScanRef.current?.()
-        stopScanRef.current = null
-        setScanning(false)
-      }
-      connect.mutate(selectedAddr)
-    }
-  }
+  const toggle = toggleConnect
 
   const [copied, setCopied] = useState(false)
   const onCopyMac = async () => {
@@ -185,41 +112,6 @@ export function ConnectionPanel() {
           gap: 1.5,
         }}
       >
-        <Box sx={{ flex: '0 1 110px', minWidth: 96 }}>
-          {fieldLabel('Path loss (dB)')}
-          <TextField
-            type="number"
-            size="small"
-            value={pathLossDb}
-            onChange={(e) => setPathLossDb(Number(e.target.value) || 0)}
-            onFocus={(e) => (e.target as HTMLInputElement).select()}
-            inputProps={{ step: 0.1 }}
-            fullWidth
-            InputProps={{
-              // In the field rather than beside it: this number and the table
-              // behind it are the same setting, and a separate control would
-              // read as an unrelated one.
-              endAdornment: (
-                <Tooltip title={
-                  points.length
-                    ? `Per-frequency path loss - ${points.length} calibrated`
-                    : 'Per-frequency path loss'
-                }>
-                  <IconButton
-                    size="small"
-                    edge="end"
-                    onClick={() => setPathLossOpen(true)}
-                    aria-label="Edit path loss per frequency"
-                    sx={{ mr: -0.5, color: points.length ? 'primary.main' : 'text.disabled' }}
-                  >
-                    <TuneIcon sx={{ fontSize: 17 }} />
-                  </IconButton>
-                </Tooltip>
-              ),
-            }}
-          />
-        </Box>
-
         <Box sx={{ flex: '0 1 110px', minWidth: 96 }}>
           {fieldLabel('Duration (sec)')}
           <TextField
@@ -468,8 +360,63 @@ export function ConnectionPanel() {
 
       </Box>
       <MeterInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
-      <PathLossModal open={pathLossOpen} onClose={() => setPathLossOpen(false)} />
       <NicknameModal mac={editMac} onClose={() => setEditMac(null)} />
     </Box>
+  )
+}
+
+/**
+ * The default path-loss figure, with the per-frequency table behind its tune
+ * button.
+ *
+ * Shown in the Path loss step of the test pages and on the Power Meter page --
+ * the places whose numbers it changes -- now that it no longer rides in a row
+ * at the top of every page.
+ */
+export function PathLossField({ label = 'Path loss (dB)' }: { label?: string }) {
+  const { pathLossDb, setPathLossDb, points } = usePathLoss()
+  const [pathLossOpen, setPathLossOpen] = useState(false)
+  const fieldLabel = (text: string) => (
+    <Typography sx={{ fontSize: 13, fontWeight: 500, mb: 0.5 }}>{text}</Typography>
+  )
+  return (
+    <>
+      <Box sx={{ width: 150 }}>
+          {fieldLabel(label)}
+          <TextField
+            type="number"
+            size="small"
+            value={pathLossDb}
+            onChange={(e) => setPathLossDb(Number(e.target.value) || 0)}
+            onFocus={(e) => (e.target as HTMLInputElement).select()}
+            inputProps={{ step: 0.1 }}
+            fullWidth
+            InputProps={{
+              // In the field rather than beside it: this number and the table
+              // behind it are the same setting, and a separate control would
+              // read as an unrelated one.
+              endAdornment: (
+                <Tooltip title={
+                  points.length
+                    ? `Per-frequency path loss - ${points.length} calibrated`
+                    : 'Per-frequency path loss'
+                }>
+                  <IconButton
+                    size="small"
+                    edge="end"
+                    onClick={() => setPathLossOpen(true)}
+                    aria-label="Edit path loss per frequency"
+                    sx={{ mr: -0.5, color: points.length ? 'primary.main' : 'text.disabled' }}
+                  >
+                    <TuneIcon sx={{ fontSize: 17 }} />
+                  </IconButton>
+                </Tooltip>
+              ),
+            }}
+          />
+        </Box>
+
+      <PathLossModal open={pathLossOpen} onClose={() => setPathLossOpen(false)} />
+    </>
   )
 }

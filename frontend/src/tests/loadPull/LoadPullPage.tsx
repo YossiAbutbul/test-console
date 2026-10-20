@@ -18,6 +18,8 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
+import { BenchCourse } from '../../components/BenchCourse'
+import type { CourseStep } from '../../components/courseSteps'
 import { LabeledField } from '../../components/LabeledField'
 import { motor } from '../../api/motor'
 import { servo } from '../../api/servo'
@@ -585,6 +587,64 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   }
   const canRun = blockers.length === 0 && !running
 
+  // The course on top of the page. Same facts as `blockers`, grouped by the
+  // section that settles them, so the rail says which part of a long page is
+  // holding Run.
+  const pointOk = freqs.length > 0 && powers.length > 0 && settleMs != null
+    && !(attEnabled && attMaxDb == null)
+  const tromboneOk = zeroPulses != null && endPulses != null && deltaXmm > 0
+  /** The first check still in the way, named on the Run button and the Run
+   *  step. Same order as the rail. */
+  const firstBlocked = !dutConnected ? 'DUT'
+    : missingRig.length ? 'Instruments'
+      : !pathAck ? 'RF path'
+        : !pointOk ? 'Test point'
+          : !tromboneOk ? 'Trombone'
+            : blockers.length ? 'setup' : undefined
+  const courseSteps: CourseStep[] = [
+    {
+      id: 'rig',
+      label: 'Instruments',
+      state: missingRig.length ? 'block' : 'ok',
+      summary: missingRig.length ? `${missingRig.length} not connected` : 'all ready',
+      targetId: 'lp-instruments',
+    },
+    {
+      id: 'rf-path',
+      label: 'RF path',
+      state: pathAck ? 'ok' : 'block',
+      summary: pathAck ? 'confirmed' : 'not confirmed',
+      targetId: 'lp-rf-path',
+    },
+    {
+      id: 'test-point',
+      label: 'Test point',
+      state: pointOk ? 'ok' : 'block',
+      summary: pointOk
+        ? `${freqs.length} freq × ${powers.length} power`
+        : freqs.length === 0 ? 'no frequency' : powers.length === 0 ? 'no power' : 'settle or attenuator',
+      targetId: 'lp-test-point',
+    },
+    {
+      id: 'trombone',
+      label: 'Trombone',
+      state: tromboneOk ? 'ok' : 'block',
+      summary: tromboneOk
+        ? `${totalPoints} points`
+        : zeroPulses == null || endPulses == null ? 'capture Zero and End' : 'set Delta X',
+      targetId: 'lp-trombone',
+    },
+    {
+      id: 'run',
+      label: 'Run',
+      state: running ? 'busy' : blockers.length ? 'block' : 'todo',
+      summary: running
+        ? `Running ${progressIdx}/${totalPoints}`
+        : blockers.length ? `Waiting for ${firstBlocked ?? 'setup'}` : `Ready · ≈ ${formatDuration(estimatedRunMs)}`,
+      targetId: 'lp-results',
+    },
+  ]
+
   // One plan point. The trombone moves only when the position changes, and the
   // VNA is read once per position for every frequency in the plan — both are
   // the expensive parts, and repeating them per (freq, power) combination would
@@ -749,19 +809,10 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     onError: (e: Error) => reporter.failed(e.message),
   })
 
-  // Standing conditions go to the notice stack in the corner rather than into
-  // the page: they used to displace the content they described, and the table
-  // jumped whenever one appeared or cleared.
-  useEffect(() => {
-    // Cleared when the page is left, or it would follow the operator around
-    // the app announcing preconditions for a test they are not looking at.
-    notify.notice(
-      'loadpull-blockers',
-      'warning',
-      active && !running && blockers.length > 0 ? blockers.join(' · ') : null,
-      'Before running',
-    )
-  }, [notify, active, running, blockers.join('|')])   // eslint-disable-line react-hooks/exhaustive-deps
+  // The preconditions used to go to the notice stack in the corner as a
+  // "Before running" toast. They are on the check course at the top of the
+  // page now, each beside the step that settles it, so a toast repeating them
+  // -- and fading while the operator read it -- only added a second list.
 
   useEffect(() => {
     notify.notice(
@@ -846,6 +897,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           <RunControls
             running={running}
             canRun={canRun}
+            blockedBy={firstBlocked}
             progress={`${progressIdx}/${totalPoints}`}
             onRun={() => runM.mutate()}
             onStop={onStop}
@@ -859,6 +911,12 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           preconditions and they are spread down the page, so a disabled Run on
           its own left the operator hunting for which one it meant. */}
       <PageBody width="fluid" scroll>
+        <BenchCourse
+          freqsMhz={freqs}
+          steps={courseSteps}
+          order={['dut', 'rig', 'rf-path', 'path-loss', 'test-point', 'trombone', 'run']}
+        />
+
         {/* Calibration state, which is what the run plan is built from. */}
         <StatRow>
           <StatTile
@@ -901,7 +959,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         <TwoCol stretch>
           <Section
             title="Instruments"
-            step={1}
+            anchorId="lp-instruments"
             panel
             hint="Every stage of a point uses one of these."
             action={
@@ -925,9 +983,9 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               <RigRow name="Trombone" connected={tr.status === 'connected'} />
             </Box>
 
-            {/* Apart from the rest because it is connected from the toolbar
-                rather than the Instruments panel, so a missing one is fixed
-                somewhere else. */}
+            {/* Apart from the rest because it is connected from the DUT check
+                at the top of the page rather than the Instruments panel, so a
+                missing one is fixed somewhere else. */}
             <Divider sx={{ my: 1 }} />
             <RigRow
               name="BLE DUT"
@@ -938,7 +996,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
 
           <Section
             title="RF path"
-            step={2}
+            anchorId="lp-rf-path"
             panel
             hint="Re-confirmed each session — this is the one thing the app cannot check."
             action={<StepMark done={pathAck} label={pathAck ? 'verified' : 'not verified'} />}
@@ -980,7 +1038,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           </Section>
         </TwoCol>
 
-        <Section title="Test point" step={3} panel>
+        <Section title="Test point" anchorId="lp-test-point" panel>
           <FieldGrid columns={4}>
             <LabeledField
               label="Frequency" hint="MHz" value={freqSpec}
@@ -1062,7 +1120,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
 
         <Section
           title="Trombone calibration"
-          step={4}
+          anchorId="lp-trombone"
           panel
           hint={`Jog to each end of the Smith chart cycle and capture it. ${PULSES_PER_MM} pulses/mm.`}
           action={
@@ -1281,7 +1339,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
 
         <Section
           title="Results"
-          step={5}
+          anchorId="lp-results"
           panel
           action={
             <Stack direction="row" alignItems="center" spacing={0.75}>

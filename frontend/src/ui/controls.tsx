@@ -8,6 +8,7 @@ import StopIcon from '@mui/icons-material/Stop'
 import type { CommandResponse } from '../types/models'
 import { useAppPalette } from '../context/ThemeModeContext'
 import { Section } from './Section'
+import { useDutGated } from './gate'
 import { ACTION_W, CONTROL_H, MONO, TEXT } from './tokens'
 
 /** Shared sizing for every header action, so button rows line up page to page. */
@@ -60,6 +61,12 @@ interface RunControlsProps {
   onStop: () => void
   /** Extra buttons (Export, Clear) placed before Stop. */
   children?: React.ReactNode
+  /**
+   * What is stopping the run, in a word or two ("DUT", "RF path"). Shown on
+   * the button itself, so a greyed-out Run says why. The page's DUT gate
+   * fills this in on its own.
+   */
+  blockedBy?: string
 }
 
 /**
@@ -71,8 +78,25 @@ interface RunControlsProps {
  */
 export function RunControls({
   running, starting, stopping, canRun = true, runLabel = 'Run', progress,
-  onRun, onStop, children,
+  onRun, onStop, children, blockedBy,
 }: RunControlsProps) {
+  const gated = useDutGated()
+  const blocker = gated ? 'DUT' : (!canRun && !running ? blockedBy : undefined)
+  const primary = (
+    <Button
+      variant="contained"
+      startIcon={
+        starting
+          ? <CircularProgress size={14} color="inherit" />
+          : <PlayArrowIcon />
+      }
+      disabled={running || starting || !canRun || gated}
+      onClick={onRun}
+      sx={actionSx(ACTION_W.wide)}
+    >
+      {running && progress ? `Running ${progress}` : blocker ? `Needs ${blocker}` : runLabel}
+    </Button>
+  )
   return (
     <Stack direction="row" spacing={1} alignItems="center">
       {children}
@@ -85,19 +109,11 @@ export function RunControls({
       >
         {stopping ? 'Stopping…' : 'Stop'}
       </Button>
-      <Button
-        variant="contained"
-        startIcon={
-          starting
-            ? <CircularProgress size={14} color="inherit" />
-            : <PlayArrowIcon />
-        }
-        disabled={running || starting || !canRun}
-        onClick={onRun}
-        sx={actionSx(ACTION_W.wide)}
-      >
-        {running && progress ? `Running ${progress}` : runLabel}
-      </Button>
+      {blocker ? (
+        <Tooltip title={`${runLabel} is blocked until the ${blocker} step is done`}>
+          <span>{primary}</span>
+        </Tooltip>
+      ) : primary}
     </Stack>
   )
 }
@@ -183,6 +199,17 @@ interface SendStopControlsProps {
 export function SendStopControls({
   busy, sending, stopping, canSend = true, canStop = true, onSend, onStop,
 }: SendStopControlsProps) {
+  const gated = useDutGated()
+  const send = (
+    <Button
+      variant="contained"
+      disabled={busy || !canSend || gated}
+      onClick={onSend}
+      sx={actionSx(ACTION_W.compact)}
+    >
+      {sending ? 'Sending…' : gated ? 'Needs DUT' : 'Send'}
+    </Button>
+  )
   return (
     <Stack direction="row" spacing={1}>
       <Button
@@ -193,14 +220,11 @@ export function SendStopControls({
       >
         {stopping ? 'Stopping…' : 'Stop'}
       </Button>
-      <Button
-        variant="contained"
-        disabled={busy || !canSend}
-        onClick={onSend}
-        sx={actionSx(ACTION_W.compact)}
-      >
-        {sending ? 'Sending…' : 'Send'}
-      </Button>
+      {gated ? (
+        <Tooltip title="Send is blocked until the DUT step is done">
+          <span>{send}</span>
+        </Tooltip>
+      ) : send}
     </Stack>
   )
 }
@@ -208,8 +232,9 @@ export function SendStopControls({
 /**
  * Global path-loss reminder.
  *
- * The value is set once in the Connection panel and applied by every page that
- * reports DUT power, so the chip states where it came from.
+ * The value is set once, in the Path loss check at the top of the test pages,
+ * and applied by every page that reports DUT power, so the chip states where
+ * it came from.
  */
 export function PathLossChip({
   pathLossDb, calibrated = true, freqMhz,
@@ -234,9 +259,9 @@ export function PathLossChip({
         {calibrated
           // Saying only "sensor + path loss = DUT power" left no way to tell a
           // figure measured at this frequency from one carried over.
-          ? 'set in Connection panel · sensor reading + path loss = DUT power'
+          ? 'set under Path loss · sensor reading + path loss = DUT power'
           : `not calibrated${freqMhz != null ? ` at ${freqMhz} MHz` : ''} - using the default. `
-            + 'Add a point in the Connection panel.'}
+            + 'Add a point under Path loss at the top of the page.'}
       </Typography>
     </Stack>
   )

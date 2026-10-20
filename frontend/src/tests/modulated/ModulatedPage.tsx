@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Box, MenuItem, Tab, Tabs } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
+import { BenchCourse } from '../../components/BenchCourse'
+import { planStep, runStep } from '../../components/courseSteps'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
@@ -10,6 +12,7 @@ import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import {
   FieldGrid, LastFrameSection, PageBody, RunControls, Section, SendStopControls,
+  useDutGated,
 } from '../../ui'
 import { AutomationPanel, type AutomationControls } from './AutomationPanel'
 import {
@@ -120,6 +123,7 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
   })
 
   const busy = send.isPending || stop.isPending
+  const gated = useDutGated()
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
@@ -148,6 +152,14 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
             />
           ) : null
         }
+      />
+
+      {/* What this tab needs before it can send or run, in order. */}
+      <BenchCourse
+        instruments={tab === 'manual' ? REQUIRED_INSTRUMENTS : ['power-sensor', 'dc-analyzer']}
+        connectsOn={tab === 'manual' ? 'Send' : 'Run'}
+        freqsMhz={tab === 'manual' ? [freqMhz] : (autoCtl?.freqsMhz ?? [])}
+        steps={tab === 'automation' && autoCtl ? [planStep(autoCtl), runStep(autoCtl, gated)] : []}
       />
 
       {/* Switching tabs sends nothing, and the Automation tab holds results

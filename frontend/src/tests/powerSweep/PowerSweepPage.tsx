@@ -11,6 +11,8 @@ import UploadFileIcon from '@mui/icons-material/UploadFile'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tests } from '../../api/tests'
 import { PageHeader } from '../../components/PageHeader'
+import { BenchCourse } from '../../components/BenchCourse'
+import { planStep, runStep } from '../../components/courseSteps'
 import { LabeledField } from '../../components/LabeledField'
 import { TopProgress } from '../../components/TopProgress'
 import { usePublishLiveOutput } from '../../context/liveOutput'
@@ -27,6 +29,7 @@ import { range } from '../../lib/numericList'
 import {
   FieldGrid, GRID_GAP, MONO, PageBody, PathLossChip, RunControls, Section,
   TEXT, TwoCol,
+  useDutGated,
 } from '../../ui'
 import type { ResultRow, StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
@@ -314,6 +317,7 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
 
   const status = statusQ.data
   const running = status?.state === 'running'
+  const gated = useDutGated()
   const hasSweep = status?.state != null && status.state !== 'idle'
   const stopping = cancel.isPending || (running && cancel.isSuccess)
   const total = status?.total ?? 0
@@ -425,6 +429,16 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
             />
           </Stack>
         }
+      />
+
+      <BenchCourse
+        instruments={REQUIRED_INSTRUMENTS}
+        connectsOn="Run"
+        freqsMhz={[Number(freqMhz)]}
+        steps={[
+          planStep({ running, canRun: totalSteps > 0, progress: total > 0 ? `${completed}/${total}` : '', totalPoints: totalSteps, plannedMs: estimatedRunMs }, 'Sweep'),
+          runStep({ running, canRun: totalSteps > 0, progress: total > 0 ? `${completed}/${total}` : '', totalPoints: totalSteps, plannedMs: estimatedRunMs }, gated),
+        ]}
       />
 
       <PageBody width="fluid" grow>

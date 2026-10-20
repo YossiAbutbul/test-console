@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Box, MenuItem, Tab, Tabs } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
+import { BenchCourse } from '../../components/BenchCourse'
+import { planStep, runStep } from '../../components/courseSteps'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
@@ -9,7 +11,7 @@ import { useLog } from '../../context/LogContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import {
   FieldGrid, LastFrameSection, MeasureOptions, PageBody, RunControls, Section,
-  SendStopControls, measuresAnything, requiredInstruments, type MeasureSelection,
+  SendStopControls, measuresAnything, requiredInstruments, useDutGated, type MeasureSelection,
 } from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
@@ -109,6 +111,7 @@ export function PowerPage({ protocol, group, active }: TestPageProps) {
   })
 
   const busy = send.isPending || stop.isPending
+  const gated = useDutGated()
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
@@ -137,6 +140,15 @@ export function PowerPage({ protocol, group, active }: TestPageProps) {
             />
           ) : null
         }
+      />
+
+      {/* What this tab needs before it can send or run, in order. The manual
+          tab reads only what its Measure options ask for. */}
+      <BenchCourse
+        instruments={tab === 'manual' ? requiredInstruments(measure) : ['power-sensor', 'dc-analyzer']}
+        connectsOn={tab === 'manual' ? 'Send' : 'Run'}
+        freqsMhz={tab === 'manual' ? [freqMhz] : (autoCtl?.freqsMhz ?? [])}
+        steps={tab === 'automation' && autoCtl ? [planStep(autoCtl), runStep(autoCtl, gated)] : []}
       />
 
       {/* Switching tabs sends nothing, and the Automation tab holds results

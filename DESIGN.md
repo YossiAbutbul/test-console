@@ -137,8 +137,9 @@ components:
 
 # Design System: Test Console
 
-> Baseline: this records the system as it stood at commit 026a66c, before the
-> impeccable redesign on `new-design`. Values in the frontmatter are the
+> Started as a baseline of the system at commit 026a66c, before the impeccable
+> redesign on `new-design`; updated as each redesign pass lands (layout: the
+> check course, bench lamps, no DUT row). Values in the frontmatter are the
 > **Mid** theme, the default. Light and Dark values are in
 > `.impeccable/design.json` (`colorMeta.*.modes`) and in
 > `frontend/src/theme.ts`, which is the source of truth.
@@ -246,12 +247,22 @@ content area, and an optional 340 px log drawer that docks on wide windows and
 floats over content below 1200 px. The top bar is 56 px and holds the
 breadcrumb, search, live-output pills and the log toggle.
 
-Below the top bar every test page shows the DUT ConnectionPanel (device type,
-scan, MAC, connect, path loss), then PageHeader (title + actions), then
-PageBody. PageBody picks a width — form 760, panel 900, grid 1040, full 1180,
-or fluid — and owns a container query so grids stack when *their* box runs out
-of room rather than the window's. TwoCol splits config left / live results
-right and stacks below two `minCol` columns.
+The top bar carries, right of the centred search, the **bench lamps** (DUT,
+Instruments n/7) and the live-output pills. It is three flex parts: the two
+outer parts grow equally so search stays centred, and the right part never
+shrinks below its content, so search gives way rather than being covered.
+
+Every test page opens with PageHeader (title + actions), then its **check
+course**: a CheckRail of the checks that page needs (DUT · Instruments · Path
+loss · Settings · Run; Load Pull: DUT · Instruments · RF path · Path loss ·
+Test point · Trombone · Run), with the open check's detail directly below.
+The DUT step opens itself while the DUT is not connected and folds away once
+it is, so a ready bench costs one row. Components pages have no course and no
+DUT row; their InstrumentBar comes straight after the header. PageBody then
+picks a width -- form 760, panel 900, grid 1040, full 1180, or fluid -- and
+owns a container query so grids stack when *their* box runs out of room
+rather than the window's. TwoCol splits config left / live results right and
+stacks below two `minCol` columns.
 
 Spacing rhythm: 8 px grid gap, 12 px panel padding, 24 px main gutter.
 
@@ -283,7 +294,9 @@ Emergency stop is the only round button in the app.
 - **Stop:** outlined, left of Run (Stop then Run on every page).
 - **Connect:** green fill; **Disconnect:** outlined once connected.
 - **Scan / Config:** quiet outline.
-- **Disabled:** hairline fill, dim text, no pointer events.
+- **Disabled:** hairline fill, dim text, no pointer events. A Run or Send held
+  by the page's DUT gate (or Load Pull's first unmet check) says so on the
+  button: "Needs DUT", "Needs RF path".
 - **MiniAction:** 24 px text button for panel-heading actions (Add, Apply).
 
 ### Emergency stop
@@ -295,13 +308,28 @@ A key that holds its state with a lamp beside it ("Modem off" / "Modem on").
 Labels state what *is*, not what a click does. When on, the lamp glows (two
 rings) and the border tints green.
 
+### Check rail (CheckRail / CheckStep / CheckMark)
+A page's checks on one hairline strip, divided like a StatRow. Each step is a
+mark, a 14 px label and a 12.5 px one-line summary; clicking opens its detail
+(CheckDetail) below the rail or scrolls to the section that settles it. The
+mark's shape carries the state as well as its colour: filled disc with a tick
+(done), filled amber disc with "!" (blocking), open amber ring with "!" (check,
+does not block), open red ring with a cross (error), empty ring (not done yet),
+spinner (in progress). Summaries drop out below a 760 px container before the
+rail wraps. Sections no longer carry step numbers.
+
+### Bench lamps
+Two 30 px outlined lamps in the top bar: DUT (opens the DUT controls in a
+popover) and Instruments n/7 (opens the Instruments panel). Mark plus words,
+never a bare dot; the Instruments mark is ticked only with the whole rig up.
+
 ### Status chip / dot
 Dot + label chip used for every instrument and connection state: ok green,
 busy amber (with spinner), off disabled grey, error red.
 
 ### Live-output pills
-Capsules in the top bar for every live output (RF ON, DC ON, LTE TX with
-countdown, Run). Red for radiating or powering, amber for a run. A pulsing dot,
+30 px capsules (13 px bold) in the top bar for every live output (RF ON, DC
+ON, LTE TX with countdown, Run). Red for radiating or powering, amber for a run. A pulsing dot,
 click to open the controlling page.
 
 ### Panels (Section)
@@ -328,7 +356,8 @@ DenseTabs at 36 px (page sub-tabs) or 28 px (in-panel view switch).
 
 ### Navigation (Sidebar)
 Protocol tree (LoRa / LTE / Components), Instruments shortcut, Settings.
-Selected item: soft graphite tint and 600 weight. Footer shows DUT BLE status.
+Selected item: soft graphite tint and 600 weight. Footer shows DUT BLE status
+(the top-bar DUT lamp repeats it where it can be seen from the bench).
 
 ## Do's and Don'ts
 

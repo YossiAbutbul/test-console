@@ -6,8 +6,15 @@ import { CARD_PAD, CARD_SX, PANEL_SX, TEXT } from './tokens'
 interface SectionProps {
   /** Heading text. Kept short — it is a label, not a sentence. */
   title: string
-  /** Optional index, rendered as "1. Instruments". */
-  step?: number
+  /**
+   * DOM id for the section, so a check on the page's course can scroll to it.
+   *
+   * Sections used to carry a step number ("1. Instruments") instead. The
+   * numbers went when the course took over the job of saying what comes
+   * next: the order is on the rail, and a number in the heading only told
+   * the operator which step it was, not whether it was done.
+   */
+  anchorId?: string
   /** Right-aligned controls on the heading row. */
   action?: ReactNode
   /** Small explanatory line under the heading. */
@@ -59,7 +66,7 @@ interface SectionProps {
  * eye reads them as one hierarchy level regardless of the frame.
  */
 export function Section({
-  title, step, action, hint, children, grow, panel, collapsible, flush,
+  title, anchorId, action, hint, children, grow, panel, collapsible, flush,
   defaultOpen = true, ungated,
 }: SectionProps) {
   const [open, setOpen] = useState(defaultOpen)
@@ -120,7 +127,7 @@ export function Section({
           transition: 'color 0.15s',
         }}
       >
-        {step != null ? `${step}. ${title}` : title}
+        {title}
       </Typography>
       {action}
       {collapsible && (
@@ -162,6 +169,7 @@ export function Section({
 
   return (
     <Box
+      id={anchorId}
       data-ungated={ungated || undefined}
       sx={{
         // The nearest query container for anything the section holds. A field

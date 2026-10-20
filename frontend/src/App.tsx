@@ -6,7 +6,8 @@ import ArticleIcon from '@mui/icons-material/Article'
 import CloseIcon from '@mui/icons-material/Close'
 import ScienceIcon from '@mui/icons-material/Science'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
-import { ConnectionPanel } from './components/ConnectionPanel'
+import { BenchLamps } from './components/BenchLamps'
+import { DutLinkProvider } from './context/DutLinkContext'
 import { SearchBar } from './components/SearchBar'
 import { LogPanel } from './components/LogPanel'
 import { ChatPanel } from './components/ChatPanel'
@@ -22,7 +23,7 @@ import { getAppPalette } from './theme'
 import { testRegistry } from './tests/registry'
 import { Sidebar, TOP_BAR_H } from './components/Sidebar'
 import { SHELL_NARROW_W } from './ui/tokens'
-import { useShellLayout } from './ui'
+import { DutGateContext, useShellLayout } from './ui'
 
 /** Band at the bottom of the window owned by the fixed copyright footer.
  *  Anything that paints under it has to stop short by this much. */
@@ -144,7 +145,11 @@ function TestArea({ activeId }: { activeId: string }) {
               flexDirection: 'column',
             }}
           >
-            <Page protocol={mod.protocol} group={mod.group} active={isActive} />
+            {/* Send and Run read the gate to say what they are waiting for
+                (see ui/gate.ts). Only the page on screen can be gated. */}
+            <DutGateContext.Provider value={isActive && gated}>
+              <Page protocol={mod.protocol} group={mod.group} active={isActive} />
+            </DutGateContext.Provider>
           </Box>
         )
       })}
@@ -349,6 +354,7 @@ export default function App() {
   )
 
   return (
+    <DutLinkProvider>
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden', bgcolor: 'background.default' }}>
       {/* Unified top bar across whole window */}
       <Box
@@ -440,16 +446,25 @@ export default function App() {
           </Box>
         </Tooltip>
 
+        {/* Three flex parts rather than a centred search with the status
+            overlaid on the right: the overlay was fine with two small pills,
+            but with the bench lamps beside them it ran over the search box on
+            a 1280 px window with the log open. The two outer parts grow
+            equally, so the search stays centred while there is room, and the
+            right part never shrinks below its content, so when there is not the
+            search gives way instead of being covered. */}
         <Box
           sx={{
             flexGrow: 1,
+            minWidth: 0,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            position: 'relative',
+            gap: 1.5,
             px: 2,
           }}
         >
+          <Box sx={{ flex: '1 1 0', minWidth: 0 }} />
+          <Box sx={{ flex: '0 1 420px', minWidth: 180 }}>
           <SearchBar
             activeId={activeId}
             onSelect={(id) => {
@@ -457,15 +472,18 @@ export default function App() {
               window.scrollTo({ top: 0, behavior: 'smooth' })
             }}
           />
+          </Box>
           {/* Live-output pills sit with the dock buttons on the right of the
               bar, and stay there when the dock is open: an RF source keyed on
               another page is exactly what the operator cannot otherwise see. */}
           <Stack
             direction="row"
-            spacing={0.5}
+            spacing={0.75}
             alignItems="center"
-            sx={{ position: 'absolute', right: 12 }}
+            justifyContent="flex-end"
+            sx={{ flex: '1 1 0', minWidth: 'max-content' }}
           >
+            <BenchLamps compact={narrow} />
             <LiveOutputPills
               compact={narrow}
               onSelect={(id) => {
@@ -543,20 +561,10 @@ export default function App() {
           '&::-webkit-scrollbar': { display: 'none' },
         }}
       >
-        <Box
-          sx={{
-            flexShrink: 0,
-            pb: 2,
-            mb: 2,
-            [`@media (min-width:${SHELL_NARROW_W}px)`]: { mb: 3 },
-            borderBottom: `1px solid ${p.appBarBorder}`,
-            // The connection row sizes its fields off this box rather than off
-            // the window, which the floating dock does not change.
-            containerType: 'inline-size',
-          }}
-        >
-          <ConnectionPanel />
-        </Box>
+        {/* No DUT row here any more: the DUT controls live in each test page's
+            check course and in the top bar's DUT lamp. A row above every page
+            pushed Components pages -- which never talk to the DUT -- below the
+            fold for nothing. */}
         <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <TestArea activeId={activeId} />
         </Box>
@@ -688,5 +696,6 @@ export default function App() {
         </Stack>
       </Drawer>
     </Box>
+    </DutLinkProvider>
   )
 }

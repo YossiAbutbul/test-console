@@ -26,6 +26,10 @@ export {
 export { useShellLayout, type ShellLayout } from './useShellLayout'
 export { InstrumentBar, type InstrumentBarStatus } from './InstrumentBar'
 export { RunTiming } from './RunTiming'
+export {
+  CheckRail, CheckStep, CheckMark, CheckDetail, type CheckState,
+} from './CheckRail'
+export { DutGateContext, useDutGated } from './gate'
 export { useRunEta, formatRunTiming } from './useRunEta'
 export { ChartFrame, ChartToolbar, ChartSwitch } from './chart/ChartFrame'
 export { useChart, useChartTheme, type ChartHandle, type ChartTheme } from './chart/useChart'
