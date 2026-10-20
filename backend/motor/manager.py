@@ -99,7 +99,7 @@ def connect(device_index: int) -> int:
         m.high_speed = 5000
         m.low_speed = 500
         m.acceleration = 300
-        m.run_current = 2000
+        m.run_current = 1000
         m.idle_current = 300
     except Exception:
         pass
