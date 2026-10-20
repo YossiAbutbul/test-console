@@ -1,0 +1,46 @@
+{
+  "title": "Shape the shell and test-page template",
+  "question": "Three structures for where bench status, live outputs, hazard keys and the verdict live. The palette stays Anodized; this choice is composition. Pick one, steer, or re-roll.",
+  "options": [
+    {
+      "id": "annunciator-top-bar",
+      "kind": "assigned",
+      "label": "Annunciator top bar",
+      "kicker": "THE ROLL",
+      "lineage": "control-room annunciator windows",
+      "thesis": "The top bar becomes the bench's annunciator: every output has a fixed window that lights, never one that appears.",
+      "palette": ["#2E3236", "#35393E", "#C6CED5", "#58C07A", "#E2A63F", "#F07068"],
+      "materials": ["fixed-position lamp windows", "glyph + word per state", "hairline panels"],
+      "viewport": "64px top bar: DUT and Instruments windows left of the centred search, RF / DC / LTE / RUN windows right of it, unlit ones dim. DUT row gone from pages (its controls open from the DUT window). Page header pairs the title with hazard-keyed Send/Run; Results lead with a verdict strip.",
+      "risk": "The top bar gets busy at 1280 px; the windows must shed detail text, not positions, when narrow.",
+      "html": ".impeccable/mocks/decision/annunciator-top-bar.html"
+    },
+    {
+      "id": "preflight-course",
+      "kind": "dealt",
+      "label": "Preflight course",
+      "lineage": "Load Pull's numbered steps, generalised",
+      "thesis": "Every test page is a numbered course of checks that punch off as they pass, ending in Run and the verdict.",
+      "palette": ["#2E3236", "#35393E", "#C6CED5", "#58C07A", "#E2A63F", "#F07068"],
+      "materials": ["numbered step rail", "collapsing finished steps", "punched check-off"],
+      "viewport": "Under the page title a step rail: ① DUT ✓ ② Instruments 3/3 ✓ ③ Path loss ⚠ ④ Settings ⑤ Run. Finished steps fold to one line, the blocking step stays open, Run says what blocks it. Live outputs stay in the top bar as larger windows.",
+      "risk": "Heavy for one-shot Manual pages; status lives per page, so it is not one consistent place across Components pages.",
+      "html": ".impeccable/mocks/decision/preflight-course.html"
+    },
+    {
+      "id": "transport-bar",
+      "kind": "dealt",
+      "label": "Run transport bar",
+      "lineage": "a deck's transport strip",
+      "thesis": "One docked bar at the foot of every page holds the hazard keys, the run's progress and the verdict, where the eye returns from across the bench.",
+      "palette": ["#2E3236", "#24272B", "#C6CED5", "#58C07A", "#E2A63F", "#F07068"],
+      "materials": ["docked 76px bar", "ticked progress track", "large verdict tally"],
+      "viewport": "Bottom bar: DUT + Instruments lamps left; Stop, Run · TX and a labelled E-STOP centre over a progress track where every measured point lands as a tick (✕ for FAIL); ✓ PASS / ✕ FAIL tally and live outputs right. Pages above keep config and results; the header carries only quiet actions.",
+      "risk": "Moves Send/Run away from the header operators know; the bar costs 76px of height on every page.",
+      "html": ".impeccable/mocks/decision/transport-bar.html"
+    }
+  ],
+  "reroll": true,
+  "buildPath": { "value": "code" },
+  "steer": true
+}

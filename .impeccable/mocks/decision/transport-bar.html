@@ -1,0 +1,83 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Run transport bar</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{width:1440px;height:900px;overflow:hidden;background:#2E3236;color:#E4E7EA;font:14px "Segoe UI",Inter,sans-serif;position:relative}
+.mono{font-family:Consolas,ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.top{height:56px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid #41464B}
+.logo{font-weight:700;font-size:17px;width:216px}
+.search{width:420px;height:36px;border:1px solid #41464B;border-radius:6px;color:#949AA0;font-size:13px;display:flex;align-items:center;padding:0 12px;margin:0 auto}
+.btn{height:36px;padding:0 14px;border:1px solid #41464B;border-radius:6px;display:flex;align-items:center;gap:6px;font-size:14px}
+.shell{display:flex;height:768px}
+.side{width:232px;background:#24272B;border-right:1px solid #41464B;padding:12px 6px;font-size:13.5px}
+.side div{padding:6px 12px;border-radius:6px;color:#949AA0}
+.side .grp{color:#E4E7EA;font-weight:600;margin-top:6px}
+.side .sel{background:rgba(255,255,255,.08);color:#E4E7EA;font-weight:600}
+.main{flex:1;padding:20px 28px;overflow:hidden}
+.crumb{font-size:12px;color:#949AA0;letter-spacing:.5px}
+.hdr{display:flex;align-items:center;gap:16px;margin:2px 0 12px}
+.hdr h1{font-size:26px;flex:1}
+.q{color:#949AA0;font-size:13.5px}
+.tabs{display:flex;gap:22px;border-bottom:1px solid #41464B;margin-bottom:12px;font-size:13.5px}
+.tabs span{padding:8px 2px;color:#949AA0} .tabs .on{color:#E4E7EA;border-bottom:2px solid #C6CED5}
+.panel{background:#35393E;border:1px solid #41464B;border-radius:6px;padding:12px;margin-bottom:8px}
+.ttl{font-size:12px;font-weight:700;letter-spacing:.5px;color:#949AA0;display:flex;gap:12px}
+.fields{display:flex;gap:12px;margin-top:10px}
+.f label{font-size:13px;color:#949AA0;display:block;margin-bottom:4px}
+.f div{height:36px;border:1px solid #41464B;border-radius:6px;padding:8px 10px;width:220px}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+th{text-align:right;font-weight:600;color:#949AA0;background:#24272B;padding:7px 10px}
+th small{font-weight:400;margin-left:3px}
+td{text-align:right;padding:6px 10px;border-bottom:1px solid #41464B}
+th:first-child,td:first-child{text-align:left}
+tr.fail td{background:rgba(240,112,104,.07)} tr.fail td:first-child{box-shadow:inset 3px 0 0 #F07068}
+.pass{color:#58C07A;font-weight:700} .bad{color:#F07068;font-weight:700}
+.bar{position:absolute;left:0;right:0;bottom:0;height:76px;background:#24272B;border-top:1px solid #41464B;display:flex;align-items:center;gap:14px;padding:0 16px}
+.lamp{display:flex;align-items:center;gap:8px;padding:0 12px;height:48px;border:1px solid #41464B;border-radius:6px}
+.lamp b{font-size:15px} .lamp small{display:block;font-size:12px;color:#949AA0}
+.estop{height:52px;padding:0 16px;border-radius:26px;background:#F07068;color:#180A09;font-weight:800;font-size:15px;display:flex;align-items:center;gap:8px;border:3px solid #B5463F}
+.hz{height:44px;background:#C6CED5;color:#1B1F23;border-radius:6px;box-shadow:inset 3px 0 0 #F07068;font-weight:700;display:flex;align-items:center;padding:0 16px;gap:6px;font-size:15px}
+.track{flex:1;min-width:300px}
+.track .t{display:flex;gap:3px;height:16px;align-items:flex-end}
+.track i{flex:1;height:10px;background:#58C07A;border-radius:1px}
+.track i.x{background:#F07068;height:16px}
+.track i.o{background:#41464B}
+.track small{font-size:12.5px;color:#949AA0;display:flex;justify-content:space-between;margin-top:6px}
+.tally{font-size:24px;font-weight:800;display:flex;gap:14px}
+.live{color:#F07068;border-color:#F07068;background:rgba(240,112,104,.14)}
+</style></head><body>
+<div class="top"><div class="logo">Test Console</div><div class="search">Search pages &nbsp; Ctrl+Shift+K</div><div class="btn">Log</div></div>
+<div class="shell">
+  <div class="side">
+    <div class="grp">LoRa</div><div>&nbsp; TX</div><div class="sel">&nbsp;&nbsp;&nbsp; CW</div><div>&nbsp;&nbsp;&nbsp; Modulated</div><div>&nbsp;&nbsp;&nbsp; Debug</div><div>&nbsp;&nbsp;&nbsp; Mode Sweep</div><div>&nbsp; Other</div>
+    <div class="grp">LTE</div><div class="grp">Components</div>
+  </div>
+  <div class="main">
+    <div class="crumb">LORA / TX</div>
+    <div class="hdr"><h1>CW</h1><span class="q">Graph</span><span class="q">Export</span><span class="q">Import</span><span class="q" style="margin-left:12px">Clear</span></div>
+    <div class="tabs"><span>Manual</span><span class="on">Automation</span></div>
+    <div class="panel"><div class="ttl">SWEEP<span style="flex:1"></span>Settle 400 ms · 18 points · ≈ 1m 12s</div>
+      <div class="fields"><div class="f"><label>Freq MHz</label><div class="mono">902.3,915,927.5</div></div><div class="f"><label>Power dBm</label><div class="mono">10-20:2</div></div><div class="f"><label>PA Mode</label><div>Auto</div></div><div class="f"><label>Tolerance ± dB</label><div class="mono">1</div></div></div></div>
+    <div class="panel"><div class="ttl">RESULTS</div>
+      <table><tr><th>#</th><th>Freq<small>MHz</small></th><th>Set<small>dBm</small></th><th>Measured<small>dBm</small></th><th>Δ<small>dB</small></th><th>CC<small>mA</small></th><th>Verdict</th></tr>
+      <tr><td>7</td><td class="mono">915.000</td><td class="mono">10</td><td class="mono">9.60</td><td class="mono">−0.40</td><td class="mono">92.5</td><td class="pass">✓ PASS</td></tr>
+      <tr><td>8</td><td class="mono">915.000</td><td class="mono">12</td><td class="mono">11.42</td><td class="mono">−0.58</td><td class="mono">101.5</td><td class="pass">✓ PASS</td></tr>
+      <tr><td>9</td><td class="mono">915.000</td><td class="mono">14</td><td class="mono">13.24</td><td class="mono">−0.76</td><td class="mono">110.5</td><td class="pass">✓ PASS</td></tr>
+      <tr class="fail"><td>10</td><td class="mono">915.000</td><td class="mono">16</td><td class="mono">14.81</td><td class="mono bad">−1.19</td><td class="mono">119.5</td><td class="bad">✕ FAIL</td></tr>
+      <tr class="fail"><td>11</td><td class="mono">915.000</td><td class="mono">18</td><td class="mono">16.63</td><td class="mono bad">−1.37</td><td class="mono">128.5</td><td class="bad">✕ FAIL</td></tr>
+      <tr><td>12</td><td class="mono">915.000</td><td class="mono">20</td><td class="mono" style="color:#949AA0">measuring…</td><td></td><td></td><td></td></tr>
+      </table></div>
+  </div>
+</div>
+<div class="bar">
+  <div class="lamp"><span style="color:#58C07A">●</span><div><b>DUT</b><small class="mono">Sonata 2 IL</small></div></div>
+  <div class="lamp"><span style="color:#58C07A">●</span><div><b>2/2 instruments</b><small>sensor · DC</small></div></div>
+  <div class="estop">■ E-STOP</div>
+  <div class="btn" style="height:44px">■ Stop</div>
+  <div class="hz">((·)) Running · TX</div>
+  <div class="track"><div class="t"><i></i><i></i><i></i><i></i><i></i><i class="x"></i><i></i><i></i><i></i><i class="x"></i><i class="x"></i><i class="o"></i><i class="o"></i><i class="o"></i><i class="o"></i><i class="o"></i><i class="o"></i><i class="o"></i></div><small><span class="mono">11 / 18 · 0:31 elapsed</span><span class="mono">0:41 left</span></small></div>
+  <div class="tally"><span class="pass">✓ 8</span><span class="bad">✕ 3</span></div>
+  <div class="lamp live"><span>((·))</span><div><b>RF ON</b><small class="mono" style="color:#F07068">915 MHz</small></div></div>
+  <div class="lamp live"><span>⏻</span><div><b>DC ON</b><small class="mono" style="color:#F07068">3.60 V</small></div></div>
+</div>
+</body></html>

@@ -1,0 +1,80 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Preflight course</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{width:1440px;height:900px;overflow:hidden;background:#F4F5F6;color:#1B1F23;font:14px "Segoe UI",Inter,sans-serif}
+.mono{font-family:Consolas,ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.top{height:56px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid #DDDFE1}
+.logo{font-weight:700;font-size:17px;width:216px}
+.search{width:420px;height:36px;border:1px solid #DDDFE1;border-radius:6px;color:#5C646B;font-size:13px;display:flex;align-items:center;padding:0 12px;margin:0 auto}
+.pill{height:32px;padding:0 12px;border-radius:16px;display:flex;align-items:center;gap:6px;font-weight:700;font-size:13.5px}
+.rf{color:#B02A20;border:1px solid #B02A20;background:rgba(176,42,32,.16)}
+.run{color:#9A5B00;border:1px solid rgba(154,91,0,.6);background:rgba(154,91,0,.10)}
+.shell{display:flex;height:844px}
+.side{width:232px;background:#EAECEE;border-right:1px solid #DDDFE1;padding:12px 6px;font-size:13.5px}
+.side div{padding:6px 12px;border-radius:6px;color:#5C646B}
+.side .grp{color:#1B1F23;font-weight:600;margin-top:6px}
+.side .sel{background:rgba(27,31,35,.08);color:#1B1F23;font-weight:600}
+.main{flex:1;padding:20px 28px;overflow:hidden}
+.crumb{font-size:12px;color:#5C646B;letter-spacing:.5px}
+.hdr{display:flex;align-items:center;gap:10px;margin:2px 0 12px}
+.hdr h1{font-size:26px;flex:1}
+.btn{height:36px;padding:0 14px;border:1px solid #DDDFE1;border-radius:6px;display:flex;align-items:center;gap:6px;font-size:14px}
+.hz{background:#3A4249;color:#FFFFFF;border:none;box-shadow:inset 3px 0 0 #B02A20;font-weight:600;min-width:170px;justify-content:center}
+.rail{display:flex;gap:0;margin-bottom:12px;border:1px solid #DDDFE1;border-radius:6px;background:#FFFFFF;overflow:hidden}
+.st{flex:1;display:flex;align-items:center;gap:10px;padding:10px 14px;border-right:1px solid #DDDFE1}
+.st:last-child{border-right:none}
+.n{width:26px;height:26px;border-radius:50%;border:2px solid #5C646B;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:none}
+.done .n{background:#1D7A43;border-color:#1D7A43;color:#FFFFFF}
+.blk .n{border-color:#9A5B00;color:#9A5B00}
+.blk{background:rgba(154,91,0,.08)}
+.st b{display:block;font-size:14px} .st small{font-size:12.5px;color:#5C646B}
+.blk small{color:#9A5B00}
+.panel{background:#FFFFFF;border:1px solid #DDDFE1;border-radius:6px;padding:12px;margin-bottom:8px}
+.fold{display:flex;align-items:center;gap:12px;padding:9px 12px}
+.fold .n{width:22px;height:22px;font-size:12px}
+.fold span{color:#5C646B;font-size:13px}
+.ttl{font-size:12px;font-weight:700;letter-spacing:.5px;color:#5C646B;display:flex;gap:12px;align-items:center}
+.open{border-color:rgba(154,91,0,.6)}
+.fields{display:flex;gap:12px;margin-top:10px;align-items:flex-end}
+.f label{font-size:13px;color:#5C646B;display:block;margin-bottom:4px}
+.f div{height:36px;border:1px solid #DDDFE1;border-radius:6px;padding:8px 10px;width:200px}
+.note{margin-top:10px;color:#9A5B00;font-size:13.5px}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+th{text-align:right;font-weight:600;color:#5C646B;background:#EAECEE;padding:7px 10px}
+th small{font-weight:400;margin-left:3px}
+td{text-align:right;padding:6px 10px;border-bottom:1px solid #DDDFE1}
+th:first-child,td:first-child{text-align:left}
+.pass{color:#1D7A43;font-weight:700} .bad{color:#B02A20;font-weight:700}
+</style></head><body>
+<div class="top"><div class="logo">Test Console</div><div class="search">Search pages &nbsp; Ctrl+Shift+K</div>
+  <div class="pill rf">((·)) RF ON <span class="mono" style="font-weight:500">915 MHz</span></div><div class="pill run">▶ RUN idle</div><div class="btn">Log</div></div>
+<div class="shell">
+  <div class="side">
+    <div class="grp">LoRa</div><div>&nbsp; TX</div><div class="sel">&nbsp;&nbsp;&nbsp; CW</div><div>&nbsp;&nbsp;&nbsp; Modulated</div><div>&nbsp;&nbsp;&nbsp; Debug</div><div>&nbsp;&nbsp;&nbsp; Mode Sweep</div><div>&nbsp; Other</div>
+    <div class="grp">LTE</div><div class="grp">Components</div>
+    <div style="margin-top:400px;color:#1B1F23">● DUT connected</div>
+  </div>
+  <div class="main">
+    <div class="crumb">LORA / TX</div>
+    <div class="hdr"><h1>CW · Automation</h1><div class="btn">■ Stop</div><div class="btn hz" style="opacity:.6">((·)) Run · blocked by Path loss</div></div>
+    <div class="rail">
+      <div class="st done"><div class="n">✓</div><div><b>DUT</b><small class="mono">Sonata 2 IL · D4:A1:B2</small></div></div>
+      <div class="st done"><div class="n">✓</div><div><b>Instruments 2/2</b><small>power sensor · DC analyzer</small></div></div>
+      <div class="st blk"><div class="n">!</div><div><b>Path loss</b><small>⚠ 927.5 MHz uncalibrated</small></div></div>
+      <div class="st"><div class="n"></div><div><b>Sweep</b><small>18 points · ≈ 1m 12s</small></div></div>
+      <div class="st"><div class="n"></div><div><b>Run</b><small>results &amp; verdict</small></div></div>
+    </div>
+    <div class="panel fold"><div class="n" style="background:#1D7A43;border-color:#1D7A43;color:#FFFFFF">✓</div><b>DUT</b><span class="mono">Sonata 2 IL · D4:A1:B2:C3:E4:F5 · RSSI −58 dBm</span></div>
+    <div class="panel fold"><div class="n" style="background:#1D7A43;border-color:#1D7A43;color:#FFFFFF">✓</div><b>Instruments</b><span>Power sensor ● connected · DC analyzer ● connected</span></div>
+    <div class="panel open"><div class="ttl">PATH LOSS<span style="flex:1"></span><span>Edit table</span></div>
+      <div class="fields"><div class="f"><label>Default dB</label><div class="mono">20.5</div></div><div class="f"><label>902.3 MHz</label><div class="mono">20.4 ✓</div></div><div class="f"><label>915 MHz</label><div class="mono">20.5 ✓</div></div><div class="f"><label>927.5 MHz</label><div class="mono" style="color:#9A5B00">— default</div></div></div>
+      <div class="note">⚠ 927.5 MHz has no measured loss; readings there use the 20.5 dB default. Add a point or Run anyway.</div></div>
+    <div class="panel"><div class="ttl">SWEEP<span style="flex:1"></span>Settle 400 ms</div>
+      <div class="fields"><div class="f"><label>Freq MHz</label><div class="mono">902.3,915,927.5</div></div><div class="f"><label>Power dBm</label><div class="mono">10-20:2</div></div><div class="f"><label>PA Mode</label><div>Auto</div></div><div class="f"><label>Tolerance ± dB</label><div class="mono">1</div></div></div></div>
+    <div class="panel"><div class="ttl">RESULTS<span style="flex:1"></span>Graph · Export · Import · &nbsp; Clear</div>
+      <table><tr><th>#</th><th>Freq<small>MHz</small></th><th>Set<small>dBm</small></th><th>Measured<small>dBm</small></th><th>Δ<small>dB</small></th><th>Verdict</th></tr>
+      <tr><td>1</td><td class="mono">902.300</td><td class="mono">10</td><td class="mono">9.85</td><td class="mono">−0.15</td><td class="pass">✓ PASS</td></tr></table></div>
+  </div>
+</div>
+</body></html>

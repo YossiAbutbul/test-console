@@ -1,0 +1,82 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Annunciator top bar</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{width:1440px;height:900px;overflow:hidden;background:#F4F5F6;color:#1B1F23;font:14px "Segoe UI",Inter,sans-serif}
+.mono{font-family:Consolas,ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.top{height:64px;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid #DDDFE1;background:#F4F5F6}
+.logo{font-weight:700;font-size:17px;width:150px}
+.win{height:46px;white-space:nowrap;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid #DDDFE1;border-radius:6px;background:#FFFFFF;min-width:118px}
+.win b{font-size:15px;letter-spacing:.3px}
+.win small{font-size:12px;color:#5C646B;display:block;line-height:1.1}
+.win .g{font-size:16px;width:18px;text-align:center}
+.ok{border-color:rgba(29,122,67,.55)} .ok .g{color:#1D7A43}
+.warn .g,.warn b{color:#9A5B00} .warn{border-color:rgba(154,91,0,.6);background:rgba(154,91,0,.10)}
+.live{border-color:#B02A20;background:rgba(176,42,32,.16)} .live .g,.live b{color:#B02A20}
+.dim{opacity:.55} .dim b{color:#5C646B}
+.search{width:250px;height:36px;border:1px solid #DDDFE1;border-radius:6px;color:#5C646B;font-size:13px;display:flex;align-items:center;padding:0 12px;margin:0 8px}
+.shell{display:flex;height:836px}
+.side{width:232px;background:#EAECEE;border-right:1px solid #DDDFE1;padding:12px 6px;font-size:13.5px}
+.side div{padding:6px 12px;border-radius:6px;color:#5C646B}
+.side .grp{color:#1B1F23;font-weight:600;margin-top:6px}
+.side .sel{background:rgba(27,31,35,.08);color:#1B1F23;font-weight:600}
+.main{flex:1;padding:20px 28px;overflow:hidden}
+.crumb{font-size:12px;color:#5C646B;letter-spacing:.5px}
+.hdr{display:flex;align-items:center;gap:10px;margin:2px 0 12px}
+.hdr h1{font-size:26px;flex:1}
+.btn{height:36px;padding:0 14px;border:1px solid #DDDFE1;border-radius:6px;display:flex;align-items:center;gap:6px;font-size:14px;color:#1B1F23}
+.hz{background:#3A4249;color:#FFFFFF;border:none;box-shadow:inset 3px 0 0 #B02A20;font-weight:600;min-width:150px;justify-content:center}
+.tabs{display:flex;gap:22px;border-bottom:1px solid #DDDFE1;margin-bottom:12px;font-size:13.5px}
+.tabs span{padding:8px 2px;color:#5C646B} .tabs .on{color:#1B1F23;border-bottom:2px solid #3A4249}
+.panel{background:#FFFFFF;border:1px solid #DDDFE1;border-radius:6px;padding:12px;margin-bottom:8px}
+.ttl{font-size:12px;font-weight:700;letter-spacing:.5px;color:#5C646B;display:flex;align-items:center;gap:12px}
+.ttl .sp{flex:1}
+.fields{display:flex;gap:12px;margin-top:10px}
+.f label{font-size:13px;color:#5C646B;display:block;margin-bottom:4px}
+.f div{height:36px;border:1px solid #DDDFE1;border-radius:6px;padding:8px 10px;width:220px}
+.verdict{display:flex;gap:10px;align-items:center;margin:10px 0}
+.vb{padding:6px 12px;border-radius:6px;font-weight:700;font-size:16px}
+.vp{color:#1D7A43;border:1px solid rgba(29,122,67,.5)} .vf{color:#B02A20;border:1px solid #B02A20;background:rgba(176,42,32,.14)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:right;font-weight:600;color:#5C646B;background:#EAECEE;padding:7px 10px;white-space:nowrap}
+th small{font-weight:400;margin-left:3px}
+td{text-align:right;padding:6px 10px;border-bottom:1px solid #DDDFE1}
+th:first-child,td:first-child{text-align:left}
+tr.fail td{background:rgba(176,42,32,.07)} tr.fail td:first-child{box-shadow:inset 3px 0 0 #B02A20}
+.pass{color:#1D7A43;font-weight:700} .bad{color:#B02A20;font-weight:700}
+</style></head><body>
+<div class="top">
+  <div class="logo">Test Console</div>
+  <div class="win ok"><span class="g">●</span><div><b>DUT</b><small class="mono">Sonata 2 IL</small></div></div>
+  <div class="win warn"><span class="g">⚠</span><div><b>Instruments 5/7</b><small>1 error · VNA</small></div></div>
+  <div class="search">Search pages &nbsp; Ctrl+Shift+K</div>
+  <div class="win live"><span class="g">((·))</span><div><b>RF ON</b><small class="mono">915 MHz</small></div></div>
+  <div class="win live"><span class="g">⏻</span><div><b>DC ON</b><small class="mono">3.60 V</small></div></div>
+  <div class="win dim"><span class="g">((·))</span><div><b>LTE off</b><small>modem off</small></div></div>
+  <div class="win warn"><span class="g">▶</span><div><b>RUN 11/18</b><small>✕ 3 FAIL · 0:41</small></div></div>
+  <div style="flex:1"></div><div class="btn">Log</div>
+</div>
+<div class="shell">
+  <div class="side">
+    <div class="grp">LoRa</div><div>&nbsp; TX</div><div class="sel">&nbsp;&nbsp;&nbsp; CW</div><div>&nbsp;&nbsp;&nbsp; Modulated</div><div>&nbsp;&nbsp;&nbsp; Debug</div><div>&nbsp;&nbsp;&nbsp; Mode Sweep</div><div>&nbsp; Other</div>
+    <div class="grp">LTE</div><div class="grp">Components</div>
+  </div>
+  <div class="main">
+    <div class="crumb">LORA / TX</div>
+    <div class="hdr"><h1>CW</h1><span class="mono" style="color:#5C646B">18 points · ≈ 1m 12s</span><div class="btn">■ Stop</div><div class="btn hz">((·)) Run · TX</div></div>
+    <div class="tabs"><span>Manual</span><span class="on">Automation</span></div>
+    <div class="panel"><div class="ttl">SWEEP<span class="sp"></span>Settle 400 ms</div>
+      <div class="fields"><div class="f"><label>Freq MHz</label><div class="mono">902.3,915,927.5</div></div><div class="f"><label>Power dBm</label><div class="mono">10-20:2</div></div><div class="f"><label>PA Mode</label><div>Auto</div></div><div class="f"><label>Tolerance ± dB</label><div class="mono">1</div></div></div></div>
+    <div class="panel"><div class="ttl">RESULTS<span class="sp"></span><span>Graph</span><span>Export</span><span>Import</span><span style="margin-left:14px">Clear</span></div>
+      <div class="verdict"><span class="vb vp">✓ 8 PASS</span><span class="vb vf">✕ 3 FAIL</span><span style="color:#5C646B">0 N/A · 11 of 18 measured · path loss 20.5 dB at 915 MHz</span></div>
+      <table><tr><th>#</th><th>Freq<small>MHz</small></th><th>Set<small>dBm</small></th><th>Measured<small>dBm</small></th><th>Δ<small>dB</small></th><th>CC<small>mA</small></th><th>Verdict</th></tr>
+      <tr class="fail"><td>6</td><td class="mono">902.300</td><td class="mono">20</td><td class="mono">18.95</td><td class="mono bad">−1.05</td><td class="mono">135.0</td><td class="bad">✕ FAIL</td></tr>
+      <tr><td>7</td><td class="mono">915.000</td><td class="mono">10</td><td class="mono">9.60</td><td class="mono">−0.40</td><td class="mono">92.5</td><td class="pass">✓ PASS</td></tr>
+      <tr><td>8</td><td class="mono">915.000</td><td class="mono">12</td><td class="mono">11.42</td><td class="mono">−0.58</td><td class="mono">101.5</td><td class="pass">✓ PASS</td></tr>
+      <tr><td>9</td><td class="mono">915.000</td><td class="mono">14</td><td class="mono">13.24</td><td class="mono">−0.76</td><td class="mono">110.5</td><td class="pass">✓ PASS</td></tr>
+      <tr class="fail"><td>10</td><td class="mono">915.000</td><td class="mono">16</td><td class="mono">14.81</td><td class="mono bad">−1.19</td><td class="mono">119.5</td><td class="bad">✕ FAIL</td></tr>
+      <tr class="fail"><td>11</td><td class="mono">915.000</td><td class="mono">18</td><td class="mono">16.63</td><td class="mono bad">−1.37</td><td class="mono">128.5</td><td class="bad">✕ FAIL</td></tr>
+      </table></div>
+  </div>
+</div>
+</body></html>
