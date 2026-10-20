@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-20T00:00:00Z",
+  "title": "Design System: Test Console",
+  "extensions": {
+    "colorMeta": {
+      "ground": { "role": "neutral", "displayName": "Bezel Ground", "modes": { "light": "#F4F5F6", "mid": "#2E3236", "dark": "#141618" }, "tonalRamp": ["#141618", "#1F2225", "#2E3236", "#41464B", "#5D646A", "#949AA0", "#DDDFE1", "#F4F5F6"] },
+      "panel": { "role": "neutral", "displayName": "Panel Aluminium", "modes": { "light": "#FFFFFF", "mid": "#35393E", "dark": "#1B1E21" }, "tonalRamp": ["#1B1E21", "#272B2F", "#35393E", "#41464B", "#5D646A", "#A2A9AF", "#EAECEE", "#FFFFFF"] },
+      "rail": { "role": "neutral", "displayName": "Rack Rail", "modes": { "light": "#EAECEE", "mid": "#24272B", "dark": "#0E1012" } },
+      "log-well": { "role": "neutral", "displayName": "Log Well", "modes": { "light": "#EEEFF1", "mid": "#26292D", "dark": "#101214" } },
+      "hairline": { "role": "neutral", "displayName": "Hairline", "modes": { "light": "#DDDFE1", "mid": "#41464B", "dark": "#24282B" } },
+      "ink": { "role": "neutral", "displayName": "Ink", "modes": { "light": "#1B1F23", "mid": "#E4E7EA", "dark": "#D8DCE0" } },
+      "ink-dim": { "role": "neutral", "displayName": "Ink Dim", "modes": { "light": "#5C646B", "mid": "#949AA0", "dark": "#838A90" } },
+      "brushed-graphite": { "role": "primary", "displayName": "Brushed Graphite", "modes": { "light": "#3A4249", "mid": "#C6CED5", "dark": "#D6DDE3" }, "tonalRamp": ["#1B1F23", "#2A3137", "#3A4249", "#5C646B", "#949AA0", "#C6CED5", "#DCE2E7", "#F0F3F5"] },
+      "lamp-ok": { "role": "semantic", "displayName": "Lamp OK", "modes": { "light": "#1D7A43", "mid": "#58C07A", "dark": "#5EC880" } },
+      "lamp-warn": { "role": "semantic", "displayName": "Lamp Warn", "modes": { "light": "#9A5B00", "mid": "#E2A63F", "dark": "#E7AE4B" } },
+      "lamp-bad": { "role": "semantic", "displayName": "Lamp Bad", "modes": { "light": "#B02A20", "mid": "#F07068", "dark": "#F57C74" } },
+      "lamp-off": { "role": "semantic", "displayName": "Lamp Off", "modes": { "light": "#A2A9AF", "mid": "#5D646A", "dark": "#3C4145" } },
+      "connect-fill": { "role": "semantic", "displayName": "Connect Fill", "modes": { "light": "#1D7A43", "mid": "#4CC17C", "dark": "#52CE84" } },
+      "glyph-on-bright": { "role": "neutral", "displayName": "Glyph on Bright", "modes": { "light": "#FFFFFF", "mid": "#1B1F23", "dark": "#101214" } },
+      "series-1": { "role": "data", "displayName": "Series 1", "modes": { "light": "#2563EB", "mid": "#6EA8FE", "dark": "#74ADFF" } },
+      "series-2": { "role": "data", "displayName": "Series 2", "modes": { "light": "#DC2626", "mid": "#F47F78", "dark": "#F7867F" } },
+      "series-3": { "role": "data", "displayName": "Series 3", "modes": { "light": "#16A34A", "mid": "#5CC584", "dark": "#62CC8A" } },
+      "series-4": { "role": "data", "displayName": "Series 4", "modes": { "light": "#D97706", "mid": "#EDB04F", "dark": "#F0B658" } },
+      "series-5": { "role": "data", "displayName": "Series 5", "modes": { "light": "#7C3AED", "mid": "#B49AF7", "dark": "#BBA2F9" } },
+      "series-6": { "role": "data", "displayName": "Series 6", "modes": { "light": "#0891B2", "mid": "#4CC9DE", "dark": "#55CFE3" } },
+      "series-7": { "role": "data", "displayName": "Series 7", "modes": { "light": "#DB2777", "mid": "#F17FB6", "dark": "#F488BC" } },
+      "series-8": { "role": "data", "displayName": "Series 8", "modes": { "light": "#65A30D", "mid": "#A8D25A", "dark": "#AED862" } }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Title", "purpose": "Page title in PageHeader." },
+      "section-title": { "displayName": "Section title", "purpose": "Uppercase label over a panel." },
+      "eyebrow": { "displayName": "Eyebrow", "purpose": "Uppercase micro-label above a value." },
+      "readout": { "displayName": "Readout", "purpose": "Large monospace measurement value." },
+      "stat-value": { "displayName": "Stat value", "purpose": "Tabular mono value in a StatTile." }
+    },
+    "shadows": [
+      { "name": "float", "value": "0 10px 25px -8px rgba(0,0,0,0.18), 0 4px 10px -4px rgba(0,0,0,0.10)", "purpose": "Menus, popovers and autocomplete lists only." },
+      { "name": "lamp-glow", "value": "0 0 0 2px rgba(88,192,122,0.26), 0 0 9px rgba(88,192,122,0.65)", "purpose": "A lit LatchingKey lamp." }
+    ],
+    "motion": [
+      { "name": "state", "value": "0.15–0.18s ease", "purpose": "Colour, border and chevron transitions." },
+      { "name": "live-pulse", "value": "opacity 1 → 0.35, 1.4s ease-in-out infinite", "purpose": "Dot in a live-output pill." }
+    ],
+    "breakpoints": [
+      { "name": "shell-narrow", "value": "1200px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Run button",
+      "kind": "button",
+      "refersTo": "button-run",
+      "description": "Primary action on test pages; fixed width so the label can become a progress counter.",
+      "html": "<button class=\"ds-btn-run\">&#9654; Run</button>",
+      "css": ".ds-btn-run { background: #C6CED5; color: #1B1F23; border: 1px solid #C6CED5; border-radius: 6px; height: 36px; min-width: 148px; padding: 0 16px; font: 500 14px Inter, 'Segoe UI', sans-serif; cursor: pointer; transition: background .15s; } .ds-btn-run:hover { background: #DCE2E7; } .ds-btn-run:focus-visible { outline: 2px solid #E4E7EA; outline-offset: 2px; }"
+    },
+    {
+      "name": "Stop button",
+      "kind": "button",
+      "refersTo": "button-stop",
+      "description": "Outlined, always left of Run.",
+      "html": "<button class=\"ds-btn-stop\">&#9632; Stop</button>",
+      "css": ".ds-btn-stop { background: transparent; color: #E4E7EA; border: 1px solid #41464B; border-radius: 6px; height: 36px; min-width: 96px; padding: 0 14px; font: 500 14px Inter, 'Segoe UI', sans-serif; cursor: pointer; } .ds-btn-stop:hover { background: rgba(255,255,255,0.05); } .ds-btn-stop:focus-visible { outline: 2px solid #E4E7EA; outline-offset: 2px; }"
+    },
+    {
+      "name": "Connect button",
+      "kind": "button",
+      "refersTo": "button-connect",
+      "description": "Green fill with a dark glyph.",
+      "html": "<button class=\"ds-btn-connect\">Connect</button>",
+      "css": ".ds-btn-connect { background: #4CC17C; color: #0E1411; border: 1px solid #4CC17C; border-radius: 6px; height: 36px; min-width: 120px; font: 500 14px Inter, 'Segoe UI', sans-serif; cursor: pointer; } .ds-btn-connect:hover { background: #66CE92; } .ds-btn-connect:focus-visible { outline: 2px solid #E4E7EA; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "36 px outlined input with the label above.",
+      "html": "<label class=\"ds-field\"><span>Frequency (MHz)</span><input value=\"915\"></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 4px; font: 500 13px Inter, 'Segoe UI', sans-serif; color: #949AA0; } .ds-field input { height: 36px; background: #35393E; color: #E4E7EA; border: 1px solid #41464B; border-radius: 6px; padding: 0 10px; font: 14px Inter, 'Segoe UI', sans-serif; } .ds-field input:focus-visible { outline: 2px solid #C6CED5; outline-offset: 1px; }"
+    },
+    {
+      "name": "Status chip",
+      "kind": "chip",
+      "refersTo": "status-chip",
+      "description": "Dot + label for instrument and connection state.",
+      "html": "<span class=\"ds-status\"><i></i>Connected</span>",
+      "css": ".ds-status { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: 4px; background: rgba(255,255,255,0.08); color: #58C07A; font: 600 11.5px Inter, 'Segoe UI', sans-serif; } .ds-status i { width: 8px; height: 8px; border-radius: 50%; background: #58C07A; }"
+    },
+    {
+      "name": "Live-output pill",
+      "kind": "chip",
+      "refersTo": "live-pill",
+      "description": "Top-bar capsule for a live output; click opens its page.",
+      "html": "<button class=\"ds-live\"><i></i>RF ON <span>915 MHz</span></button>",
+      "css": ".ds-live { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border-radius: 12px; border: 1px solid rgba(240,112,104,0.55); background: rgba(240,112,104,0.14); color: #F07068; font: 700 11.5px Inter, 'Segoe UI', sans-serif; letter-spacing: .3px; cursor: pointer; } .ds-live:hover { background: rgba(240,112,104,0.24); } .ds-live:focus-visible { outline: 2px solid #F07068; outline-offset: 1px; } .ds-live i { width: 7px; height: 7px; border-radius: 50%; background: #F07068; } .ds-live span { font-weight: 500; opacity: .85; }"
+    },
+    {
+      "name": "Stat tile",
+      "kind": "card",
+      "refersTo": "stat-tile",
+      "description": "One readout in a hairline-divided measurement strip.",
+      "html": "<div class=\"ds-tile\"><div class=\"ds-eb\">MEASURED</div><div class=\"ds-v\">14.2<small>dBm</small></div><div class=\"ds-sub\">26.3 mW</div></div>",
+      "css": ".ds-tile { background: #35393E; border: 1px solid #41464B; border-radius: 6px; padding: 10px 12px; width: 150px; font-family: Inter, 'Segoe UI', sans-serif; } .ds-eb { font-size: 10.5px; font-weight: 700; letter-spacing: .6px; color: #949AA0; } .ds-v { font: 600 20px ui-monospace, Consolas, monospace; color: #E4E7EA; font-variant-numeric: tabular-nums; letter-spacing: -.02em; margin-top: 4px; } .ds-v small { font-size: 12px; font-weight: 500; color: #949AA0; margin-left: 4px; } .ds-sub { font-size: 11px; color: #5D646A; margin-top: 3px; }"
+    },
+    {
+      "name": "Emergency stop",
+      "kind": "button",
+      "refersTo": "button-emergency-stop",
+      "description": "The only round button; never disabled.",
+      "html": "<button class=\"ds-estop\" aria-label=\"Emergency stop\">&#9632;</button>",
+      "css": ".ds-estop { width: 36px; height: 36px; border-radius: 50%; background: #F07068; color: #fff; border: 2px solid #C0504A; font-size: 16px; cursor: pointer; } .ds-estop:hover { background: #C0504A; } .ds-estop:focus-visible { outline: 2px solid #F07068; outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Anodized — the aluminium rack",
+    "overview": "The console is styled as a piece of bench equipment: aluminium panels a step above their bezel, graphite keys, hairline rules and lamps. There is deliberately no accent hue. Selection, focus and the Run button are graphite and brushed metal, which leaves the ok / warn / bad triad as the only colour on most screens — if something is coloured, a measurement or a link is telling you something. Density is tuned for information per screen rather than breathing room. The three themes are ambient light levels, not arbitrary skins; every semantic colour keeps its hue across the three and shifts only lightness.",
+    "keyCharacteristics": [
+      "Near-true grey neutrals with a faint cool cast (aluminium, not paper).",
+      "Colour only for state: connection, live output, measurement verdict, data series.",
+      "Flat hairline panels; shadows only on things that float.",
+      "Monospace, tabular readouts; uppercase micro-labels above values.",
+      "Bright fills carry near-black glyphs in Mid and Dark, as high-visibility controls do on hardware."
+    ],
+    "rules": [
+      { "name": "The Lamp Rule", "body": "Colour appears only when it means something the operator must read: connection, live output, verdict, or a data series. No decorative colour anywhere.", "section": "colors" },
+      { "name": "The Annunciator Rule", "body": "Warn is a lamp, never a surface or a button. Seeing amber always means something wants attention.", "section": "colors" },
+      { "name": "The Quiet Scan Rule", "body": "Scan stays an outline. With no accent hue, Connect and Run are the only filled controls, and a filled Scan would outrank both.", "section": "colors" },
+      { "name": "The Mono Number Rule", "body": "A measured or set value is monospace with tabular figures; its unit is smaller and muted beside it.", "section": "typography" },
+      { "name": "The Flat Panel Rule", "body": "Depth is reserved for things that float. A panel in the page is a hairline and a tone, never a shadow.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do take every colour from theme.ts palettes so all three themes move together.",
+      "Do keep semantic hues constant across themes and shift only lightness.",
+      "Do set measurements in mono with tabular figures and a muted unit.",
+      "Do use bright fills with near-black glyphs in Mid and Dark.",
+      "Do separate panels with a hairline and a tonal step."
+    ],
+    "donts": [
+      "Don't introduce an accent hue for brand or decoration.",
+      "Don't use warn as a surface or button fill.",
+      "Don't fill Scan or any other secondary action.",
+      "Don't put shadows on in-page panels.",
+      "Don't hardcode colours in pages (the chart PNG background and grid in ResultsGraphModal are a known violation)."
+    ]
+  }
+}
