@@ -5,7 +5,6 @@ import StopIcon from '@mui/icons-material/Stop'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import { PageHeader } from '../../components/PageHeader'
-import { PathLossField } from '../../components/ConnectionPanel'
 import { instrumentsApi } from '../../api/instruments'
 import {
   useInstrumentValue, useInstrumentsActions,
@@ -402,17 +401,10 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
             />
           </StatRow>
 
-          {/* The correction figure is set here as well as on the test pages:
-              it used to ride in a row above every page, and a path-loss check
-              (signal generator in, this sensor out) is done from this page. */}
-          <Stack direction="row" alignItems="flex-end" spacing={1.5} sx={{ mt: 1.5 }}>
-            <PathLossField label="Path loss correction" unit="dB" />
-          </Stack>
 
           <Typography sx={{ ...TEXT.hint, color: 'text.secondary', mt: 1 }}>
-            Result = reading + correction. The correction is the default path
-            loss, the same figure the test pages use; change it here or under
-            Path loss on any test page.
+            Result = reading + correction. The correction is the path loss set
+            in the top bar.
           </Typography>
 
           {failure && <InstrumentError title={failure.title} message={failure.hint ?? ''} />}

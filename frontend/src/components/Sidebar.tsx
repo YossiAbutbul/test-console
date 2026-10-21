@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Box, Collapse, Divider, Drawer, IconButton, ListItemButton, ListItemIcon,
-  ListItemText, Popover, Stack, Switch, TextField, Tooltip, Typography,
+  Box, Collapse, Drawer, IconButton, ListItemButton, ListItemIcon,
+  ListItemText, Popover, Stack, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { instrumentsApi } from '../api/instruments'
 import { STORAGE_KEYS } from '../store/keys'
@@ -13,7 +13,6 @@ import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import SettingsIcon from '@mui/icons-material/Settings'
 import CableIcon from '@mui/icons-material/Cable'
 import CheckIcon from '@mui/icons-material/Check'
-import { useConnection } from '../context/ConnectionContext'
 import { useInstrumentsActions, useInstrumentsState } from '../context/InstrumentsContext'
 import { useThemeMode, type ThemePreference } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
@@ -22,7 +21,8 @@ import { useShellLayout } from '../ui/useShellLayout'
 import { testRegistry } from '../tests/registry'
 import { useInstrumentsUnavailableReason } from '../context/CapabilitiesContext'
 import type { TestModule } from '../tests/types'
-import { MONO } from '../ui'
+import { LatchingKey } from '../ui'
+import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 
 // Re-exported for the call sites that reach for them alongside Sidebar; the
 // values themselves live with the rest of the layout tokens.
@@ -132,18 +132,33 @@ function DcSupplySection() {
     if (enabled) void apply(true, n)
   }
 
+  // In the sidebar footer, on every page, rather than inside Settings: it
+  // powers the DUT, so its state should be in view, not a menu away. Same
+  // control and same behaviour as before -- a latching key in place of the
+  // switch, so it reads like the Modem key and carries the hazard ring while it
+  // would power the DUT. Errors and the "connect the analyzer first" reason go
+  // in the tooltip, so the footer keeps one height.
+  const reason = err
+    ? `Supply command failed: ${err}`
+    : dcConnected ? (enabled ? 'DC analyzer supply is on' : 'Turn the DC analyzer supply on') : 'Connect the DC analyzer first'
   return (
-    <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5 }}>
-      <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: s.textDim, mb: 0.5 }}>
-        DC Analyzer Supply
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: s.textDim, mb: 0.5 }}>
+        DC supply
       </Typography>
       <Stack direction="row" alignItems="center" spacing={1}>
-        <Switch
-          size="small"
-          checked={enabled}
-          disabled={!dcConnected || busy}
-          onChange={(e) => onToggle(e.target.checked)}
-        />
+        <Tooltip title={reason} placement="top">
+          <span>
+            <LatchingKey
+              value={enabled}
+              onChange={onToggle}
+              offLabel="Off"
+              onLabel="On"
+              disabled={!dcConnected || busy}
+              width={96}
+            />
+          </span>
+        </Tooltip>
         <TextField
           size="small"
           type="number"
@@ -153,19 +168,14 @@ function DcSupplySection() {
           onBlur={commitVoltage}
           onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
           onFocus={(e) => (e.target as HTMLInputElement).select()}
-          inputProps={{ step: 0.1, min: 0, max: 60, style: { fontSize: 13, padding: '4px 8px', width: 64 } }}
-          sx={{ '& .MuiInputBase-root': { color: s.text } }}
+          inputProps={{ step: 0.1, min: 0, max: 60, 'aria-label': 'DC supply voltage' }}
+          InputProps={{ endAdornment: <Typography sx={{ fontSize: 12, color: s.textDim }}>V</Typography> }}
+          sx={{ width: 84, '& .MuiInputBase-root': { color: s.text } }}
         />
-        <Typography sx={{ fontSize: 12, color: s.textDim }}>V</Typography>
+        <Box sx={{ width: 18, display: 'flex', color: p.data.bad, visibility: err ? 'visible' : 'hidden' }}>
+          <ErrorOutlineRoundedIcon sx={{ fontSize: 18 }} />
+        </Box>
       </Stack>
-      {!dcConnected && (
-        <Typography sx={{ fontSize: 12, color: s.textDim, mt: 0.5 }}>
-          Connect DC analyzer to apply.
-        </Typography>
-      )}
-      {err && (
-        <Typography sx={{ fontSize: 12, color: p.data.bad, mt: 0.5 }}>{err}</Typography>
-      )}
     </Box>
   )
 }
@@ -207,8 +217,6 @@ function SettingsButton() {
           },
         }}
       >
-        <DcSupplySection />
-        <Divider sx={{ my: 0.5, borderColor: s.border }} />
         <Typography sx={{ px: 1.5, pt: 0.5, pb: 0.5, fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: s.textDim }}>
           Theme
         </Typography>
@@ -242,49 +250,15 @@ function SettingsButton() {
 }
 
 function StatusFoot() {
-  const { status } = useConnection()
   const { mode } = useThemeMode()
   const s = getAppPalette(mode).sidebar
-  const connected = !!status?.connected
+  // The DUT's status used to live here; its connection controls are in the
+  // top bar now, so the footer holds the DC supply instead.
   return (
     <Box sx={{ px: 2, py: 1.25, borderTop: `1px solid ${s.border}` }}>
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <Box
-          sx={{
-            width: 8, height: 8, borderRadius: '50%',
-            bgcolor: connected ? s.success : s.successOff,
-            boxShadow: connected ? `0 0 0 3px ${s.success}26` : 'none',
-            flexShrink: 0,
-          }}
-        />
+      <Stack direction="row" alignItems="flex-end" spacing={1}>
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-          <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: s.text }}>
-            {/* Says what is connected: on its own, "Disconnected" at the foot of
-                the menu could have meant the backend, an instrument or the DUT. */}
-            {connected ? 'DUT connected' : 'DUT not connected'}
-          </Typography>
-          {/* The second line is always there, so the footer keeps its height
-              when the DUT connects or drops. */}
-          {connected ? (
-            <Tooltip title={status?.address ?? ''} placement="top">
-              <Typography
-                sx={{
-                  fontFamily: MONO,
-                  fontSize: 12,
-                  color: s.textDim,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {status?.name ?? status?.address}
-              </Typography>
-            </Tooltip>
-          ) : (
-            <Typography sx={{ fontSize: 12, color: s.textDim }} noWrap>
-              connect from a test page or the top bar
-            </Typography>
-          )}
+          <DcSupplySection />
         </Box>
         <SettingsButton />
       </Stack>

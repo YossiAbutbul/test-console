@@ -13,6 +13,8 @@ interface Props {
   /** Label shown while `value` is true. */
   onLabel: string
   disabled?: boolean
+  /** Fixed width, when the labels are short and the key sits in a tight row. */
+  width?: number
 }
 
 /**
@@ -31,7 +33,7 @@ interface Props {
  * every glance into a second question.
  */
 export function LatchingKey({
-  value, onChange, offLabel, onLabel, disabled,
+  value, onChange, offLabel, onLabel, disabled, width,
 }: Props) {
   const p = useAppPalette()
   // Lit borrows the green the instrument dots use for a live connection.
@@ -55,7 +57,8 @@ export function LatchingKey({
         // "Modem off" -> "Modem on" swaps the words without moving Stop and
         // Send beside it.
         height: CONTROL_H.md,
-        minWidth: 136,
+        minWidth: width ?? 136,
+        width,
         justifyContent: 'flex-start',
         borderRadius: 1.5,
         border: 1,

@@ -253,9 +253,8 @@ export function SendStopControls({
 /**
  * Global path-loss reminder.
  *
- * The value is set once, in the Path loss check at the top of the test pages,
- * and applied by every page that reports DUT power, so the chip states where
- * it came from.
+ * The value is set once, in the top bar, and applied by every page that
+ * reports DUT power.
  */
 export function PathLossChip({
   pathLossDb, calibrated = true, freqMhz,
@@ -279,16 +278,14 @@ export function PathLossChip({
         label={`Path loss: ${pathLossDb} dB`}
         sx={{ ...TEXT.hint, fontWeight: 600 }}
       />
-      <Typography
-        sx={{ ...TEXT.hint, color: calibrated ? 'text.secondary' : 'warning.main' }}
-      >
-        {calibrated
-          // Saying only "sensor + path loss = DUT power" left no way to tell a
-          // figure measured at this frequency from one carried over.
-          ? 'set under Path loss · sensor reading + path loss = DUT power'
-          : `not calibrated${freqMhz != null ? ` at ${freqMhz} MHz` : ''} - using the default. `
-            + 'Add a point under Path loss at the top of the page.'}
-      </Typography>
+      {/* Only when it matters: a calibrated figure needs no caption, and the
+          long "sensor reading + path loss = DUT power" line on every page was
+          more explanation than the operator wanted. */}
+      {!calibrated && (
+        <Typography sx={{ ...TEXT.hint, color: 'warning.main' }}>
+          {`not calibrated${freqMhz != null ? ` at ${freqMhz} MHz` : ''}, using the default`}
+        </Typography>
+      )}
     </Stack>
   )
 }

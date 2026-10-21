@@ -203,7 +203,7 @@ export function MeasurementCard({
               loss.calibrated
                 ? 'Calibrated for this frequency'
                 : 'No calibration for this frequency - using the default. '
-                  + 'Add a point under Path loss at the top of the page to correct it properly.'
+                  + 'Add it to the path-loss table in the top bar.'
             }
           >
             <Typography

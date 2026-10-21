@@ -17,6 +17,7 @@ import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined'
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
 import { useMutation } from '@tanstack/react-query'
+import { alpha } from '@mui/material/styles'
 import { PageHeader } from '../../components/PageHeader'
 import { BenchCourse } from '../../components/BenchCourse'
 import type { CourseStep } from '../../components/courseSteps'
@@ -1214,7 +1215,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     opacity: motorConnected && !running ? 1 : 0.5,
                     // The hazard ring of the other keys that move the motor.
                     boxShadow: (t) => (motorConnected && !running
-                      ? `inset 0 0 0 2px ${t.palette.error.main}` : 'none'),
+                      ? `inset 0 0 0 1px ${alpha(t.palette.error.main, 0.55)}` : 'none'),
                     userSelect: 'none',
                     transition: 'border-color 0.15s, background-color 0.15s',
                   }}

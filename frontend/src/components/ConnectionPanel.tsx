@@ -56,10 +56,12 @@ function stripMac(v: string): string {
  * The DUT link controls: scan duration, device type, the MAC picker, meter
  * info, Scan and Connect.
  *
- * Shown in each test page's DUT step and in the top bar's DUT popover. Every
- * copy drives the same scan through `useDutLink`, so they never disagree.
+ * `compact` is the one-line form in the top bar, where they sit on every
+ * page: no labels above the fields (the bar has no room for them; each field
+ * says what it is by its value, placeholder, unit or tooltip). The scan state
+ * lives in `useDutLink`, so any other copy drives the same scan.
  */
-export function DutControls() {
+export function DutControls({ compact = false }: { compact?: boolean }) {
   const { selectedAddr, setSelectedAddr } = useConnection()
   const {
     duration, setDuration, nameFilter, setNameFilter, filteredDevices, scanning,
@@ -98,9 +100,9 @@ export function DutControls() {
     }
   }
 
-  const fieldLabel = (text: string) => (
+  const fieldLabel = (text: string) => (compact ? null : (
     <Typography sx={{ fontSize: 13, fontWeight: 500, mb: 0.5 }}>{text}</Typography>
-  )
+  ))
 
   return (
     <Box sx={{ width: '100%' }}>
@@ -112,18 +114,19 @@ export function DutControls() {
           device picker gives a little, and the MAC field -- the only one whose
           content is long -- absorbs the rest. */}
       <Box
-        sx={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'flex-end',
-          gap: 1.5,
-        }}
+        sx={compact
+          ? { display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 1 }
+          : { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 1.5 }}
       >
-        <Box sx={{ flex: '0 1 110px', minWidth: 96 }}>
+        <Tooltip title={compact ? 'Scan duration' : ''} placement="bottom">
+        <Box sx={compact ? { flex: '0 0 68px' } : { flex: '0 1 110px', minWidth: 96 }}>
           {fieldLabel('Duration (sec)')}
           <TextField
             type="number"
             size="small"
+            InputProps={compact
+              ? { endAdornment: <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>s</Typography> }
+              : undefined}
             value={duration}
             onChange={(e) => setDuration(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
             onFocus={(e) => (e.target as HTMLInputElement).select()}
@@ -132,8 +135,9 @@ export function DutControls() {
             disabled={isConnected || scanning}
           />
         </Box>
+        </Tooltip>
 
-        <Box sx={{ flex: '1 1 150px', minWidth: 130, maxWidth: 220 }}>
+        <Box sx={compact ? { flex: '0 0 136px' } : { flex: '1 1 150px', minWidth: 130, maxWidth: 220 }}>
           {fieldLabel('Device type')}
           <FormControl size="small" fullWidth disabled={isConnected || scanning}>
             <Select
@@ -151,7 +155,12 @@ export function DutControls() {
           </FormControl>
         </Box>
 
-        <Box sx={{ flex: '6 1 220px', minWidth: 190, position: 'relative' }}>
+        <Box
+          sx={compact
+            ? { flex: '1 1 250px', minWidth: 130, maxWidth: 300, position: 'relative' }
+            : { flex: '6 1 220px', minWidth: 190, position: 'relative' }}
+        >
+          {!compact && (
           <Stack direction="row" alignItems="center" sx={{ mb: 0.5, gap: 1 }}>
             <Typography sx={{ fontSize: 13, fontWeight: 500 }}>MAC Address</Typography>
             {(() => {
@@ -191,6 +200,7 @@ export function DutControls() {
               </Typography>
             )}
           </Stack>
+          )}
           <Autocomplete
           size="small"
           freeSolo
@@ -271,7 +281,7 @@ export function DutControls() {
           renderInput={(params) => (
             <TextField
               {...params}
-              placeholder="Pick from scan or type MAC"
+              placeholder={compact ? 'MAC: scan or type' : 'Pick from scan or type MAC'}
               inputRef={acInputRef}
               InputProps={{
                 ...params.InputProps,
@@ -330,7 +340,7 @@ export function DutControls() {
         <Stack
           direction="row"
           alignItems="center"
-          sx={{ gap: 1.5, flexWrap: 'nowrap', ml: 'auto', flexShrink: 0 }}
+          sx={{ gap: compact ? 1 : 1.5, flexWrap: 'nowrap', ml: compact ? 0 : 'auto', flexShrink: 0 }}
         >
         <Tooltip title={isConnected ? 'Meter information' : 'Connect to a unit first'}>
           <span>
@@ -379,13 +389,11 @@ export function DutControls() {
 
 /**
  * The default path-loss figure, with the per-frequency table behind its tune
- * button.
- *
- * Shown in the Path loss step of the test pages and on the Power Meter page --
- * the places whose numbers it changes -- now that it no longer rides in a row
- * at the top of every page.
+ * button. In the top bar (`compact`), beside the DUT controls, on every page.
  */
-export function PathLossField({ label = 'Path loss', unit = 'dB' }: { label?: string; unit?: string }) {
+export function PathLossField({
+  label = 'Path loss', unit = 'dB', compact = false,
+}: { label?: string; unit?: string; compact?: boolean }) {
   const { pathLossDb, setPathLossDb, points } = usePathLoss()
   const [pathLossOpen, setPathLossOpen] = useState(false)
   // Label then a quieter unit, the LabeledField style used everywhere else.
@@ -397,8 +405,18 @@ export function PathLossField({ label = 'Path loss', unit = 'dB' }: { label?: st
   )
   return (
     <>
-      <Box sx={{ width: 150 }}>
-          {fieldLabel(label)}
+      <Box
+        sx={compact
+          ? { display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }
+          : { width: 150 }}
+      >
+          {compact
+            ? (
+              <Tooltip title="Path loss, DUT to sensor (default for frequencies not in the table)">
+                <Typography sx={{ fontSize: 12.5, color: 'text.secondary', whiteSpace: 'nowrap' }}>{label}</Typography>
+              </Tooltip>
+            )
+            : fieldLabel(label)}
           <TextField
             type="number"
             size="small"
@@ -406,12 +424,18 @@ export function PathLossField({ label = 'Path loss', unit = 'dB' }: { label?: st
             onChange={(e) => setPathLossDb(Number(e.target.value) || 0)}
             onFocus={(e) => (e.target as HTMLInputElement).select()}
             inputProps={{ step: 0.1 }}
-            fullWidth
+            fullWidth={!compact}
+            sx={compact ? { width: 104 } : undefined}
             InputProps={{
+
               // In the field rather than beside it: this number and the table
               // behind it are the same setting, and a separate control would
               // read as an unrelated one.
               endAdornment: (
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  {compact && (
+                    <Typography sx={{ fontSize: 12, color: 'text.secondary', mr: 0.25 }}>{unit}</Typography>
+                  )}
                 <Tooltip title={
                   points.length
                     ? `Per-frequency path loss - ${points.length} calibrated`
@@ -427,6 +451,7 @@ export function PathLossField({ label = 'Path loss', unit = 'dB' }: { label?: st
                     <TuneIcon sx={{ fontSize: 17 }} />
                   </IconButton>
                 </Tooltip>
+                </Box>
               ),
             }}
           />

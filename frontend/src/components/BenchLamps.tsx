@@ -1,10 +1,7 @@
-import { useMemo, useState } from 'react'
-import { Box, Popover, Tooltip, Typography } from '@mui/material'
-import { useConnection } from '../context/ConnectionContext'
+import { useMemo } from 'react'
+import { Box, Tooltip } from '@mui/material'
 import { useInstrumentsActions, useInstrumentsState } from '../context/InstrumentsContext'
-import { useNicknames } from '../context/NicknamesContext'
 import { CheckMark, type CheckState } from '../ui'
-import { DutControls } from './ConnectionPanel'
 
 const lampSx = {
   display: 'inline-flex',
@@ -32,27 +29,14 @@ const lampSx = {
 } as const
 
 /**
- * DUT and instrument state in the top bar, on every page.
- *
- * The test pages carry the same facts in their check course; these are for
- * everywhere else -- a Components page has no course, and before this the
- * only sign of the DUT there was a word at the foot of the sidebar. Each lamp
- * is a mark plus words, never a bare dot.
- *
- * The DUT lamp opens the DUT controls in a popover, since a page without a
- * course has no other place to connect from. The Instruments lamp opens the
- * Instruments panel. Neither does anything to the hardware on its own.
+ * Instrument state in the top bar, on every page: a mark plus "Instruments
+ * n/7", never a bare dot. Opens the Instruments panel; does nothing to the
+ * hardware on its own. (The DUT has no lamp: its connection controls sit in
+ * the top bar themselves.)
  */
 export function BenchLamps({ compact }: { compact?: boolean }) {
-  const { status } = useConnection()
-  const nicknames = useNicknames()
   const { instruments } = useInstrumentsState()
   const { setOpen } = useInstrumentsActions()
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-
-  const dutReady = !!(status?.connected && status?.transport_ready)
-  const dutState: CheckState = dutReady ? 'ok' : status?.connected ? 'busy' : 'todo'
-  const dutName = status?.address ? nicknames.get(status.address) ?? status?.name ?? status.address : null
 
   const rig = useMemo(
     () => Object.values(instruments).filter((i) => !i.placeholder),
@@ -65,27 +49,6 @@ export function BenchLamps({ compact }: { compact?: boolean }) {
   const instState: CheckState = failed.length ? 'error' : up === rig.length ? 'ok' : 'todo'
 
   return (
-    <>
-      <Tooltip title={dutReady ? `DUT connected${dutName ? `: ${dutName}` : ''}` : 'DUT not connected. Click to connect.'}>
-        <Box
-          component="button"
-          type="button"
-          onClick={(e: React.MouseEvent<HTMLElement>) => setAnchor(e.currentTarget)}
-          aria-label={dutReady ? 'DUT connected. Open DUT controls.' : 'DUT not connected. Open DUT controls.'}
-          sx={{ ...lampSx, width: compact ? 84 : 196 }}
-        >
-          <CheckMark size={18} state={dutState} />
-          DUT
-          {!compact && (
-            <Box
-              component="span"
-              sx={{ fontWeight: 400, color: 'text.secondary', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}
-            >
-              {dutReady ? (dutName ?? 'connected') : status?.connected ? 'connecting' : 'not connected'}
-            </Box>
-          )}
-        </Box>
-      </Tooltip>
       <Tooltip
         title={failed.length
           ? `${failed.map((f) => `${f.label}: ${f.failure?.title ?? 'error'}`).join('\n')}\nClick to open Instruments.`
@@ -111,17 +74,5 @@ export function BenchLamps({ compact }: { compact?: boolean }) {
           )}
         </Box>
       </Tooltip>
-      <Popover
-        open={!!anchor}
-        anchorEl={anchor}
-        onClose={() => setAnchor(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-        slotProps={{ paper: { sx: { p: 2, mt: 1, width: 'min(860px, calc(100vw - 32px))' } } }}
-      >
-        <Typography sx={{ fontSize: 15, fontWeight: 700, mb: 1.5 }}>DUT</Typography>
-        <DutControls />
-      </Popover>
-    </>
   )
 }

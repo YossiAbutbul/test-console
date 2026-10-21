@@ -9,9 +9,11 @@ const TRACK = {
   'check rail': '[aria-label^="DUT:"]',
   'tabs': '[role="tablist"]',
   'results/transmit panel': 'main .MuiTable-root, main [role="tablist"] ~ * >> nth=0',
-  'DUT lamp': 'button[aria-label*="Open DUT controls"]',
+  'DUT Connect key': 'header button:has-text("Connect"), header button:has-text("Disconnect"), body > div button:has-text("Disconnect"), body > div button:has-text("Connect")',
+  'MAC field': 'input[placeholder^="MAC"]',
+  'DC supply key': 'button[aria-pressed]',
   'Instruments lamp': 'button[aria-label^="Instruments:"]',
-  'sidebar footer': 'text=/DUT (not )?connected/ >> nth=-1',
+  'sidebar footer': 'text=DC supply',
 }
 ;(async () => {
   const b = await chromium.launch({ channel: 'chrome' })

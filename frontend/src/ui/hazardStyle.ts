@@ -12,8 +12,9 @@ import type { SystemStyleObject } from '@mui/system'
 export type HazardKind = 'tx' | 'power' | 'move' | 'path'
 
 /**
- * Ring for a hazard key: a 2 px red outline around the whole control, drawn
- * inside it so the button keeps its size. Only while enabled -- a disabled
+ * Ring for a hazard key: a 1 px, half-strength red outline drawn inside the
+ * control, so the button keeps its size. (It was 2 px at full strength; the
+ * operator found that too loud. The glyph carries the rest.) Only while enabled -- a disabled
  * key cannot do anything to the bench, and a red ring on it would say it can.
  *
  * Send, Run, Graph and Export used to share one look, as did Jog and
@@ -23,6 +24,6 @@ export type HazardKind = 'tx' | 'power' | 'move' | 'path'
 export function hazardRingSx(kind: HazardKind | null | undefined) {
   // A theme callback, for use as one entry of an `sx` array.
   return (t: Theme): SystemStyleObject<Theme> => (kind
-    ? { '&:not(.Mui-disabled)': { boxShadow: `inset 0 0 0 2px ${alpha(t.palette.error.main, 0.9)}` } }
+    ? { '&:not(.Mui-disabled)': { boxShadow: `inset 0 0 0 1px ${alpha(t.palette.error.main, 0.55)}` } }
     : {})
 }

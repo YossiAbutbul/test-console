@@ -283,18 +283,25 @@ content area, and an optional 340 px log drawer that docks on wide windows and
 floats over content below 1200 px. The top bar is 56 px and holds the
 breadcrumb, search, live-output pills and the log toggle.
 
-The top bar carries, right of the centred search, the **bench lamps** (DUT,
-Instruments n/7) and the live-output pills. It is three flex parts: the two
-outer parts grow equally so search stays centred, and the right part never
-shrinks below its content, so search gives way rather than being covered.
+The top bar holds the **DUT connection and its configuration** on every page,
+always visible: scan time, device type, MAC, meter info, Scan, Connect, and
+the default path loss (with the per-frequency table behind its icon). It is
+left-aligned so status appearing on the right never moves it; on the right
+sit the Instruments lamp (n/7), the live-output pills and the Log/Assistant
+buttons, which are always shown. There is no page search. Below 1600 px the
+logo column shrinks to the logo and the status goes to its short form. The
+log drawer carries its own tab strip inside the panel.
+
+The sidebar footer holds the **DC supply** -- an Off/On latching key (a
+hazard key while it would power the DUT) and the voltage -- beside the
+Settings gear, so the supply is in view on every page.
 
 Every test page opens with PageHeader (title + actions), then its **check
-course**: a CheckRail of the checks that page needs (DUT · Instruments · Path
+course** (report only for the DUT; its controls are in the top bar): a CheckRail of the checks that page needs (DUT · Instruments · Path
 loss · Settings · Run; Load Pull: DUT · Instruments · RF path · Path loss ·
 Test point · Trombone · Run), with the open check's detail directly below.
-The DUT step opens itself while the DUT is not connected and folds away once
-it is, so a ready bench costs one row. Components pages have no course and no
-DUT row; their InstrumentBar comes straight after the header. PageBody then
+A check's detail opens only on a click. Components pages have no course;
+their InstrumentBar comes straight after the header. PageBody then
 picks a width -- form 760, panel 900, grid 1040, full 1180, or fluid -- and
 owns a container query so grids stack when *their* box runs out of room
 rather than the window's. TwoCol splits config left / live results right and
@@ -339,8 +346,8 @@ Emergency stop is the only round button in the app.
 Every control that acts on the bench -- Send, Run, RF On, Output On, the
 Modem key, Jog, Go to, Move/Step, VNA/PCB -- carries the glyph for what it
 does (antenna = transmits, power = powers, arrows = moves the trombone, route
-= switches the RF path) and, while enabled, a 2 px red ring drawn inside the
-key. Read-only actions (Graph, Export, Import, Read, Recapture) carry neither.
+= switches the RF path) and, while enabled, a 1 px half-strength red ring
+drawn inside the key (2 px at full strength read as too loud). Read-only actions (Graph, Export, Import, Read, Recapture) carry neither.
 The safe way out (Stop, Output Off, RF Off) has no ring.
 
 ### Emergency stop
@@ -372,10 +379,10 @@ does not block), open red ring with a cross (error), empty ring (not done yet),
 spinner (in progress). Summaries drop out below a 760 px container before the
 rail wraps. Sections no longer carry step numbers.
 
-### Bench lamps
-Two 30 px outlined lamps in the top bar: DUT (opens the DUT controls in a
-popover) and Instruments n/7 (opens the Instruments panel). Mark plus words,
-never a bare dot; the Instruments mark is ticked only with the whole rig up.
+### Bench lamp
+One 30 px outlined lamp in the top bar, Instruments n/7, which opens the
+Instruments panel. Mark plus words, never a bare dot; ticked only with the
+whole rig up.
 
 ### Verdict tally
 Above every judged results table: "✓ 11 PASS" and "✕ 7 FAIL" as 16 px bold

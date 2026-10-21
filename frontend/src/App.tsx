@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Box, Drawer, IconButton, Stack, Tooltip, Typography, type Theme,
+  Box, Drawer, IconButton, Stack, Tooltip, Typography, useMediaQuery, type Theme,
 } from '@mui/material'
 import ArticleIcon from '@mui/icons-material/Article'
 import CloseIcon from '@mui/icons-material/Close'
@@ -8,7 +8,7 @@ import ScienceIcon from '@mui/icons-material/Science'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import { BenchLamps } from './components/BenchLamps'
 import { DutLinkProvider } from './context/DutLinkContext'
-import { SearchBar } from './components/SearchBar'
+import { DutControls, PathLossField } from './components/ConnectionPanel'
 import { LogPanel } from './components/LogPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { useChat } from './context/ChatContext'
@@ -185,6 +185,9 @@ export default function App() {
    * sign it is hiding any.
    */
   const navVisible = narrow ? navOpen : true
+  // Below this the top bar's right-hand status goes to its short form so the
+  // DUT controls keep their room.
+  const tightBar = useMediaQuery('(max-width:1599px)')
 
   /**
    * Dismiss the floating menu on a click anywhere else, and on Escape.
@@ -401,7 +404,9 @@ export default function App() {
             aria-expanded={narrow ? navOpen : undefined}
             onClick={narrow ? () => { setNavHint(false); setNavOpen((v) => !v) } : undefined}
             sx={{
-              width: navVisible && !narrow ? sidebarW : 'auto',
+              // Only as wide as the logo below 1600 px, where the top bar needs
+              // the room for the DUT controls; the sidebar's own width above.
+              width: navVisible && !narrow && !tightBar ? sidebarW : 'auto',
               flexShrink: 0,
               display: 'flex',
               alignItems: 'center',
@@ -446,13 +451,11 @@ export default function App() {
           </Box>
         </Tooltip>
 
-        {/* Three flex parts rather than a centred search with the status
-            overlaid on the right: the overlay was fine with two small pills,
-            but with the bench lamps beside them it ran over the search box on
-            a 1280 px window with the log open. The two outer parts grow
-            equally, so the search stays centred while there is room, and the
-            right part never shrinks below its content, so when there is not the
-            search gives way instead of being covered. */}
+        {/* The DUT connection and path loss, on every page and always open:
+            the operator wants the link and its settings in view rather than
+            behind a step that opens and closes. They took the place of the
+            page search. Left-aligned, so status appearing on the right (a live
+            pill) takes room from the gap between them and never moves them. */}
         <Box
           sx={{
             flexGrow: 1,
@@ -463,16 +466,13 @@ export default function App() {
             px: 2,
           }}
         >
-          <Box sx={{ flex: '1 1 0', minWidth: 0 }} />
-          <Box sx={{ flex: '0 1 420px', minWidth: 180 }}>
-          <SearchBar
-            activeId={activeId}
-            onSelect={(id) => {
-              setActiveId(id)
-              window.scrollTo({ top: 0, behavior: 'smooth' })
-            }}
-          />
+          {/* A definite basis: with an "auto" one the MAC field, sized in
+              percent of it, collapsed to its minimum and left the bar empty. */}
+          <Box sx={{ flex: '0 1 720px', minWidth: 0 }}>
+            <DutControls compact />
           </Box>
+          <PathLossField compact label={tightBar ? 'Loss' : 'Path loss'} />
+          <Box sx={{ flex: '1 1 0', minWidth: 8 }} />
           {/* Live-output pills sit with the dock buttons on the right of the
               bar, and stay there when the dock is open: an RF source keyed on
               another page is exactly what the operator cannot otherwise see. */}
@@ -481,40 +481,32 @@ export default function App() {
             spacing={0.75}
             alignItems="center"
             justifyContent="flex-end"
-            sx={{ flex: '1 1 0', minWidth: 'max-content' }}
+            sx={{ flexShrink: 0 }}
           >
-            <BenchLamps compact={narrow} />
+            <BenchLamps compact={tightBar} />
             <LiveOutputPills
-              compact={narrow}
+              compact={tightBar}
               onSelect={(id) => {
                 setActiveId(id)
                 window.scrollTo({ top: 0, behavior: 'smooth' })
               }}
             />
-            {!logOpen && (
-              <>
-                <Tooltip title="Open log">
-                  <IconButton size="small" onClick={() => { setDockTab('log'); setLogOpen(true) }}>
-                    <ArticleIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                {chatOn && (
-                  <Tooltip title="Open assistant">
-                    <IconButton size="small" onClick={() => { setDockTab('chat'); setLogOpen(true) }}>
-                      <SmartToyOutlinedIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
-              </>
+            {/* Always shown, open or not: buttons that came and went with the
+                dock moved the lamps beside them. */}
+            <Tooltip title="Log">
+              <IconButton size="small" aria-label="Open log" onClick={() => { setDockTab('log'); setLogOpen(true) }}>
+                <ArticleIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {chatOn && (
+              <Tooltip title="Assistant">
+                <IconButton size="small" aria-label="Open assistant" onClick={() => { setDockTab('chat'); setLogOpen(true) }}>
+                  <SmartToyOutlinedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
             )}
           </Stack>
         </Box>
-
-        {logOpen && !narrow && (
-          <Box sx={{ width: logW, flexShrink: 0, px: 1.5, display: 'flex' }}>
-            {dockHeader}
-          </Box>
-        )}
       </Box>
 
       <Sidebar
@@ -669,9 +661,9 @@ export default function App() {
             collapsed to zero and its chips and input row overflowed on top of
             each other rather than the transcript giving up the space. */}
         <Stack sx={{ p: 2, flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          {narrow && (
-            <Box sx={{ display: 'flex', mb: 1, flexShrink: 0 }}>{dockHeader}</Box>
-          )}
+          {/* In the panel at every width now: the top bar's right-hand column
+              went to the DUT controls. */}
+          <Box sx={{ display: 'flex', mb: 1, flexShrink: 0 }}>{dockHeader}</Box>
           {/* Both stay mounted: switching tabs must not lose the log's scroll
               position or a half-typed question. */}
           <Box
