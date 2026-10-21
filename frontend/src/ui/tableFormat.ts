@@ -1,3 +1,4 @@
+import { alpha, type Theme } from '@mui/material/styles'
 import { MONO } from './tokens'
 
 /**
@@ -25,3 +26,12 @@ export function deltaText(measured: number | null | undefined, set: number | nul
   const s = Math.abs(d).toFixed(2)
   return d > 0.004 ? `+${s}` : d < -0.004 ? `−${s}` : s
 }
+
+/**
+ * Row wash for a FAIL, so a failure stands out of a long run before the
+ * Verdict column is read. A background tint only -- no coloured edge -- and
+ * never the only signal: the row also carries the ✕ FAIL mark.
+ */
+export const FAIL_ROW_SX = {
+  '& > td': { bgcolor: (t: Theme) => alpha(t.palette.error.main, 0.09) },
+} as const

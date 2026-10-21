@@ -195,8 +195,8 @@ to carry on.
 The **Power** cell is coloured when the sensor was near the edge of its
 range: **amber** is marginal, **red** is unreliable.
 
-**Smith chart** shows every point, coloured by efficiency (blue low, red
-high). Hover a point for its numbers; the step number matches the **#** in
+**Smith chart** shows every point, coloured by efficiency (dark violet low,
+bright yellow high). Hover a point for its numbers; the step number matches the **#** in
 the table. With several frequencies or powers, pick which one to show.
 
 ![Smith chart, example data](img/load-pull-smith.png)

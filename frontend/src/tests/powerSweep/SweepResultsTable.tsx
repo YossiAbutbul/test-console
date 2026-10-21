@@ -31,7 +31,7 @@ const Row = memo(function Row({ r }: { r: ResultRow }) {
         {r.error
           ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
           : r.ok
-            ? <Box component="span" sx={{ color: 'success.main' }}>ok</Box>
+            ? <Box component="span" sx={{ color: 'text.secondary' }}>ok</Box>
             : '—'}
       </TableCell>
     </TableRow>

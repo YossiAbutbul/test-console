@@ -41,7 +41,13 @@ export interface DataPalette {
  * with several lines needs them told apart, and that is still a measurement
  * talking. Series hues keep their order across modes and only shift lightness,
  * for the same reason the triad does — line 2 is the same colour whichever
- * mode the bench is in. The light set is the one the TX graph always used.
+ * mode the bench is in.
+ *
+ * No red and no green in the set. Series 2 and 3 used to be exactly those, so
+ * a line that happened to land on red looked like a run of FAILs and one on
+ * green like a pass -- the same hues the results table uses for its verdict.
+ * The set is blue, amber, violet, cyan, pink, ochre, slate, teal: told apart
+ * by lightness as well as hue, and the legend names every line.
  */
 export interface ChartPalette {
   /** Categorical series colours, assigned in order and cycled. */
@@ -53,6 +59,14 @@ export interface ChartPalette {
 }
 
 export interface AppPalette {
+  /**
+   * Quietest text that still has to be read: sub-lines, hints, units.
+   *
+   * Set rather than left to MUI, whose default is a translucent black/white
+   * that came out at 2.7:1 on Light paper and 4.2:1 on Mid -- and it is used
+   * for real copy in dozens of places, not only for disabled controls.
+   */
+  textDisabled: string
   appBar: string
   appBarBorder: string
   contentBg: string
@@ -102,6 +116,7 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
   // Daylight and overheads. White paper on a faintly cool grey ground, so
   // panel edges read without a heavy border.
   light: {
+    textDisabled: '#687076',
     appBar: '#FFFFFF',
     appBarBorder: '#DDDFE1',
     contentBg: '#F4F5F6',
@@ -114,7 +129,7 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
       highlight: 'rgba(58,66,73,0.07)',
     },
     chart: {
-      series: ['#2563EB', '#DC2626', '#16A34A', '#D97706', '#7C3AED', '#0891B2', '#DB2777', '#65A30D'],
+      series: ['#2563EB', '#D97706', '#7C3AED', '#0891B2', '#DB2777', '#8A6A1F', '#475569', '#0D9488'],
       grid: 'rgba(27,31,35,0.10)',
       axis: '#5C646B',
     },
@@ -145,6 +160,7 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
   // near-black glyphs, as high-visibility controls do on real hardware: white
   // on these would not clear 4.5:1, dark does.
   mid: {
+    textDisabled: '#9DA3A9',
     appBar: '#2E3236',
     appBarBorder: '#41464B',
     contentBg: '#2E3236',
@@ -153,11 +169,13 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
     data: {
       ok: '#58C07A',
       warn: '#E2A63F',
-      bad: '#F07068',
+      // Lifted from #F07068, which was 4.0:1 on Mid paper: FAIL and error
+      // text is exactly the copy that must clear 4.5.
+      bad: '#F58A82',
       highlight: 'rgba(198,206,213,0.10)',
     },
     chart: {
-      series: ['#6EA8FE', '#F47F78', '#5CC584', '#EDB04F', '#B49AF7', '#4CC9DE', '#F17FB6', '#A8D25A'],
+      series: ['#6EA8FE', '#EDB04F', '#B49AF7', '#4CC9DE', '#F17FB6', '#C9A86A', '#AEB8C4', '#4FD1C0'],
       grid: 'rgba(255,255,255,0.10)',
       axis: '#949AA0',
     },
@@ -166,7 +184,9 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
       bg2: '#24272B',
       border: '#41464B',
       text: '#E4E7EA',
-      textDim: '#949AA0',
+      // Lifted from #949AA0 (4.1:1 on Mid paper) to clear 4.5 on paper, ground
+      // and rail alike: section titles and labels sit on all three.
+      textDim: '#A0A6AC',
       accent: '#C6CED5',
       accentSoft: 'rgba(255,255,255,0.08)',
       accentSoftHover: 'rgba(255,255,255,0.13)',
@@ -186,6 +206,7 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
   // panels, and the graphite accent lifted nearly to white so selection is
   // still legible against the near-black ground.
   dark: {
+    textDisabled: '#80878D',
     appBar: '#141618',
     appBarBorder: '#24282B',
     contentBg: '#141618',
@@ -198,7 +219,7 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
       highlight: 'rgba(214,221,227,0.10)',
     },
     chart: {
-      series: ['#74ADFF', '#F7867F', '#62CC8A', '#F0B658', '#BBA2F9', '#55CFE3', '#F488BC', '#AED862'],
+      series: ['#74ADFF', '#F0B658', '#BBA2F9', '#55CFE3', '#F488BC', '#CFAE70', '#B4BEC9', '#57D7C6'],
       grid: 'rgba(255,255,255,0.08)',
       axis: '#838A90',
     },
@@ -246,7 +267,7 @@ export function makeTheme(mode: ThemeMode): Theme {
       error: { main: p.data.bad },
       info: { main: p.sidebar.accent },
       background: { default: p.contentBg, paper: p.paper },
-      text: { primary: p.sidebar.text, secondary: p.sidebar.textDim },
+      text: { primary: p.sidebar.text, secondary: p.sidebar.textDim, disabled: p.textDisabled },
       divider: p.appBarBorder,
     },
     shape: { borderRadius: 6 },

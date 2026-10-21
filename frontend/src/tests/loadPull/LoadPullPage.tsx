@@ -1506,7 +1506,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                       <TableCell sx={{ fontSize: 12 }}>
                         {r.error
                           ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
-                          : <Box component="span" sx={{ color: 'success.main' }}>ok</Box>}
+                          : <Box component="span" sx={{ color: 'text.secondary' }}>ok</Box>}
                       </TableCell>
                     </TableRow>
                     )

@@ -3,6 +3,7 @@ import {
   Typography, type ButtonProps, type TabsProps,
 } from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import PowerIcon from '@mui/icons-material/Power'
 import StopIcon from '@mui/icons-material/Stop'
 import type { CommandResponse } from '../types/models'
@@ -247,9 +248,14 @@ export function PathLossChip({
 }) {
   return (
     <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', gap: 1 }}>
+      {/* Outlined, never filled: amber is a lamp in this palette, not a
+          surface (DESIGN.md, the Annunciator Rule). The filled chip was the
+          loudest thing on Mode Sweep for a figure that does not block. */}
       <Chip
         size="small"
+        variant="outlined"
         color={calibrated ? 'default' : 'warning'}
+        icon={calibrated ? undefined : <WarningAmberRoundedIcon sx={{ fontSize: 15 }} />}
         label={`Path loss: ${pathLossDb} dB`}
         sx={{ ...TEXT.hint, fontWeight: 600 }}
       />

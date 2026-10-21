@@ -27,7 +27,7 @@ import {
 } from '../../lib/settle'
 import { uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch } from '../../lib/earfcn'
 import { GRID_GAP, Section, SegmentedChoice, TEXT,
-  HeadCell, NUM_CELL_SX, VerdictMark, deltaText,
+  FAIL_ROW_SX, HeadCell, NUM_CELL_SX, VerdictMark, deltaText,
 } from '../../ui'
 import { CSV_HEADER, parseLteCwCsv, toCsvBody } from './csv'
 import { ResultsGraphModal, type GraphableRow } from '../power/ResultsGraphModal'
@@ -179,7 +179,7 @@ function ColHead({ label, hint }: { label: string; hint?: string }) {
 
 const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i: number }) {
   return (
-    <TableRow>
+    <TableRow sx={r.verdict === 'fail' ? FAIL_ROW_SX : undefined}>
       <TableCell sx={NUM_CELL_SX}>{i + 1}</TableCell>
       <TableCell sx={NUM_CELL_SX}>{r.earfcn}</TableCell>
       <TableCell sx={NUM_CELL_SX}>
@@ -192,7 +192,9 @@ const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i:
       <TableCell sx={NUM_CELL_SX}>{fmt(r.measured_dbm, 2)}</TableCell>
       {/* Measured minus set: how far the point missed, which the eye
           otherwise has to work out from two columns apart. */}
-      <TableCell sx={NUM_CELL_SX}>{deltaText(r.measured_dbm, r.set_power_dbm)}</TableCell>
+      <TableCell sx={{ ...NUM_CELL_SX, color: r.verdict === 'fail' ? 'error.main' : undefined }}>
+        {deltaText(r.measured_dbm, r.set_power_dbm)}
+      </TableCell>
       <TableCell sx={NUM_CELL_SX}>
         {fmt(r.current_a == null ? null : r.current_a * 1000, 1)}
       </TableCell>
@@ -203,7 +205,9 @@ const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i:
         {r.error
           ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
           : r.ok
-            ? <Box component="span" sx={{ color: 'success.main' }}>ok</Box>
+            // Neutral: green is PASS's colour, and "ok" only means
+            // the point was measured.
+            ? <Box component="span" sx={{ color: 'text.secondary' }}>ok</Box>
             : '—'}
       </TableCell>
     </TableRow>

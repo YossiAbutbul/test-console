@@ -27,8 +27,17 @@ export function efficiency(row: LoadPullResultRow): number | null {
   return Number.isFinite(e) ? e : null
 }
 
-// Turbo-ish blue→cyan→green→yellow→red ramp (low → high).
-export const RAMP = ['#2563eb', '#06b6d4', '#22c55e', '#eab308', '#dc2626']
+/**
+ * Efficiency ramp, low → high: a viridis-like run from deep violet through
+ * teal to yellow.
+ *
+ * It was a blue → green → yellow → red rainbow. Rainbow steps are not ordered
+ * by lightness, so "which point is better" had to be read off the hue -- which
+ * a red/green colour-blind operator cannot do -- and its two ends were the
+ * same red and green the results table uses for FAIL and PASS. This one gets
+ * steadily lighter as efficiency rises, so the order survives in greyscale.
+ */
+export const RAMP = ['#46327e', '#365c8d', '#277f8e', '#1fa187', '#4ac16d', '#a0da39', '#fde725']
 
 function hexLerp(a: string, b: string, t: number): string {
   const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16))

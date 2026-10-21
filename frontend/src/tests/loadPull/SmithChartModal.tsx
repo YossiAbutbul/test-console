@@ -6,7 +6,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
-import { useThemeMode } from '../../context/ThemeModeContext'
+import { useAppPalette } from '../../context/ThemeModeContext'
 import { MONO, TEXT } from '../../ui'
 import type { LoadPullResultRow } from '../../store/loadPullPageStore'
 import { Z0, VCC, RAMP, reflection, dbmToW, efficiency, rampColor, chartRows } from './smith'
@@ -71,8 +71,9 @@ export function SmithChartModal({
   onClose: () => void
   results: LoadPullResultRow[]
 }) {
-  const { mode } = useThemeMode()
-  const dark = mode !== 'light'
+  // Grid, ink and ground come from the theme like every other chart, rather
+  // than blue-grey values of the chart's own that read as a different product.
+  const pal = useAppPalette()
   const [hover, setHover] = useState<number | null>(null)
   const svgRef = useRef<SVGSVGElement | null>(null)
   const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle')
@@ -156,16 +157,16 @@ export function SmithChartModal({
     && (effDomain.min * 100).toFixed(1) === (effDomain.max * 100).toFixed(1)
 
   const colorOf = (eff: number | null): string => {
-    if (eff == null || !effDomain) return dark ? '#6b7280' : '#9ca3af'
+    if (eff == null || !effDomain) return pal.sidebar.successOff
     // Every point measured the same: colour carries no information, so use one
     // neutral tone rather than painting them all at the ramp's cold end.
     if (effSpan === 0 || effFlat) return rampColor(0.5)
     return rampColor((eff - effDomain.min) / effSpan)
   }
 
-  const grid = dark ? '#3a4150' : '#d3d8e0'
-  const axis = dark ? '#586173' : '#aab2bf'
-  const pathC = dark ? '#5b6472' : '#c2c8d2'
+  const grid = pal.chart.grid
+  const axis = pal.chart.axis
+  const pathC = pal.sidebar.textDim
 
   const rCircles = [0, 0.2, 0.5, 1, 2, 5].map((r) => ({
     cx: cx + (r / (1 + r)) * R, cy, rr: (1 / (1 + r)) * R,
@@ -206,12 +207,12 @@ export function SmithChartModal({
       if (!ctx) throw new Error('no 2d context')
       ctx.scale(SCALE, SCALE)
       // Opaque: a transparent PNG pasted onto a dark slide loses the grid.
-      ctx.fillStyle = dark ? '#111418' : '#ffffff'
+      ctx.fillStyle = pal.paper
       ctx.fillRect(0, 0, S, S + LEGEND_H)
       ctx.drawImage(img, 0, 0, S, S)
 
       // Efficiency scale, mirroring what the dialog shows.
-      const ink = dark ? '#c7cdd6' : '#4b5563'
+      const ink = pal.sidebar.textDim
       ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, monospace'
       ctx.textBaseline = 'middle'
       const y = S + LEGEND_H / 2
@@ -452,7 +453,7 @@ export function SmithChartModal({
                       cx={p.x} cy={p.y}
                       r={isHover ? 7 : 4.5}
                       fill={colorOf(p.eff)}
-                      stroke={isHover ? (dark ? '#fff' : '#111') : '#ffffff'}
+                      stroke={isHover ? pal.sidebar.text : pal.paper}
                       strokeWidth={isHover ? 2 : 0.8}
                       style={{ cursor: 'pointer' }}
                       onMouseEnter={() => setHover(p.idx)}

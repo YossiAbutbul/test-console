@@ -1,8 +1,25 @@
 import { useEffect, useState } from 'react'
+import SensorsRoundedIcon from '@mui/icons-material/SensorsRounded'
+import PowerSettingsNewRoundedIcon from '@mui/icons-material/PowerSettingsNewRounded'
+import CellTowerRoundedIcon from '@mui/icons-material/CellTowerRounded'
+import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import { Box, Stack, Tooltip } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import { formatDuration } from '../lib/async'
 import { useLiveOutputs, type LiveOutputEntry } from '../context/liveOutput'
+
+/**
+ * A glyph per kind of output. Red already meant FAIL in the tables and the
+ * emergency stop in the Load Pull header, so a red pill on its own said
+ * "something is wrong" rather than which thing is live. The glyph says it:
+ * radiating, powering, the LTE modem on air, a run in progress.
+ */
+const KIND_ICON = {
+  rf: SensorsRoundedIcon,
+  dc: PowerSettingsNewRoundedIcon,
+  lte: CellTowerRoundedIcon,
+  run: PlayArrowRoundedIcon,
+} as const
 
 interface Props {
   onSelect: (pageId: string) => void
@@ -65,6 +82,7 @@ function Pill({
   // A run is ongoing work rather than a hazard on the bench, so it gets the
   // warning colour; anything radiating or powering the DUT is red.
   const tone = entry.kind === 'run' ? 'warning' : 'error'
+  const Icon = KIND_ICON[entry.kind]
   const countdown = entry.untilMs != null && now != null
     ? formatDuration(Math.max(0, entry.untilMs - now))
     : null
@@ -108,16 +126,20 @@ function Pill({
       >
         <Box
           component="span"
-          sx={(t) => ({
-            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-            bgcolor: t.palette[tone].main,
+          sx={{
+            display: 'inline-flex', flexShrink: 0,
+            // The pulse stays, now on the glyph: the one moving thing in the
+            // bar is the thing that is live.
             animation: 'tcLivePulse 1.4s ease-in-out infinite',
             '@keyframes tcLivePulse': {
               '0%, 100%': { opacity: 1 },
-              '50%': { opacity: 0.35 },
+              '50%': { opacity: 0.45 },
             },
-          })}
-        />
+            '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+          }}
+        >
+          <Icon sx={{ fontSize: 17 }} />
+        </Box>
         {entry.label}
         {!compact && detail && (
           <Box

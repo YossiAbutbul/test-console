@@ -280,7 +280,10 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
               size="small"
               icon={<WarningAmberIcon sx={{ fontSize: 12 }} />}
               label="Required"
-              sx={{ height: 20, fontSize: 12, fontWeight: 600, bgcolor: `${p.actions.disconnect.bg}1F`, color: p.actions.disconnect.bg }}
+              variant="outlined"
+              // Amber, not the Disconnect red: missing-but-needed is a
+              // warning, and red in this panel already means a failed connect.
+              sx={{ height: 20, fontSize: 12, fontWeight: 600, color: 'warning.main', borderColor: 'warning.main', '& .MuiChip-icon': { color: 'warning.main' } }}
             />
           )}
         </Stack>

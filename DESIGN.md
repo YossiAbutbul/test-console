@@ -8,22 +8,23 @@ colors:
   log-well: "#26292D"
   hairline: "#41464B"
   ink: "#E4E7EA"
-  ink-dim: "#949AA0"
+  ink-dim: "#A0A6AC"
+  ink-quiet: "#9DA3A9"
   brushed-graphite: "#C6CED5"
   lamp-ok: "#58C07A"
   lamp-warn: "#E2A63F"
-  lamp-bad: "#F07068"
+  lamp-bad: "#F58A82"
   lamp-off: "#5D646A"
   connect-fill: "#4CC17C"
   glyph-on-bright: "#1B1F23"
   series-1: "#6EA8FE"
-  series-2: "#F47F78"
-  series-3: "#5CC584"
-  series-4: "#EDB04F"
-  series-5: "#B49AF7"
-  series-6: "#4CC9DE"
-  series-7: "#F17FB6"
-  series-8: "#A8D25A"
+  series-2: "#EDB04F"
+  series-3: "#B49AF7"
+  series-4: "#4CC9DE"
+  series-5: "#F17FB6"
+  series-6: "#C9A86A"
+  series-7: "#AEB8C4"
+  series-8: "#4FD1C0"
 typography:
   title:
     fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
@@ -194,6 +195,9 @@ eight-hue series set reserved for charts.
 - **Log Well** (`log-well`): the recessed log drawer.
 - **Hairline** (`hairline`): every border, divider and disabled fill.
 - **Ink** / **Ink Dim** (`ink`, `ink-dim`): primary and secondary text.
+- **Ink Quiet** (`ink-quiet`): the quietest text that is still read -- sub-lines,
+  hints, units (MUI `text.disabled`). Set per theme to clear 4.5:1 on paper;
+  MUI's translucent default was 2.7:1 on Light.
 
 ### Semantic (the lamps)
 - **Lamp OK** (`lamp-ok`): connected, PASS, within tolerance, a lit Modem key.
@@ -203,8 +207,23 @@ eight-hue series set reserved for charts.
 - **Connect Fill** (`connect-fill`): the Connect button — green, a sibling of Lamp OK.
 
 ### Data series
-- **Series 1–8** (`series-1` … `series-8`): categorical line colours, assigned
-  in order and cycled. Order is fixed across themes; only lightness shifts.
+- **Series 1–8** (`series-1` … `series-8`): blue, amber, violet, cyan, pink,
+  ochre, slate, teal -- assigned in order and cycled. **No red and no green**:
+  those are PASS and FAIL. Order is fixed across themes; only lightness shifts.
+- **Efficiency ramp** (Smith chart): viridis-like, deep violet → teal →
+  yellow, ordered by lightness so it reads in greyscale and to a red/green
+  colour-blind eye.
+
+### Where colour goes (colorize pass)
+- **Verdict:** ✓ PASS green, ✕ FAIL red, always with the mark and the word. A
+  FAIL row takes a faint red wash (9%) and its Δ dB turns red; no coloured
+  edge.
+- **Status column:** "ok" is neutral text; only an error is red.
+- **Live outputs:** each pill carries its kind's glyph (antenna RF, power DC,
+  tower LTE, play Run), so red there is "this is live", not "this failed".
+- **Path loss uncalibrated:** an outlined amber chip with a warning glyph,
+  never a filled amber block.
+- **Instruments panel "Required":** outlined amber, not the Disconnect red.
 
 ### Named Rules
 **The Lamp Rule.** Colour appears only when it means something the operator
@@ -390,5 +409,6 @@ Selected item: soft graphite tint and 600 weight. Footer shows DUT BLE status
 - **Don't** use warn as a surface or button fill.
 - **Don't** fill Scan or any other secondary action.
 - **Don't** put shadows on in-page panels.
-- **Don't** hardcode colours in pages (the chart PNG background and grid in
-  ResultsGraphModal are a known violation).
+- **Don't** hardcode colours in pages or charts; the Smith chart's grid, ink
+  and ground now come from the theme like every other chart.
+- **Don't** use red or green for a data series.

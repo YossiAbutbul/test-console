@@ -520,7 +520,7 @@ tens of dB without changing where the sensor actually was in its range.
 ### Smith chart
 
 **Smith chart** plots the points with Z₀ = 50 Ω, coloured by efficiency
-(blue = low, red = high):
+(dark violet = low, bright yellow = high):
 
 ```
 eff = P_out[W] / (3.6 V × I_cc[A])
