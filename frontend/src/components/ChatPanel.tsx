@@ -53,7 +53,7 @@ function QuotaWidget() {
   if (!status) return null
   if (!status.configured) {
     return (
-      <Typography sx={{ fontSize: 11.5, color: 'warning.main' }}>
+      <Typography sx={{ fontSize: 12, color: 'warning.main' }}>
         No API key on this machine. See README, "Assistant".
       </Typography>
     )
@@ -94,7 +94,7 @@ function QuotaWidget() {
                 + 'window rolls.'
           }
         >
-          <Typography noWrap sx={{ fontSize: 11.5, color: 'warning.main' }}>
+          <Typography noWrap sx={{ fontSize: 12, color: 'warning.main' }}>
             {quota.blocked_upstream ? 'Google rate-limited' : 'Local limit reached'}
             {', retry in '}{waiting} s
           </Typography>
@@ -103,7 +103,7 @@ function QuotaWidget() {
         <Tooltip title={`Model: ${status.model}`}>
           <Typography
             noWrap
-            sx={{ fontSize: 11.5, color: lowDay ? 'warning.main' : 'text.secondary' }}
+            sx={{ fontSize: 12, color: lowDay ? 'warning.main' : 'text.secondary' }}
           >
             {day_remaining}/{day_limit} today · {minute_remaining}/{minute_limit} this min
           </Typography>
@@ -126,7 +126,7 @@ function QuotaWidget() {
               color={lowTokens ? 'warning' : 'inherit'}
               sx={{ height: 3, borderRadius: 2, opacity: 0.75 }}
             />
-            <Typography noWrap sx={{ fontSize: 10.5, color: lowTokens ? 'warning.main' : 'text.disabled' }}>
+            <Typography noWrap sx={{ fontSize: 12, color: lowTokens ? 'warning.main' : 'text.disabled' }}>
               {short(tokens_remaining_minute)} tokens left
               {tokens_day > 0 && ` · ${short(tokens_day)} today`}
             </Typography>
@@ -264,7 +264,7 @@ function Turn({ role, content, error, ts }: { role: string; content: string; err
         >
           {mine ? content : <Markdownish text={detex(content)} />}
         </Typography>
-        <Typography sx={{ fontSize: 10, color: 'text.disabled', mt: 0.25, pr: 2.5 }}>{ts}</Typography>
+        <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.25, pr: 2.5 }}>{ts}</Typography>
         <Tooltip title={copied ? 'Copied' : 'Copy'}>
           <IconButton
             className="turn-copy"
@@ -422,7 +422,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             // would have nothing to undo.
             onDelete={selectedPages === null ? undefined : () => setSelectedPages(null)}
             deleteIcon={<CloseIcon sx={{ fontSize: 13 }} />}
-            sx={{ fontSize: 11, height: 22, maxWidth: '100%', '& .MuiChip-icon': { ml: 0.6 } }}
+            sx={{ fontSize: 12, height: 22, maxWidth: '100%', '& .MuiChip-icon': { ml: 0.6 } }}
           />
         </Tooltip>
         {attachments.map((a) => (
@@ -435,7 +435,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             onClick={() => toggleAttachment(a.id)}
             onDelete={() => removeAttachment(a.id)}
             deleteIcon={<CloseIcon sx={{ fontSize: 13 }} />}
-            sx={{ fontSize: 11, height: 22, maxWidth: '100%', '& .MuiChip-icon': { ml: 0.6 } }}
+            sx={{ fontSize: 12, height: 22, maxWidth: '100%', '& .MuiChip-icon': { ml: 0.6 } }}
           />
         ))}
       </Stack>
@@ -455,7 +455,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           justifyContent="space-between"
           sx={{ pl: 1.5, pr: 0.5, py: 0.5 }}
         >
-          <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, opacity: 0.7 }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, opacity: 0.7 }}>
             RESULTS TO ATTACH
           </Typography>
           <IconButton size="small" onClick={() => setPageMenu(null)}>
@@ -471,7 +471,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         >
           <Checkbox size="small" checked={selectedPages === null} sx={{ p: 0.25, mr: 0.75 }} />
           <Typography sx={{ fontSize: 12.5, flex: 1 }}>Follow the page I&apos;m on</Typography>
-          <Typography noWrap sx={{ fontSize: 11, color: 'text.disabled', maxWidth: 96 }}>
+          <Typography noWrap sx={{ fontSize: 12, color: 'text.disabled', maxWidth: 96 }}>
             {activePage ? activePage.label : 'none'}
           </Typography>
         </MenuItem>
@@ -501,7 +501,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     sweep, and the count is what says which holds the run. */}
                 <Typography
                   noWrap
-                  sx={{ fontSize: 11, color: p.rows ? 'text.secondary' : 'text.disabled' }}
+                  sx={{ fontSize: 12, color: p.rows ? 'text.secondary' : 'text.disabled' }}
                 >
                   {p.rows ? `${p.rows} rows` : 'empty'}
                 </Typography>
@@ -512,7 +512,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       </Popover>
 
       {attachError && (
-        <Typography sx={{ fontSize: 11.5, color: 'error.main', pb: 0.5 }}>{attachError}</Typography>
+        <Typography sx={{ fontSize: 12, color: 'error.main', pb: 0.5 }}>{attachError}</Typography>
       )}
 
       <Stack direction="row" spacing={0.75} alignItems="flex-end" sx={{ flexShrink: 0 }}>

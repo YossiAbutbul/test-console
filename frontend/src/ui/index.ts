@@ -30,6 +30,8 @@ export {
   CheckRail, CheckStep, CheckMark, CheckDetail, type CheckState,
 } from './CheckRail'
 export { DutGateContext, useDutGated } from './gate'
+export { HeadCell, VerdictMark } from './table'
+export { NUM_CELL_SX, deltaText } from './tableFormat'
 export { useRunEta, formatRunTiming } from './useRunEta'
 export { ChartFrame, ChartToolbar, ChartSwitch } from './chart/ChartFrame'
 export { useChart, useChartTheme, type ChartHandle, type ChartTheme } from './chart/useChart'

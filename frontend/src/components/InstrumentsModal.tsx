@@ -145,7 +145,7 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
             </Typography>
             <Typography
               sx={{
-                fontSize: 10.5, color: 'text.secondary',
+                fontSize: 12, color: 'text.secondary',
                 fontFamily: MONO, lineHeight: 1.2,
                 minHeight: 14,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -187,7 +187,7 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
                     </Typography>
                     <Typography
                       sx={{
-                        fontSize: 11,
+                        fontSize: 12,
                         color: o.idn || o.detail ? 'text.secondary' : 'text.disabled',
                         fontStyle: o.idn || o.detail ? 'normal' : 'italic',
                         lineHeight: 1.2,
@@ -226,7 +226,7 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start" sx={{ mr: 0.5 }}>
-                    <Typography sx={{ fontSize: 11, fontWeight: 600, color: 'text.disabled' }}>
+                    <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.disabled' }}>
                       Ch
                     </Typography>
                   </InputAdornment>
@@ -273,14 +273,14 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
             {busy ? 'Connecting…' : connected ? 'Disconnect' : 'Connect'}
           </Button>
           {inst.placeholder && (
-            <Chip size="small" label="Soon" sx={{ height: 20, fontSize: 10.5, fontWeight: 600, fontStyle: 'italic' }} />
+            <Chip size="small" label="Soon" sx={{ height: 20, fontSize: 12, fontWeight: 600, fontStyle: 'italic' }} />
           )}
           {required && !connected && (
             <Chip
               size="small"
               icon={<WarningAmberIcon sx={{ fontSize: 12 }} />}
               label="Required"
-              sx={{ height: 20, fontSize: 10, fontWeight: 600, bgcolor: `${p.actions.disconnect.bg}1F`, color: p.actions.disconnect.bg }}
+              sx={{ height: 20, fontSize: 12, fontWeight: 600, bgcolor: `${p.actions.disconnect.bg}1F`, color: p.actions.disconnect.bg }}
             />
           )}
         </Stack>
@@ -292,7 +292,7 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
           result arriving rather than as a jump. */}
       {inst.failure ? (
         <Box sx={{ mt: 0.75, pl: 2.5 }}>
-          <Typography sx={{ fontSize: 10.5, fontWeight: 700, color: 'error.main' }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'error.main' }}>
             {inst.failure.title}
           </Typography>
           <FailureNote failure={inst.failure} />
@@ -301,7 +301,7 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
         <Typography
           sx={{
             mt: 0.5, pl: 2.5,
-            fontSize: 10.5,
+            fontSize: 12,
             fontFamily: MONO,
             color: 'text.secondary',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -405,7 +405,7 @@ export function InstrumentsModal() {
                 <Box key={g.label}>
                   <Typography
                     sx={{
-                      fontSize: 11, fontWeight: 700, letterSpacing: 0.8,
+                      fontSize: 12, fontWeight: 700, letterSpacing: 0.8,
                       textTransform: 'uppercase', color: 'text.secondary',
                       mb: 1,
                     }}
@@ -429,7 +429,7 @@ export function InstrumentsModal() {
                 <Box>
                   <Typography
                     sx={{
-                      fontSize: 11, fontWeight: 700, letterSpacing: 0.8,
+                      fontSize: 12, fontWeight: 700, letterSpacing: 0.8,
                       textTransform: 'uppercase', color: 'text.disabled',
                       mb: 1,
                     }}

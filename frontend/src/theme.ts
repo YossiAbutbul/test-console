@@ -269,6 +269,10 @@ export function makeTheme(mode: ThemeMode): Theme {
     components: {
       MuiCssBaseline: {
         styleOverrides: {
+          // Tabular figures everywhere, not only in the mono readouts: a
+          // proportional 1 beside an 8 makes "11/18" and "1m 12s" shift width
+          // as they count, and labels like "18 points" jitter between runs.
+          body: { fontVariantNumeric: 'tabular-nums' },
           '*': {
             scrollbarColor: `${p.appBarBorder} transparent`,
             scrollbarWidth: 'thin',

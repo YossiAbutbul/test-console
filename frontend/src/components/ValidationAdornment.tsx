@@ -93,7 +93,7 @@ export function ValidationAdornment({ show, message }: { show: boolean; message:
           borderRadius: 1,
           bgcolor: 'grey.900',
           color: '#fff',
-          fontSize: 11.5,
+          fontSize: 12,
           fontWeight: 600,
           lineHeight: 1.35,
           // Wraps inside a fixed width rather than running off on one line.

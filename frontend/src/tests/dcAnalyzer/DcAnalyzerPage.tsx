@@ -279,7 +279,7 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
                     {options.map((r) => (
                       <MenuItem key={r.resource} value={r.resource} sx={{ display: 'block' }}>
                         <Typography sx={{ fontFamily: MONO, fontSize: 12 }}>{r.resource}</Typography>
-                        <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
+                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
                           {r.idn ?? r.detail ?? 'no IDN response'}
                         </Typography>
                       </MenuItem>

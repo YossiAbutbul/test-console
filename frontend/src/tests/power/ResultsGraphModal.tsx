@@ -252,7 +252,7 @@ export function ResultsGraphModal({ open, onClose, results }: Props) {
                         position="top"
                         formatter={(v: number | string) =>
                           typeof v === 'number' ? yFmt(v) : ''}
-                        style={{ fontSize: 10, fill: theme.seriesColor(i) }}
+                        style={{ fontSize: 12, fill: theme.seriesColor(i) }}
                       />
                     )}
                   </Line>

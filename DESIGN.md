@@ -49,26 +49,27 @@ typography:
     fontWeight: 500
   eyebrow:
     fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
-    fontSize: "10.5px"
+    fontSize: "12px"
     fontWeight: 700
-    letterSpacing: "0.6px"
+    letterSpacing: "0.5px"
   hint:
     fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
     fontSize: "12px"
   readout:
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
-    fontSize: "22px"
+    fontSize: "24px"
     fontWeight: 600
+    fontFeature: "tnum"
   stat-value:
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
-    fontSize: "20px"
+    fontSize: "24px"
     fontWeight: 600
     lineHeight: 1.1
     letterSpacing: "-0.02em"
     fontFeature: "tnum"
   dense:
     fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
-    fontSize: "11.5px"
+    fontSize: "12px"
     fontWeight: 600
 rounded:
   chip: "4px"
@@ -226,19 +227,35 @@ is Segoe UI, because Inter is named but not bundled or loaded).
 monospace so digits line up and read as instrument output.
 
 ### Hierarchy
-- **Title** (700, 26 px, 1.15): page title in PageHeader.
+- **Floor: 12 px.** Nothing in the UI is set smaller; the old 10–11.5 px
+  eyebrows, chips and footnotes were raised to 12.
+- **Title** (700, 26 px, 1.15): page title in PageHeader, with the section path
+  (14 px, secondary, "LoRa · TX") on the same baseline after it -- never as a
+  kicker above.
 - **Section** (700, 17 px): section heading inside a page; dialog title.
 - **Section title** (700, 12 px, 0.5 px tracking, uppercase): the label Section draws over a panel.
 - **Body** (400, 14.5 px): MUI base size.
 - **Label** (500, 13 px): field label above an input.
-- **Eyebrow** (700, 10.5 px, 0.6 px tracking, uppercase): micro-label above a value.
-- **Readout** (mono 600, 22 px): large measurement value.
-- **Stat value** (mono 600, 20 px, tabular): value in a StatTile.
-- **Hint** (12 px) / **Dense** (600, 11.5 px) / **Micro** (11 px): helper copy, table and chip text, footnotes.
+- **Eyebrow** (700, 12 px, 0.5 px tracking, uppercase): micro-label above a value.
+- **Readout / Stat value** (mono 600, 24 px, tabular): the measurement itself;
+  unit 13 px muted beside it.
+- **Table heading** (600, 12.5 px) with its unit on a second line (12 px), so
+  headers never wrap mid-label; numeric columns right-aligned.
+- **Table number** (mono, tabular, right-aligned): every measured or set value
+  in a results table (`NUM_CELL_SX`).
+- **Verdict** (700, 12.5 px, with a ✓ / ✕ icon): PASS / FAIL; N/A in secondary.
+- **Hint** (12 px) / **Dense** (600, 12 px) / **Micro** (12 px): helper copy, chip text, footnotes.
+
+Tabular figures are on for the whole body, so counters ("11/18", "1m 12s")
+and labels never shift width as they change.
 
 ### Named Rules
 **The Mono Number Rule.** A measured or set value is monospace with tabular
-figures; its unit is smaller and muted beside it.
+figures; its unit is smaller and muted beside it (or under the column
+heading in a table), and a column of them is right-aligned.
+
+**The Twelve Floor Rule.** No text below 12 px. A label too small to read from
+the bench is not a label.
 
 ## Layout
 

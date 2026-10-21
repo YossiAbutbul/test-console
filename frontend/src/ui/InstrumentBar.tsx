@@ -91,7 +91,7 @@ export function InstrumentBar({
             noWrap
             title={line ?? undefined}
             sx={{
-              fontFamily: MONO, fontSize: 11.5, lineHeight: 1.3,
+              fontFamily: MONO, fontSize: 12, lineHeight: 1.3,
               color: !connected && !configReady ? 'warning.main' : 'text.secondary',
             }}
           >

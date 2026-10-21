@@ -45,6 +45,7 @@ export function runStep(ctl: PlanState, gated: boolean): CourseStep {
     state: ctl.running ? 'busy' : gated ? 'block' : ctl.canRun ? 'todo' : 'block',
     summary: ctl.running
       ? `Running ${ctl.progress}`
-      : gated ? 'Waiting for the DUT' : ctl.canRun ? 'Ready to run' : 'Waiting for Settings',
+      // Same words as the Run button, so the rail and the button agree.
+      : gated ? 'Needs DUT' : ctl.canRun ? 'Ready to run' : 'Needs Settings',
   }
 }

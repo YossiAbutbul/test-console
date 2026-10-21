@@ -47,8 +47,10 @@ export function StatTile({ label, value, unit, sub, off, tone }: StatTileProps) 
       </Typography>
       <Typography
         sx={{
+          // 24 rather than 20: this is the number the operator walks over to
+          // read, and the tile has the width for it at every wrap point.
           fontFamily: MONO,
-          fontSize: 20, fontWeight: 600, lineHeight: 1.1,
+          fontSize: 24, fontWeight: 600, lineHeight: 1.1,
           letterSpacing: '-0.02em',
           color: off ? 'text.disabled' : (toneColor ?? 'text.primary'),
           fontVariantNumeric: 'tabular-nums',
@@ -59,7 +61,7 @@ export function StatTile({ label, value, unit, sub, off, tone }: StatTileProps) 
         {unit && (
           <Typography
             component="span"
-            sx={{ fontSize: 12, fontWeight: 500, color: 'text.secondary', ml: 0.5, fontFamily: 'inherit' }}
+            sx={{ fontSize: 13, fontWeight: 500, color: 'text.secondary', ml: 0.5, fontFamily: 'inherit' }}
           >
             {unit}
           </Typography>
@@ -67,8 +69,8 @@ export function StatTile({ label, value, unit, sub, off, tone }: StatTileProps) 
       </Typography>
       <Typography
         sx={{
-          fontSize: 11, color: 'text.disabled', mt: 0.4,
-          minHeight: 15,
+          fontSize: 12, color: 'text.disabled', mt: 0.4,
+          minHeight: 16,
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}
       >

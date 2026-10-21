@@ -44,6 +44,7 @@ import { vswr, vswrLabel } from './smith'
 import {
   ACTION_W, CONTROL_H, EmergencyStop, FieldGrid, MONO, PageBody, PathLossChip,
   RunControls, Section, StatRow, StatTile, StatusChip, TEXT, TwoCol,
+  HeadCell, NUM_CELL_SX,
 } from '../../ui'
 import { useAppPalette } from '../../context/ThemeModeContext'
 import type { TestPageProps } from '../types'
@@ -181,7 +182,7 @@ function RigRow({ name, connected, detail }: RigRowProps) {
       <Box sx={{ flexGrow: 1, minWidth: 8 }} />
       <Typography
         sx={{
-          fontSize: 11,
+          fontSize: 12,
           fontFamily: connected && detail ? MONO : undefined,
           color: connected ? 'text.disabled' : p.data.warn,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -198,7 +199,7 @@ function SubHead({ children }: { children: React.ReactNode }) {
   return (
     <Typography
       sx={{
-        fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5,
+        fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
         textTransform: 'uppercase', color: 'text.disabled', mb: 1,
       }}
     >
@@ -216,7 +217,7 @@ function StepMark({ done, label }: { done: boolean; label: string }) {
         ? <CheckCircleRoundedIcon sx={{ fontSize: 15, color: p.data.ok }} />
         : <RadioButtonUncheckedIcon sx={{ fontSize: 15, color: 'text.disabled' }} />}
       <Typography
-        sx={{ fontSize: 11.5, fontWeight: 600, color: done ? p.data.ok : 'text.disabled' }}
+        sx={{ fontSize: 12, fontWeight: 600, color: done ? p.data.ok : 'text.disabled' }}
       >
         {label}
       </Typography>
@@ -640,7 +641,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       state: running ? 'busy' : blockers.length ? 'block' : 'todo',
       summary: running
         ? `Running ${progressIdx}/${totalPoints}`
-        : blockers.length ? `Waiting for ${firstBlocked ?? 'setup'}` : `Ready · ≈ ${formatDuration(estimatedRunMs)}`,
+        : blockers.length ? `Needs ${firstBlocked ?? 'setup'}` : `Ready · ≈ ${formatDuration(estimatedRunMs)}`,
       targetId: 'lp-results',
     },
   ]
@@ -1216,7 +1217,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                   </IconButton>
                   <Typography
                     sx={{
-                      fontSize: 11.5, fontWeight: 600,
+                      fontSize: 12, fontWeight: 600,
                       color: jogDir !== 0 ? 'warning.main' : (jogFocused ? 'primary.main' : 'text.secondary'),
                       whiteSpace: 'nowrap', minWidth: 78, textAlign: 'center',
                     }}
@@ -1343,7 +1344,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           panel
           action={
             <Stack direction="row" alignItems="center" spacing={0.75}>
-              <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
+              <Typography sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5 }}>
                 power = sensor + path loss ({pathLossDb} dB)
               </Typography>
               <Button
@@ -1452,21 +1453,21 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                   <col style={{ width: '11%' }} />
                 </colgroup>
                 <TableHead>
-                  <TableRow sx={{ '& th': { whiteSpace: 'nowrap', fontSize: 12 } }}>
-                    <TableCell>#</TableCell>
-                    <TableCell>Pos (mm)</TableCell>
+                  <TableRow>
+                    <HeadCell label="#" numeric />
+                    <HeadCell label="Pos" unit="mm" numeric />
                     {/* A row is only identified by position, frequency and
                         power together now that a run sweeps all three. */}
-                    <TableCell>Freq (MHz)</TableCell>
-                    <TableCell>Set (dBm)</TableCell>
-                    <TableCell>Att (dB)</TableCell>
-                    <TableCell>Power (dBm)</TableCell>
-                    <TableCell>CC (mA)</TableCell>
-                    <TableCell>R (Ω)</TableCell>
-                    <TableCell>X (Ω)</TableCell>
-                    <TableCell>S11 (dB)</TableCell>
-                    <TableCell>VSWR</TableCell>
-                    <TableCell>Status</TableCell>
+                    <HeadCell label="Freq" unit="MHz" numeric />
+                    <HeadCell label="Set" unit="dBm" numeric />
+                    <HeadCell label="Att" unit="dB" numeric />
+                    <HeadCell label="Power" unit="dBm" numeric />
+                    <HeadCell label="CC" unit="mA" numeric />
+                    <HeadCell label="R" unit="Ω" numeric />
+                    <HeadCell label="X" unit="Ω" numeric />
+                    <HeadCell label="S11" unit="dB" numeric />
+                    <HeadCell label="VSWR" numeric />
+                    <HeadCell label="Status" />
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1480,29 +1481,29 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     const confidence = powerConfidence(raw)
                     return (
                     <TableRow key={i}>
-                      <TableCell>{i + 1}</TableCell>
-                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.pos_mm, 2)}</TableCell>
-                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.freq_mhz ?? null, 2)}</TableCell>
-                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.power_dbm_setting ?? null, 0)}</TableCell>
-                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.att_db ?? null, 0)}</TableCell>
+                      <TableCell sx={NUM_CELL_SX}>{i + 1}</TableCell>
+                      <TableCell sx={NUM_CELL_SX}>{fmt(r.pos_mm, 2)}</TableCell>
+                      <TableCell sx={NUM_CELL_SX}>{fmt(r.freq_mhz ?? null, 2)}</TableCell>
+                      <TableCell sx={NUM_CELL_SX}>{fmt(r.power_dbm_setting ?? null, 0)}</TableCell>
+                      <TableCell sx={NUM_CELL_SX}>{fmt(r.att_db ?? null, 0)}</TableCell>
                       <TableCell
                         sx={{
-                          fontFamily: MONO,
+                          ...NUM_CELL_SX,
                           color: confidenceColor(confidence),
                           fontWeight: confidence === 'ok' ? undefined : 600,
                         }}
                       >
                         {fmt(r.power_dbm, 2)}
                       </TableCell>
-                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.current_a == null ? null : r.current_a * 1000, 1)}</TableCell>
-                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.r_ohm, 2)}</TableCell>
-                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.x_ohm, 2)}</TableCell>
-                      <TableCell sx={{ fontFamily: MONO }}>{fmt(r.s11_db, 2)}</TableCell>
+                      <TableCell sx={NUM_CELL_SX}>{fmt(r.current_a == null ? null : r.current_a * 1000, 1)}</TableCell>
+                      <TableCell sx={NUM_CELL_SX}>{fmt(r.r_ohm, 2)}</TableCell>
+                      <TableCell sx={NUM_CELL_SX}>{fmt(r.x_ohm, 2)}</TableCell>
+                      <TableCell sx={NUM_CELL_SX}>{fmt(r.s11_db, 2)}</TableCell>
                       {/* Derived from the point's own S11, not stored on it, so
                           an imported file shows one whether or not it was
                           exported with the column. */}
-                      <TableCell sx={{ fontFamily: MONO }}>{vswrLabel(r)}</TableCell>
-                      <TableCell sx={{ fontSize: 11 }}>
+                      <TableCell sx={NUM_CELL_SX}>{vswrLabel(r)}</TableCell>
+                      <TableCell sx={{ fontSize: 12 }}>
                         {r.error
                           ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
                           : <Box component="span" sx={{ color: 'success.main' }}>ok</Box>}

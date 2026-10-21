@@ -234,7 +234,7 @@ export function SwitchPage({ group }: TestPageProps) {
                 size="small" sx={nudgeSx} disabled={!connected || busy || angle <= ANGLE_MIN}
                 onClick={() => nudge(-10)} aria-label="minus ten degrees"
               >
-                <Typography sx={{ fontSize: 11, fontWeight: 700 }}>10</Typography>
+                <Typography sx={{ fontSize: 12, fontWeight: 700 }}>10</Typography>
               </IconButton>
               <IconButton
                 size="small" sx={nudgeSx} disabled={!connected || busy || angle <= ANGLE_MIN}
@@ -268,7 +268,7 @@ export function SwitchPage({ group }: TestPageProps) {
                 size="small" sx={nudgeSx} disabled={!connected || busy || angle >= ANGLE_MAX}
                 onClick={() => nudge(10)} aria-label="plus ten degrees"
               >
-                <Typography sx={{ fontSize: 11, fontWeight: 700 }}>10</Typography>
+                <Typography sx={{ fontSize: 12, fontWeight: 700 }}>10</Typography>
               </IconButton>
               <Box sx={{ flexGrow: 1 }} />
               <Button
@@ -282,7 +282,7 @@ export function SwitchPage({ group }: TestPageProps) {
             </Stack>
 
             <Stack direction="row" spacing={0.5} alignItems="center">
-              <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
+              <Typography sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5 }}>
                 Store current position as
               </Typography>
               <MiniAction

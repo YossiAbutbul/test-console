@@ -140,7 +140,7 @@ export function SearchBar({ activeId, onSelect }: Props) {
               component="kbd"
               sx={{
                 fontFamily: 'inherit',
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 600,
                 px: 0.75,
                 py: 0.1,
@@ -156,12 +156,12 @@ export function SearchBar({ activeId, onSelect }: Props) {
             >
               Ctrl
             </Box>
-            <Box component="span" sx={{ fontSize: 11, color: p.sidebar.textDim }}>+</Box>
+            <Box component="span" sx={{ fontSize: 12, color: p.sidebar.textDim }}>+</Box>
             <Box
               component="kbd"
               sx={{
                 fontFamily: 'inherit',
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 600,
                 px: 0.75,
                 py: 0.1,
@@ -177,12 +177,12 @@ export function SearchBar({ activeId, onSelect }: Props) {
             >
               Shift
             </Box>
-            <Box component="span" sx={{ fontSize: 11, color: p.sidebar.textDim }}>+</Box>
+            <Box component="span" sx={{ fontSize: 12, color: p.sidebar.textDim }}>+</Box>
             <Box
               component="kbd"
               sx={{
                 fontFamily: 'inherit',
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 600,
                 px: 0.75,
                 py: 0.1,
@@ -230,7 +230,7 @@ export function SearchBar({ activeId, onSelect }: Props) {
               return (
                 <Box key={h.id}>
                   {showHeader && (
-                    <Typography sx={{ px: 1.5, pt: i === 0 ? 1 : 1.25, pb: 0.5, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: p.sidebar.textDim }}>
+                    <Typography sx={{ px: 1.5, pt: i === 0 ? 1 : 1.25, pb: 0.5, fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: p.sidebar.textDim }}>
                       {h.protocol}
                     </Typography>
                   )}
@@ -247,7 +247,7 @@ export function SearchBar({ activeId, onSelect }: Props) {
                       gap: 1,
                     }}
                   >
-                    <Typography sx={{ fontSize: 11, color: p.sidebar.textDim, flexShrink: 0 }}>
+                    <Typography sx={{ fontSize: 12, color: p.sidebar.textDim, flexShrink: 0 }}>
                       {path} /
                     </Typography>
                     <Typography sx={{ fontSize: 13, fontWeight: isCur ? 600 : 500, flexGrow: 1 }}>

@@ -454,7 +454,7 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
               <Stack direction="row" alignItems="center" spacing={0.75}>
                 <Typography
                   sx={{
-                    fontSize: 11.5,
+                    fontSize: 12,
                     fontWeight: 600,
                     color: totalSteps === 0 ? 'error.main' : 'text.disabled',
                   }}
@@ -483,7 +483,7 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                       />
                     }
                     label={
-                      <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: 'text.secondary' }}>
+                      <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary' }}>
                         Advanced
                       </Typography>
                     }
@@ -541,7 +541,7 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       bgcolor: 'action.selected',
                     }}>
-                      <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary' }}>
+                      <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>
                         {i + 1}
                       </Typography>
                     </Box>
@@ -678,7 +678,7 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
           flush
           action={
             <Stack direction="row" alignItems="center" spacing={0.75}>
-              <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
+              <Typography sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5 }}>
                 measured + path loss ({pathLossDb} dB)
               </Typography>
               <Button

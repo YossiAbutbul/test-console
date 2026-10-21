@@ -133,7 +133,7 @@ export function BandsModal({ open, onClose, bands, onSave }: Props) {
                 <Typography sx={{ fontSize: 13, fontWeight: on ? 600 : 400, minWidth: 40 }}>
                   B{band}
                 </Typography>
-                <Typography sx={{ fontFamily: MONO, fontSize: 11.5, color: 'text.secondary' }}>
+                <Typography sx={{ fontFamily: MONO, fontSize: 12, color: 'text.secondary' }}>
                   {r ? `${r.lo}–${r.hi} MHz` : ''}
                 </Typography>
               </Stack>

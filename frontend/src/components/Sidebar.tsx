@@ -133,7 +133,7 @@ function DcSupplySection() {
 
   return (
     <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5 }}>
-      <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: s.textDim, mb: 0.5 }}>
+      <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: s.textDim, mb: 0.5 }}>
         DC Analyzer Supply
       </Typography>
       <Stack direction="row" alignItems="center" spacing={1}>
@@ -158,12 +158,12 @@ function DcSupplySection() {
         <Typography sx={{ fontSize: 12, color: s.textDim }}>V</Typography>
       </Stack>
       {!dcConnected && (
-        <Typography sx={{ fontSize: 11, color: s.textDim, mt: 0.5 }}>
+        <Typography sx={{ fontSize: 12, color: s.textDim, mt: 0.5 }}>
           Connect DC analyzer to apply.
         </Typography>
       )}
       {err && (
-        <Typography sx={{ fontSize: 11, color: p.data.bad, mt: 0.5 }}>{err}</Typography>
+        <Typography sx={{ fontSize: 12, color: p.data.bad, mt: 0.5 }}>{err}</Typography>
       )}
     </Box>
   )
@@ -208,7 +208,7 @@ function SettingsButton() {
       >
         <DcSupplySection />
         <Divider sx={{ my: 0.5, borderColor: s.border }} />
-        <Typography sx={{ px: 1.5, pt: 0.5, pb: 0.5, fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: s.textDim }}>
+        <Typography sx={{ px: 1.5, pt: 0.5, pb: 0.5, fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: s.textDim }}>
           Theme
         </Typography>
         {THEME_OPTIONS.map((opt) => {
@@ -437,7 +437,7 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
                   {protocol}
                 </Typography>
                 {empty && (
-                  <Typography sx={{ fontSize: 10.5, color: s.textDim, fontStyle: 'italic' }}>
+                  <Typography sx={{ fontSize: 12, color: s.textDim, fontStyle: 'italic' }}>
                     coming soon
                   </Typography>
                 )}

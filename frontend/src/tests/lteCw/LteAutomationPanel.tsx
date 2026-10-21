@@ -10,7 +10,6 @@ import UploadIcon from '@mui/icons-material/Upload'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import ShowChartIcon from '@mui/icons-material/ShowChart'
 import TuneIcon from '@mui/icons-material/Tune'
-import { alpha } from '@mui/material/styles'
 import { useMutation } from '@tanstack/react-query'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { device } from '../../api/device'
@@ -27,7 +26,9 @@ import {
   DEFAULT_SETTLE_MS as SHARED_DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs,
 } from '../../lib/settle'
 import { uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch } from '../../lib/earfcn'
-import { GRID_GAP, Section, SegmentedChoice, TEXT } from '../../ui'
+import { GRID_GAP, Section, SegmentedChoice, TEXT,
+  HeadCell, NUM_CELL_SX, VerdictMark, deltaText,
+} from '../../ui'
 import { CSV_HEADER, parseLteCwCsv, toCsvBody } from './csv'
 import { ResultsGraphModal, type GraphableRow } from '../power/ResultsGraphModal'
 import { lteChannelPoint } from '../power/graphSeries'
@@ -167,7 +168,7 @@ function ColHead({ label, hint }: { label: string; hint?: string }) {
       {hint && (
         <Box
           component="span"
-          sx={{ ml: 0.5, fontSize: 11.5, fontWeight: 400, color: 'text.secondary' }}
+          sx={{ ml: 0.5, fontSize: 12, fontWeight: 400, color: 'text.secondary' }}
         >
           {hint}
         </Box>
@@ -179,42 +180,26 @@ function ColHead({ label, hint }: { label: string; hint?: string }) {
 const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i: number }) {
   return (
     <TableRow>
-      <TableCell>{i + 1}</TableCell>
-      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{r.earfcn}</TableCell>
-      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>
+      <TableCell sx={NUM_CELL_SX}>{i + 1}</TableCell>
+      <TableCell sx={NUM_CELL_SX}>{r.earfcn}</TableCell>
+      <TableCell sx={NUM_CELL_SX}>
         {r.freq_mhz.toFixed(1)}
         {r.band != null && (
           <Box component="span" sx={{ color: 'text.disabled', ml: 0.5 }}>B{r.band}</Box>
         )}
       </TableCell>
-      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{r.set_power_dbm}</TableCell>
-      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmt(r.measured_dbm, 2)}</TableCell>
-      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>
+      <TableCell sx={NUM_CELL_SX}>{r.set_power_dbm}</TableCell>
+      <TableCell sx={NUM_CELL_SX}>{fmt(r.measured_dbm, 2)}</TableCell>
+      {/* Measured minus set: how far the point missed, which the eye
+          otherwise has to work out from two columns apart. */}
+      <TableCell sx={NUM_CELL_SX}>{deltaText(r.measured_dbm, r.set_power_dbm)}</TableCell>
+      <TableCell sx={NUM_CELL_SX}>
         {fmt(r.current_a == null ? null : r.current_a * 1000, 1)}
       </TableCell>
       <TableCell>
-        {r.verdict == null ? (
-          // Not "—": the point was measured, it just had nothing to be judged
-          // against, and a dash reads as a missing reading.
-          <Box component="span" sx={{ color: 'text.disabled', fontSize: 11 }}>N/A</Box>
-        ) : (
-          <Box
-            component="span"
-            sx={{
-              display: 'inline-block',
-              px: 0.75, py: '1px', borderRadius: 0.5,
-              fontSize: 10, fontWeight: 700, letterSpacing: 0.6,
-              color: r.verdict === 'pass' ? 'success.main' : 'error.main',
-              bgcolor: (t) => alpha(
-                r.verdict === 'pass' ? t.palette.success.main : t.palette.error.main, 0.14,
-              ),
-            }}
-          >
-            {r.verdict === 'pass' ? 'PASS' : 'FAIL'}
-          </Box>
-        )}
+        <VerdictMark verdict={r.verdict} />
       </TableCell>
-      <TableCell sx={{ fontSize: 11 }}>
+      <TableCell sx={{ fontSize: 12 }}>
         {r.error
           ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
           : r.ok
@@ -731,7 +716,7 @@ export function LteAutomationPanel({
           grow
           action={
             <Stack direction="row" alignItems="center" spacing={1.25}>
-              <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+              <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
                 {totalPoints} point{totalPoints === 1 ? '' : 's'}
               </Typography>
               <SegmentedChoice
@@ -754,7 +739,7 @@ export function LteAutomationPanel({
                   about instrument timing, not about the channel, so it stays
                   out of the table. */}
               <Stack direction="row" alignItems="center" spacing={0.75}>
-                <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>Settle</Typography>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Settle</Typography>
                 <TextField
                   size="small"
                   type="number"
@@ -765,7 +750,7 @@ export function LteAutomationPanel({
                   inputProps={{ min: MIN_SETTLE_MS, step: 50 }}
                   sx={{ width: 84, '& .MuiInputBase-root': { height: 26 } }}
                 />
-                <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>ms</Typography>
+                <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>ms</Typography>
               </Stack>
               <Button
                 size="small"
@@ -828,7 +813,7 @@ export function LteAutomationPanel({
                         alignItems: 'center',
                       }}
                     >
-                      <Typography sx={{ fontSize: 11, color: 'text.secondary', textAlign: 'right' }}>
+                      <Typography sx={{ fontSize: 12, color: 'text.secondary', textAlign: 'right' }}>
                         {i + 1}.
                       </Typography>
 
@@ -906,7 +891,7 @@ export function LteAutomationPanel({
 
                       {/* Shows whichever unit is *not* being typed, so the row
                           always states the channel it resolved to. */}
-                      <Typography sx={{ fontSize: 10.5, color: 'text.disabled', whiteSpace: 'nowrap' }}>
+                      <Typography sx={{ fontSize: 12, color: 'text.disabled', whiteSpace: 'nowrap' }}>
                         {first && (
                           <Box component="span" sx={{ mr: 0.75 }}>
                             {isEarfcn ? `${(first.freqHz / 1e6).toFixed(1)} MHz` : first.earfcn}
@@ -937,7 +922,7 @@ export function LteAutomationPanel({
             <Tooltip title={syntaxHint} placement="top-start">
               <Typography
                 sx={{
-                  fontSize: 11, color: 'text.disabled', whiteSpace: 'nowrap',
+                  fontSize: 12, color: 'text.disabled', whiteSpace: 'nowrap',
                   minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
                 }}
               >
@@ -978,7 +963,7 @@ export function LteAutomationPanel({
         grow
         action={
           <Stack direction="row" alignItems="center" spacing={0.75}>
-            <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
+            <Typography sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5 }}>
               measured + path loss (per frequency; default {defaultDb} dB)
             </Typography>
             <Button
@@ -1048,24 +1033,26 @@ export function LteAutomationPanel({
             <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%' }}>
               <colgroup>
                 <col style={{ width: '5%' }} />
-                <col style={{ width: '13%' }} />
-                <col style={{ width: '17%' }} />
-                <col style={{ width: '11%' }} />
-                <col style={{ width: '16%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '9%' }} />
                 <col style={{ width: '12%' }} />
-                <col style={{ width: '11%' }} />
-                <col style={{ width: '15%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '19%' }} />
               </colgroup>
               <TableHead>
                 <TableRow>
-                  <TableCell>#</TableCell>
-                  <TableCell>EARFCN</TableCell>
-                  <TableCell>Freq (MHz)</TableCell>
-                  <TableCell>Set (dBm)</TableCell>
-                  <TableCell>Measured (dBm)</TableCell>
-                  <TableCell>CC (mA)</TableCell>
-                  <TableCell>Verdict</TableCell>
-                  <TableCell>Status</TableCell>
+                  <HeadCell label="#" numeric />
+                  <HeadCell label="EARFCN" numeric />
+                  <HeadCell label="Freq" unit="MHz" numeric />
+                  <HeadCell label="Set" unit="dBm" numeric />
+                  <HeadCell label="Measured" unit="dBm" numeric />
+                  <HeadCell label="Δ" unit="dB" numeric />
+                  <HeadCell label="CC" unit="mA" numeric />
+                  <HeadCell label="Verdict" />
+                  <HeadCell label="Status" />
                 </TableRow>
               </TableHead>
               <TableBody>

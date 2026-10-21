@@ -192,7 +192,7 @@ export function MeasurementCard({
   return (
     <Box>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-        <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
+        <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
           {staticData?.label ?? 'Measurement'}
         </Typography>
         {/* State where the number came from: a corrected reading that doesn't
@@ -208,7 +208,7 @@ export function MeasurementCard({
           >
             <Typography
               sx={{
-                fontSize: 11,
+                fontSize: 12,
                 color: loss.calibrated ? 'text.disabled' : 'warning.main',
                 fontWeight: loss.calibrated ? 400 : 600,
                 cursor: 'default',
@@ -223,10 +223,10 @@ export function MeasurementCard({
         )}
         <Box sx={{ flexGrow: 1 }} />
         {staticData?.subLabel && (
-          <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>{staticData.subLabel}</Typography>
+          <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>{staticData.subLabel}</Typography>
         )}
         {!isStatic && data?.t_ms != null && (
-          <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>{data.t_ms} ms</Typography>
+          <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>{data.t_ms} ms</Typography>
         )}
         {!isStatic && (
           <Tooltip
@@ -336,7 +336,7 @@ export function MeasurementCard({
               {failure.title}
             </Typography>
             {failure.hint && (
-              <Typography sx={{ fontSize: 11.5, color: 'text.secondary', lineHeight: 1.35 }}>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary', lineHeight: 1.35 }}>
                 {failure.hint}
               </Typography>
             )}

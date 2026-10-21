@@ -297,7 +297,7 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
                       <MenuItem key={p.resource} value={p.resource} sx={{ fontSize: 12.5 }}>
                         {p.resource}
                         {p.detail && (
-                          <Typography component="span" sx={{ ml: 1, fontSize: 11, color: 'text.secondary' }}>
+                          <Typography component="span" sx={{ ml: 1, fontSize: 12, color: 'text.secondary' }}>
                             {p.detail}
                           </Typography>
                         )}

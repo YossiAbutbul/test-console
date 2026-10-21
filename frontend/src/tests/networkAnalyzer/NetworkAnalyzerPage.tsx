@@ -326,7 +326,7 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
             hint={`Up to ${MAX_MARKERS}, in MHz. Read on the next sweep.`}
             action={
               <Stack direction="row" alignItems="center" spacing={0.5}>
-                <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mr: 0.5 }}>
+                <Typography sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5 }}>
                   {markerHzList.length}/{MAX_MARKERS}
                 </Typography>
                 <MiniAction
@@ -395,7 +395,7 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
                 {sTab === 's11' ? 'Read S11' : 'Read S21'}
               </Button>
               {shown ? (
-                <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+                <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
                   {fmtHz(shown.start_hz)} → {fmtHz(shown.stop_hz)} · {shown.points} pts
                 </Typography>
               ) : null}

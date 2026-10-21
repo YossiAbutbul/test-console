@@ -316,14 +316,14 @@ export function LastFrameSection({ result }: { result: CommandResponse | null })
             />
             <Typography
               sx={{
-                fontSize: 11.5, fontWeight: 600,
+                fontSize: 12, fontWeight: 600,
                 color: result.ok ? p.data.ok : p.data.bad,
                 textTransform: 'none', letterSpacing: 0,
               }}
             >
               {result.ok ? 'ok' : 'failed'}
             </Typography>
-            <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+            <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
               status {result.status}
             </Typography>
           </Stack>

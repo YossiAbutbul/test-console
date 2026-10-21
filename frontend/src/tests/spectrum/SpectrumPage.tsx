@@ -750,18 +750,18 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                         domain={chart.domain}
                         ticks={niceTicks(chart.domain[0], chart.domain[1])}
                         tickFormatter={(v: number) => trim(v.toFixed(3))}
-                        tick={{ fontSize: 11, fontFamily: MONO, fontWeight: 600 }}
+                        tick={{ fontSize: 12, fontFamily: MONO, fontWeight: 600 }}
                         axisLine={false}
                         tickLine={false}
                         stroke={theme.palette.text.secondary}
-                        label={{ value: chart.zero ? 'ms' : 'MHz', position: 'insideBottomRight', offset: -16, fontSize: 11 }}
+                        label={{ value: chart.zero ? 'ms' : 'MHz', position: 'insideBottomRight', offset: -16, fontSize: 12 }}
                       />
                       <YAxis
                         domain={yDomain}
                         ticks={yTicks}
                         allowDataOverflow
                         tickFormatter={(v: number) => v.toFixed(1)}
-                        tick={{ fontSize: 11, fontFamily: MONO, fontWeight: 600 }}
+                        tick={{ fontSize: 12, fontFamily: MONO, fontWeight: 600 }}
                         axisLine={false}
                         tickLine={false}
                         stroke={theme.palette.text.secondary}
@@ -789,7 +789,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                           label={{
                             value: `M${m.n}  ${fmt(m.y, 1)}`,
                             position: 'insideTopRight',
-                            fontSize: 11,
+                            fontSize: 12,
                             fontFamily: MONO,
                             fill: theme.palette.text.primary,
                           }}
@@ -873,7 +873,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                             size="small"
                             disabled={!can}
                             onClick={(e) => { e.stopPropagation(); void markerOff(m.n) }}
-                            sx={{ minWidth: 0, px: 1, fontSize: 11 }}
+                            sx={{ minWidth: 0, px: 1, fontSize: 12 }}
                           >
                             Off
                           </Button>

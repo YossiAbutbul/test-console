@@ -156,7 +156,7 @@ export function DutControls() {
                   component="span"
                   sx={{
                     px: 0.85, py: 0.1, borderRadius: 0.75,
-                    fontSize: 11, fontWeight: 600, lineHeight: 1.4,
+                    fontSize: 12, fontWeight: 600, lineHeight: 1.4,
                     bgcolor: color.bg, color: color.fg,
                   }}
                 >

@@ -96,7 +96,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
             {/* The trade-off itself: what each dB of output costs in current. */}
             <Box>
               <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.5 }}>
-                <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'text.secondary' }}>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'text.secondary' }}>
                   Lowest current per power reached
                 </Typography>
                 <Stack direction="row" spacing={0.5}>
@@ -126,7 +126,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                     domain={['dataMin', 'dataMax']}
                     tick={theme.tick}
                     stroke={theme.axisStroke}
-                    label={{ value: 'Measured power (dBm)', position: 'bottom', offset: 2, ...theme.labelStyle, fontSize: 11 }}
+                    label={{ value: 'Measured power (dBm)', position: 'bottom', offset: 2, ...theme.labelStyle, fontSize: 12 }}
                   />
                   <YAxis
                     // [0, 'auto'] is Recharts' own default, kept while the
@@ -139,7 +139,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                     tick={theme.tick}
                     stroke={theme.axisStroke}
                     width={50}
-                    label={{ value: 'Current (mA)', angle: -90, position: 'insideLeft', offset: 12, ...theme.labelStyle, fontSize: 11 }}
+                    label={{ value: 'Current (mA)', angle: -90, position: 'insideLeft', offset: 12, ...theme.labelStyle, fontSize: 12 }}
                   />
                   <Tooltip
                     contentStyle={theme.tooltipStyle}
@@ -178,7 +178,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                 chart above draws, so the two read as one control, and nothing
                 opens over the results to do it. */}
             <Stack direction="row" alignItems="center" spacing={1.5} sx={{ flexShrink: 0 }}>
-              <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'text.secondary' }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'text.secondary' }}>
                 Combinations at
               </Typography>
               <Stack
@@ -215,7 +215,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                   <ChevronRightIcon sx={{ fontSize: 17 }} />
                 </IconButton>
               </Stack>
-              <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+              <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
                 {active?.rows.length ?? 0} combination{active?.rows.length === 1 ? '' : 's'}
                 {' · cheapest first · click the curve to jump'}
               </Typography>
@@ -243,7 +243,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                     <Box sx={{ width: 18, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
                       {isBest
                         ? <EmojiEventsIcon sx={{ fontSize: 15, color: p.data.ok }} />
-                        : <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>{i + 1}</Typography>}
+                        : <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>{i + 1}</Typography>}
                     </Box>
                     <Typography
                       sx={{
@@ -277,7 +277,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                     </Typography>
                     <Typography
                       sx={{
-                        fontFamily: MONO, fontSize: 11.5, width: 66, textAlign: 'right', flexShrink: 0,
+                        fontFamily: MONO, fontSize: 12, width: 66, textAlign: 'right', flexShrink: 0,
                         color: 'text.disabled',
                       }}
                     >

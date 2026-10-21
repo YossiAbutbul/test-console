@@ -55,7 +55,17 @@ export const FIELD_MIN_W = 150
  *  empty box, and the label drifts away from the value it belongs to. */
 export const FIELD_MAX_W = 780
 
-/** Type scale for the roles the app actually has. */
+/**
+ * Type scale for the roles the app actually has.
+ *
+ * Nothing in the UI is set below 12 px. The scale used to run down to 10 and
+ * 10.5 px for eyebrows, chips and footnotes, which on a bench monitor read
+ * from a step away is not text but texture -- and those were often the
+ * labels saying what a number meant. Steps above the floor are 12 (labels,
+ * metadata), 12.5 (summaries, table headings), 13 (field labels), 14.5
+ * (body), 17 (section / dialog headings), 26 (page title); readouts sit at
+ * 24 in the mono face.
+ */
 export const TEXT = {
   /** Page title, in PageHeader. */
   title: { fontSize: 26, fontWeight: 700, lineHeight: 1.15 },
@@ -73,21 +83,21 @@ export const TEXT = {
   },
   /** Uppercase micro-label above a value. */
   eyebrow: {
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: 700,
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
     textTransform: 'uppercase' as const,
   },
   /** Large monospace measurement value. */
-  readout: { fontSize: 22, fontWeight: 600, fontFamily: MONO },
+  readout: { fontSize: 24, fontWeight: 600, fontFamily: MONO, fontVariantNumeric: 'tabular-nums' },
   /** Field label. */
   label: { fontSize: 13, fontWeight: 500 },
   /** Explanatory copy under a control. */
   hint: { fontSize: 12 },
   /** Dense table / chip text. */
-  dense: { fontSize: 11.5, fontWeight: 600 },
+  dense: { fontSize: 12, fontWeight: 600 },
   /** Footnotes, raw frame dumps. */
-  micro: { fontSize: 11 },
+  micro: { fontSize: 12 },
 } as const
 
 /** Bordered container used for status blocks and result panels. */

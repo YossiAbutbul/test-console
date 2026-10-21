@@ -126,6 +126,8 @@ export function CheckStep({ state, label, summary, selected, onClick }: CheckSte
           <Typography
             noWrap
             className="check-summary"
+            // The rail truncates at seven steps; the whole line is one hover away.
+            title={typeof summary === 'string' ? summary : undefined}
             sx={{ fontSize: 12.5, lineHeight: 1.3, color: summaryColor }}
           >
             {summary}

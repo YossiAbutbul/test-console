@@ -250,13 +250,13 @@ export function TrombonePage({ group }: TestPageProps) {
                 )}
               </Box>
               <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
-                <Typography sx={{ fontSize: 10.5, color: 'text.secondary', fontFamily: MONO }}>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary', fontFamily: MONO }}>
                   {fmtMm(softMin)}
                 </Typography>
-                <Typography sx={{ fontSize: 10.5, color: 'text.disabled' }}>
+                <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
                   {fmtMm(travel)} of travel ({pulseNum(travel)})
                 </Typography>
-                <Typography sx={{ fontSize: 10.5, color: 'text.secondary', fontFamily: MONO }}>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary', fontFamily: MONO }}>
                   {fmtMm(softMax)}
                 </Typography>
               </Stack>

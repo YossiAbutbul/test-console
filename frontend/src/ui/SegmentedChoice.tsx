@@ -51,7 +51,7 @@ export function SegmentedChoice<T extends string>({
             onClick={() => { if (!active) onChange(o.value) }}
             sx={{
               fontFamily: MONO,
-              fontSize: 10.5,
+              fontSize: 12,
               letterSpacing: '0.06em',
               fontWeight: active ? 700 : 500,
               px: 1,

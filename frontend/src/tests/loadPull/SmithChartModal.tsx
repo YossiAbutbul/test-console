@@ -372,7 +372,7 @@ export function SmithChartModal({
                         onMouseLeave={() => setHover(null)}
                         sx={{
                           px: 1.25, py: 0.5, cursor: 'default',
-                          fontFamily: MONO, fontSize: 11.5,
+                          fontFamily: MONO, fontSize: 12,
                           bgcolor: on ? 'action.selected' : 'transparent',
                           '&:hover': { bgcolor: 'action.hover' },
                         }}
@@ -468,27 +468,27 @@ export function SmithChartModal({
                   the reading that the colours meant something here. Say the one
                   value instead. */}
               <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1, px: 0.5 }}>
-                <Typography sx={{ fontSize: 11.5, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary', whiteSpace: 'nowrap' }}>
                   Efficiency
                 </Typography>
                 {effDomain == null ? (
-                  <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+                  <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
                     not computable — needs power and current
                   </Typography>
                 ) : effFlat ? (
-                  <Typography sx={{ fontSize: 11.5, fontFamily: MONO, color: 'text.secondary' }}>
+                  <Typography sx={{ fontSize: 12, fontFamily: MONO, color: 'text.secondary' }}>
                     {(effDomain.min * 100).toFixed(1)}% at every point
                   </Typography>
                 ) : (
                   <>
-                    <Typography sx={{ fontSize: 11.5, fontFamily: MONO, color: 'text.secondary' }}>
+                    <Typography sx={{ fontSize: 12, fontFamily: MONO, color: 'text.secondary' }}>
                       {(effDomain.min * 100).toFixed(1)}%
                     </Typography>
                     <Box sx={{
                       flexGrow: 1, height: 10, borderRadius: 5,
                       background: `linear-gradient(to right, ${RAMP.join(', ')})`,
                     }} />
-                    <Typography sx={{ fontSize: 11.5, fontFamily: MONO, color: 'text.secondary' }}>
+                    <Typography sx={{ fontSize: 12, fontFamily: MONO, color: 'text.secondary' }}>
                       {(effDomain.max * 100).toFixed(1)}%
                     </Typography>
                   </>
@@ -504,7 +504,7 @@ export function SmithChartModal({
               <Box sx={{ p: 2, borderRadius: 1.5, border: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
                 {hp ? (
                   <>
-                    <Typography sx={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary', mb: 0.5 }}>
+                    <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary', mb: 0.5 }}>
                       Measurement
                     </Typography>
                     <Typography sx={{ fontSize: 16, fontWeight: 700, mb: 1.5 }}>
@@ -525,7 +525,7 @@ export function SmithChartModal({
                       <Row label="Pos (pulses)" value={hp.row.pos_pulses.toLocaleString()} />
                     </Stack>
                     {hp.row.error && (
-                      <Typography sx={{ fontSize: 11.5, color: 'error.main', mt: 1 }}>{hp.row.error}</Typography>
+                      <Typography sx={{ fontSize: 12, color: 'error.main', mt: 1 }}>{hp.row.error}</Typography>
                     )}
                   </>
                 ) : (

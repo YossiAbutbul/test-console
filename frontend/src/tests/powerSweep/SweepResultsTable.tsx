@@ -4,6 +4,7 @@ import {
 } from '@mui/material'
 import type { ResultRow } from '../../types/models'
 import { fmt } from '../../lib/format'
+import { HeadCell, NUM_CELL_SX } from '../../ui'
 
 /**
  * Columns follow the sweep's configuration — Power, PA DC, HP Max — and mirror
@@ -15,18 +16,18 @@ import { fmt } from '../../lib/format'
 const Row = memo(function Row({ r }: { r: ResultRow }) {
   return (
     <TableRow>
-      <TableCell>{r.idx + 1}</TableCell>
-      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{r.power_dbm_setting}</TableCell>
-      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{r.pa_duty_cycle}</TableCell>
-      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{r.hp_max}</TableCell>
-      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmt(r.tx_power_dbm, 2)}</TableCell>
-      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>
+      <TableCell sx={NUM_CELL_SX}>{r.idx + 1}</TableCell>
+      <TableCell sx={NUM_CELL_SX}>{r.power_dbm_setting}</TableCell>
+      <TableCell sx={NUM_CELL_SX}>{r.pa_duty_cycle}</TableCell>
+      <TableCell sx={NUM_CELL_SX}>{r.hp_max}</TableCell>
+      <TableCell sx={NUM_CELL_SX}>{fmt(r.tx_power_dbm, 2)}</TableCell>
+      <TableCell sx={NUM_CELL_SX}>
         {fmt(r.current_a == null ? null : r.current_a * 1000, 1)}
       </TableCell>
       {/* Voltage is supplementary — a point can record current without it — so
           this is the one numeric cell that is routinely blank. */}
-      <TableCell sx={{ fontFamily: 'ui-monospace, monospace' }}>{fmt(r.voltage_v, 2)}</TableCell>
-      <TableCell sx={{ fontSize: 11 }}>
+      <TableCell sx={NUM_CELL_SX}>{fmt(r.voltage_v, 2)}</TableCell>
+      <TableCell sx={{ fontSize: 12 }}>
         {r.error
           ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
           : r.ok
@@ -75,16 +76,16 @@ export function SweepResultsTable({ rows }: { rows: ResultRow[] }) {
         </colgroup>
         <TableHead>
           <TableRow>
-            <TableCell>#</TableCell>
+            <HeadCell label="#" numeric />
             {/* Same two names the workbook uses. "Power (dBm)" next to
                 "Measured (dBm)" read as though one of them was not commanded. */}
-            <TableCell>Power Set (dBm)</TableCell>
-            <TableCell>PA DC</TableCell>
-            <TableCell>HP Max</TableCell>
-            <TableCell>Measured (dBm)</TableCell>
-            <TableCell>CC (mA)</TableCell>
-            <TableCell>V (V)</TableCell>
-            <TableCell>Status</TableCell>
+            <HeadCell label="Power Set" unit="dBm" numeric />
+            <HeadCell label="PA DC" numeric />
+            <HeadCell label="HP Max" numeric />
+            <HeadCell label="Measured" unit="dBm" numeric />
+            <HeadCell label="CC" unit="mA" numeric />
+            <HeadCell label="V" unit="V" numeric />
+            <HeadCell label="Status" />
           </TableRow>
         </TableHead>
         <TableBody>

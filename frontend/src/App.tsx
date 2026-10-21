@@ -579,7 +579,7 @@ export default function App() {
           position: 'fixed',
           bottom: 6,
           right: 12,
-          fontSize: 10.5,
+          fontSize: 12,
           color: p.sidebar.textDim,
           pointerEvents: 'none',
           zIndex: (t) => t.zIndex.drawer + 3,

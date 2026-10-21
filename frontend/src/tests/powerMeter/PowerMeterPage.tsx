@@ -289,12 +289,12 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
           <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1 }}>
             <Eyebrow>Reading</Eyebrow>
             {tracing && (
-              <Typography sx={{ fontSize: 11, color: 'success.main', fontWeight: 600 }}>
+              <Typography sx={{ fontSize: 12, color: 'success.main', fontWeight: 600 }}>
                 tracing
               </Typography>
             )}
             {last && (
-              <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>
+              <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
                 {clockOf(last.t)}
               </Typography>
             )}
@@ -322,7 +322,7 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
               }}
               InputProps={{
                 endAdornment: (
-                  <Typography sx={{ fontSize: 11, color: 'text.disabled', pl: 0.5 }}>ms</Typography>
+                  <Typography sx={{ fontSize: 12, color: 'text.disabled', pl: 0.5 }}>ms</Typography>
                 ),
               }}
             />
@@ -412,7 +412,7 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
             <Box sx={{ mt: 1.5 }}>
               <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{failure.title}</Typography>
               {failure.hint && (
-                <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
                   {failure.hint}
                 </Typography>
               )}
