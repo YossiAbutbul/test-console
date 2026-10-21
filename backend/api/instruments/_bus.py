@@ -89,6 +89,13 @@ class InstrumentBus:
             log.warning("%s: no response after %.0fs; call left running", self._name, timeout)
             raise TimeoutError(f"{self._name} did not respond within {timeout:.0f}s") from None
 
+    def call_sync(self, fn: Callable[..., T], *args: Any, timeout: float = DEFAULT_TIMEOUT_S) -> T:
+        """`call` for code already off the event loop -- a sweep adapter read
+        from `asyncio.to_thread`. Runs on the same single thread, so it queues
+        behind (and ahead of) the routes' calls instead of interleaving with
+        them on the wire."""
+        return self._pool.submit(fn, *args).result(timeout=timeout)
+
 
 #: One bus per instrument. Keyed by the same ids the routes use.
 BUSES: dict[str, InstrumentBus] = {

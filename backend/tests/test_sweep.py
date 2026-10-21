@@ -201,6 +201,7 @@ class TestBuildWorkbook:
         assert pairs["Frequency [MHz]"] == 902.3
         assert pairs["Power Set values"] == "1–3 (3 values)"
         assert pairs["Finished"] == "—", "an unfinished run must not invent an end time"
+        assert pairs["Current measured"] == "Yes"
 
     def test_best_settings_sheet_sits_after_run_and_before_the_buckets(self) -> None:
         cfg = SweepConfig(freq_hz=902_300_000, power_values=[14], duty_values=[1], hp_values=[1])

@@ -25,10 +25,11 @@ import { useNotify } from '../../context/NotifyContext'
 import { saveBlob } from '../../lib/download'
 import { range } from '../../lib/numericList'
 import {
-  CONTROL_H, FieldGrid, GRID_GAP, KeySpinner, MONO, MiniAction, PageBody, RunControls,
-  Section, TEXT, TwoCol, focusRingOf,
+  CONTROL_H, FieldGrid, GRID_GAP, KeySpinner, MONO, MeasureOptions, MiniAction, PageBody,
+  RunControls, Section, TEXT, TwoCol, focusRingOf,
 } from '../../ui'
-import type { ResultRow, StartRequest } from '../../types/models'
+import type { PowerSource, ResultRow, StartRequest } from '../../types/models'
+import { DETECTOR_NAMES } from '../../api/spectrum'
 import type { TestPageProps } from '../types'
 import { useChatSource } from '../../context/ChatContext'
 import { mA, statusOf } from '../../lib/chatRows'
@@ -44,8 +45,6 @@ import {
   blockSteps, newBlock, spanLabel, toWire, totalSteps as blocksTotalSteps,
   type BlockDraft,
 } from './blocks'
-
-const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
 
 /**
  * Per-step cost on top of the settle, for the pre-run estimate: the CW command
@@ -112,6 +111,21 @@ function restoredBlocks(stored: BlockDraft[] | undefined): BlockDraft[] {
     .map((b) => newBlock(RANGES, b))
 }
 
+const POWER_SOURCES: { value: PowerSource; label: string }[] = [
+  { value: 'sensor', label: 'Power sensor' },
+  { value: 'spectrum', label: 'Spectrum analyzer' },
+]
+
+/** The FSC3's detectors. Must match SPECTRUM_DETECTORS in
+ *  backend/sweep/models.py, which refuses any other. */
+const SPECTRUM_DETECTORS = ['APE', 'POS', 'NEG', 'SAMP', 'RMS']
+
+/** A typed kHz field as Hz, or null when it is not a positive number. */
+function khzToHz(v: string): number | null {
+  const n = Number(v)
+  return v.trim() !== '' && Number.isFinite(n) && n > 0 ? Math.round(n * 1000) : null
+}
+
 const PA_MODES = [
   { value: 0, label: 'Off' },
   { value: 1, label: 'On' },
@@ -124,11 +138,33 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   const { lossAt } = usePathLoss()
   const notify = useNotify()
   const reporter = useRunReporter('Mode Sweep', 'Sweep', 'steps')
-  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
   const hasBackend = protocol === 'LoRa'
 
   // Restored from the page store; see restoredSpan for why each is checked.
   const snap = powerSweepPageSnapshot
+  // Off, the analyzer is neither preflighted nor opened by the run, so a
+  // power-only sweep works on a bench without one.
+  const [measureCurrent, setMeasureCurrent] = useState(() => snap.measureCurrent ?? true)
+  const [powerSource, setPowerSource] = useState<PowerSource>(
+    () => (snap.powerSource === 'spectrum' ? 'spectrum' : 'sensor'),
+  )
+  // Typed as text in kHz and parsed on Run, as the other number fields are.
+  const [specSpanKhz, setSpecSpanKhz] = useState(() => snap.specSpanKhz ?? '1000')
+  const [specRbwKhz, setSpecRbwKhz] = useState(() => snap.specRbwKhz ?? '100')
+  const [specVbwKhz, setSpecVbwKhz] = useState(() => snap.specVbwKhz ?? '300')
+  const [specDetector, setSpecDetector] = useState(
+    () => (SPECTRUM_DETECTORS.includes(snap.specDetector ?? '') ? snap.specDetector as string : 'POS'),
+  )
+  const spectrum = powerSource === 'spectrum'
+  const specSpanHz = khzToHz(specSpanKhz)
+  const specRbwHz = khzToHz(specRbwKhz)
+  const specVbwHz = khzToHz(specVbwKhz)
+  const specValid = !spectrum || (specSpanHz != null && specRbwHz != null && specVbwHz != null)
+  const required: InstrumentId[] = [
+    spectrum ? 'spectrum' : 'power-sensor',
+    ...(measureCurrent ? ['dc-analyzer' as const] : []),
+  ]
+  const preflight = useInstrumentPreflight(required)
   const [freqMhz, setFreqMhz] = useState(() => snap.freqMhz ?? '902.3')
   const [powerLo, setPowerLo] = useState(() => restoredSpan(snap.powerLo, RANGES.power, RANGES.power.min))
   const [powerHi, setPowerHi] = useState(() => restoredSpan(snap.powerHi, RANGES.power, RANGES.power.max))
@@ -163,9 +199,11 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   useEffect(() => {
     Object.assign(powerSweepPageSnapshot, {
       freqMhz, powerLo, powerHi, dutyLo, dutyHi, hpLo, hpHi, advBlocks, settleMs: settle, paMode,
+      measureCurrent, powerSource, specSpanKhz, specRbwKhz, specVbwKhz, specDetector,
     })
     persistPowerSweepPage()
-  }, [freqMhz, powerLo, powerHi, dutyLo, dutyHi, hpLo, hpHi, advBlocks, settle, paMode])
+  }, [freqMhz, powerLo, powerHi, dutyLo, dutyHi, hpLo, hpHi, advBlocks, settle, paMode, measureCurrent,
+    powerSource, specSpanKhz, specRbwKhz, specVbwKhz, specDetector])
   const [graphOpen, setGraphOpen] = useState(false)
   // Rows read from a workbook instead of from this backend's run. Kept in
   // page state rather than pushed into the runner: an imported file is
@@ -212,6 +250,7 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
       }
       const ps = instruments['power-sensor']
       const dc = instruments['dc-analyzer']
+      const sa = instruments.spectrum
       const req: StartRequest = {
         config: {
           freq_hz: Math.round(Number(freqMhz) * 1_000_000),
@@ -228,8 +267,20 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
           cmd_timeout_s: 5,
           pa_mode: paMode,
           path_loss_db: pathLossDb,
+          measure_current: measureCurrent,
+          power_source: powerSource,
+          ...(spectrum ? {
+            spectrum: {
+              // Run is disabled until all three parse, so these are set.
+              span_hz: specSpanHz as number,
+              rbw_hz: specRbwHz as number,
+              vbw_hz: specVbwHz as number,
+              detector: specDetector,
+            },
+          } : {}),
         },
         power_sensor_serial: ps.address.trim() || null,
+        spectrum_address: sa.address.trim() || null,
         dc_analyzer_resource: dc.address.trim() || null,
         dc_analyzer_channel: dc.channel ?? 1,
       }
@@ -348,6 +399,18 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
 
   const lastRow = status?.last_row
 
+  // Said once, when a run's autosave appears. The first value seen is only a
+  // baseline: loading the page onto a run that finished earlier is not news.
+  const autosavePath = status?.autosave_path ?? null
+  const seenAutosave = useRef<string | null | undefined>(undefined)
+  useEffect(() => {
+    if (!statusQ.isSuccess) return
+    if (seenAutosave.current !== undefined && autosavePath && autosavePath !== seenAutosave.current) {
+      reporter.note(`Saved to ${autosavePath}`)
+    }
+    seenAutosave.current = autosavePath
+  }, [autosavePath, statusQ.isSuccess, reporter])
+
   // The backend already keeps every measured row, so ask it for them rather
   // than stitching the one-row-per-poll status into a local copy: no
   // reconciling duplicates or steps missed between polls, and the chart is
@@ -423,7 +486,7 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                 running={running}
                 starting={run.isPending}
                 stopping={stopping}
-                canRun={totalSteps > 0}
+                canRun={totalSteps > 0 && specValid}
                 runLabel="Run sweep"
                 progress={total > 0 ? `${completed}/${total}` : undefined}
                 onRun={() => void onRun()}
@@ -433,7 +496,10 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
         }
       />
 
-      <PageBody width="fluid" grow>
+      {/* Scrolls as Load Pull does: with the spectrum card open the cards no
+          longer fit a laptop screen, and a body that will not scroll squeezed
+          the results table to nothing. */}
+      <PageBody width="fluid" scroll>
         <TwoCol stretch>
           <Section
             title="Sweep ranges"
@@ -651,9 +717,69 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
               </LabeledField>
+              <LabeledField
+                label="Power from"
+                select
+                value={powerSource}
+                onChange={(e) => setPowerSource(e.target.value as PowerSource)}
+                disabled={running}
+              >
+                {POWER_SOURCES.map((s) => (
+                  <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>
+                ))}
+              </LabeledField>
             </FieldGrid>
           </Section>
         </TwoCol>
+
+        {/* Only with the analyzer chosen: these settings mean nothing to the
+            power sensor. No centre field (the analyzer is centred on the
+            sweep frequency) and no offset: the run zeroes it, because the
+            path loss is already added to every reading in software. */}
+        {spectrum && (
+          <Section title="Spectrum analyzer" panel>
+            <FieldGrid columns={4} wide>
+              <LabeledField
+                label="Span"
+                hint="kHz"
+                type="number"
+                value={specSpanKhz}
+                onChange={(e) => setSpecSpanKhz(e.target.value)}
+                error={specSpanHz == null}
+                disabled={running}
+              />
+              <LabeledField
+                label="RBW"
+                hint="kHz"
+                type="number"
+                value={specRbwKhz}
+                onChange={(e) => setSpecRbwKhz(e.target.value)}
+                error={specRbwHz == null}
+                disabled={running}
+              />
+              <LabeledField
+                label="VBW"
+                hint="kHz"
+                type="number"
+                value={specVbwKhz}
+                onChange={(e) => setSpecVbwKhz(e.target.value)}
+                error={specVbwHz == null}
+                disabled={running}
+              />
+              <LabeledField
+                label="Detector"
+                select
+                value={specDetector}
+                onChange={(e) => setSpecDetector(e.target.value)}
+                disabled={running}
+              >
+                {SPECTRUM_DETECTORS.map((d) => (
+                  <MenuItem key={d} value={d}>{DETECTOR_NAMES[d] ?? d}</MenuItem>
+                ))}
+              </LabeledField>
+            </FieldGrid>
+          </Section>
+        )}
 
         {/* Deliberately no target here. The manual pages ask for a power and
             the gap to it is the result; a sweep is characterising the PA, so a
@@ -669,12 +795,23 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
             label: 'Last measured row',
             // Says what the card is waiting for. The path loss is quoted only
             // with a row it was applied to; idle, it is already on the page.
+            // Idle there is nothing to say: the Measure CC box stands there.
             subLabel: lastRow
               ? `#${lastRow.idx + 1} · ${comboLabel(lastRow)} · incl. path loss ${pathLossDb} dB`
               : running
                 ? 'Waiting for first step…'
-                : 'Fills in when the sweep runs',
+                : undefined,
           }}
+          // On the card whose Current tile it empties, so switching it off and
+          // the blank it leaves are read together.
+          action={
+            <MeasureOptions
+              offer={['current']}
+              value={{ power: true, current: measureCurrent }}
+              onChange={(m) => setMeasureCurrent(m.current)}
+              disabled={running}
+            />
+          }
         />
 
         {/* Actions sit on the panel they act on, as the automation tab does —
@@ -683,7 +820,6 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
           title="Results"
           ungated
           panel
-          grow
           // The table is its own scroller, so it should meet the panel edge.
           flush
           action={
@@ -729,10 +865,8 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
           }
         >
 
-          {/* No minimum height here. A floor taller than the space the flex
-              column actually has pushes the rows out past the panel instead of
-              scrolling them -- the table has its own scroller, and what starved
-              it was the range list above, which is now capped. */}
+          {/* The table sets its own fixed height (RESULTS_H) and scrolls its
+              rows; the page scrolls around it when the cards above are tall. */}
           <SweepResultsTable rows={rows} />
           <input
             ref={fileInput}

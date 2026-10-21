@@ -7,7 +7,7 @@ schema and the engine cannot drift apart.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -32,6 +32,27 @@ POWER_RANGE = range(1, 23)         # 1..22
 # Mirrored by MIN_SETTLE_MS / DEFAULT_SETTLE_MS in frontend/src/lib/settle.ts.
 MIN_SETTLE_MS = 400
 DEFAULT_SETTLE_MS = 400
+
+
+# Detectors the FSC3 accepts; see DETECTORS in backend/spectrum/config.py.
+# Mirrored by SPECTRUM_DETECTORS in
+# frontend/src/tests/powerSweep/PowerSweepPage.tsx.
+SPECTRUM_DETECTORS = ("APE", "POS", "NEG", "SAMP", "RMS")
+
+
+class SpectrumSettings(BaseModel):
+    """How the analyzer is set up when it, not the power sensor, reads power.
+
+    Centred on the sweep's own frequency, so there is no centre here. The
+    reference offset is forced to 0 at the start of the run: the path loss is
+    added in software (`path_loss_db`), and an offset left on the analyzer
+    would count the cable twice.
+    """
+
+    span_hz: float = Field(default=1_000_000, gt=0, le=3_000_000_000)
+    rbw_hz: float = Field(default=100_000, gt=0)
+    vbw_hz: float = Field(default=300_000, gt=0)
+    detector: Literal["APE", "POS", "NEG", "SAMP", "RMS"] = "POS"
 
 
 class RunState(str, Enum):
@@ -88,6 +109,19 @@ class SweepConfig(BaseModel):
     path_loss_db: float = Field(
         default=0.0, ge=-200.0, le=200.0,
         description="Added to the raw sensor reading: DUT power = sensor + path_loss_db",
+    )
+    power_source: Literal["sensor", "spectrum"] = Field(
+        default="sensor",
+        description="What reads TX power: the USB power sensor or the spectrum analyzer.",
+    )
+    spectrum: SpectrumSettings = Field(default_factory=SpectrumSettings)
+    measure_current: bool = Field(
+        default=True,
+        description=(
+            "Read current and voltage from the DC analyzer at each step. Off, "
+            "the analyzer is not opened at all, so a power-only sweep runs on a "
+            "rig without one and skips its two reads per step."
+        ),
     )
 
     @property
@@ -158,6 +192,9 @@ class RunStatus(BaseModel):
     error: Optional[str] = None
     config: Optional[SweepConfig] = None
     last_row: Optional[ResultRow] = None
+    #: Where the finished run's workbook was saved on its own, so a backend
+    #: restart cannot lose the rows. Set once the run has ended.
+    autosave_path: Optional[str] = None
 
 
 class RigInfo(BaseModel):
@@ -178,6 +215,9 @@ class RigInfo(BaseModel):
     dc_analyzer_idn: Optional[str] = None
     dc_analyzer_address: Optional[str] = None
     dc_channel: Optional[int] = None
+    #: Set instead of the power sensor's when the analyzer read power.
+    spectrum_idn: Optional[str] = None
+    spectrum_address: Optional[str] = None
     #: Supplied with the export request, not the run.
     operator: Optional[str] = None
     notes: Optional[str] = None

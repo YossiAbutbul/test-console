@@ -15,8 +15,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from .. import paths
 from ..ble import manager
-from ..hw.adapters import KeysightDCPowerAnalyzer, MiniCircuitsPowerMeter
+from ..hw.adapters import KeysightDCPowerAnalyzer, MiniCircuitsPowerMeter, SpectrumPowerMeter
 from ..hw.base import CurrentMeter, PowerMeter
 from ..sweep import (
     ResultRow, RunStatus, SweepConfig, build_workbook, parse_workbook, rebuild_workbook,
@@ -26,7 +27,9 @@ from ..sweep.export import run_entry
 from ..sweep.models import RigInfo
 from ..workbook import export_filename
 from .errors import handle_driver_errors
+from .instruments._bus import bus
 from .instruments._state import state
+from .instruments.spectrum import parse_address
 
 log = logging.getLogger(__name__)
 
@@ -44,9 +47,21 @@ class StartRequest(BaseModel):
     power_sensor_serial: str | None = None
     dc_analyzer_resource: str | None = None
     dc_analyzer_channel: int = 3
+    #: "host[:port]" of the FSC3, used only when the sweep opens it itself.
+    spectrum_address: str | None = None
 
 
 def _build_power_meter(req: StartRequest) -> PowerMeter:
+    if req.config.power_source == "spectrum":
+        # Every analyzer call rides the spectrum bus, as the Spectrum page's do:
+        # one SCPI stream, and two callers on it desync it.
+        host, port = parse_address(req.spectrum_address or "")
+        return SpectrumPowerMeter(
+            req.config.spectrum,
+            analyzer=state.spectrum,
+            host=host, port=port,
+            call=bus("spectrum").call_sync,
+        )
     # Prefer the session `/instruments` already holds. Opening a second one to
     # the same physical sensor invalidates the live handle, which is exactly
     # what happens when the pre-run check connects it and then the sweep starts.
@@ -77,7 +92,7 @@ _last_rig: RigInfo | None = None
 EXPORT_SLUG = "power-sweep"
 
 
-def _capture_rig(req: StartRequest, pm: PowerMeter, cm: CurrentMeter) -> RigInfo:
+def _capture_rig(req: StartRequest, pm: PowerMeter, cm: CurrentMeter | None) -> RigInfo:
     """Who and what the sweep is about to measure with. Best-effort throughout:
     a missing IDN must never stop a run, so every lookup falls back to None.
 
@@ -88,8 +103,17 @@ def _capture_rig(req: StartRequest, pm: PowerMeter, cm: CurrentMeter) -> RigInfo
     """
     ble = manager.status()
 
-    ps_idn = state.power_sensor_idn if state.power_sensor is not None else None
-    if ps_idn is None:
+    spectrum = req.config.power_source == "spectrum"
+    spec_idn = spec_address = None
+    if spectrum:
+        # The sensor took no part in this run, so it is not named.
+        ps_idn = None
+        an = getattr(pm, "_an", None)
+        spec_idn = (state.spectrum_idn if state.spectrum is not None else None) or getattr(an, "idn", None) or None
+        spec_address = state.spectrum_resource if state.spectrum is not None else (req.spectrum_address or None)
+    else:
+        ps_idn = state.power_sensor_idn if state.power_sensor is not None else None
+    if ps_idn is None and not spectrum:
         try:
             from .instruments.power_sensor import _format_idn
             sensor = getattr(pm, "_sensor", None)
@@ -97,7 +121,11 @@ def _capture_rig(req: StartRequest, pm: PowerMeter, cm: CurrentMeter) -> RigInfo
         except Exception as e:  # identity is a nicety, the run is not
             log.debug("power sensor IDN not captured: %s", e)
 
-    if state.dc_analyzer is not None:
+    if cm is None:
+        # Not measured this run, so it is not part of the rig that produced
+        # the numbers -- naming it would claim readings the file does not have.
+        dc_idn = dc_address = dc_channel = None
+    elif state.dc_analyzer is not None:
         dc_idn = state.dc_analyzer_idn
         dc_address = state.dc_analyzer_resource
         dc_channel = state.dc_analyzer_channel
@@ -115,11 +143,46 @@ def _capture_rig(req: StartRequest, pm: PowerMeter, cm: CurrentMeter) -> RigInfo
         dut_mac=ble.address,
         dut_name=ble.name,
         power_sensor_idn=ps_idn,
-        power_sensor_address=req.power_sensor_serial or None,
+        power_sensor_address=None if spectrum else (req.power_sensor_serial or None),
+        spectrum_idn=spec_idn,
+        spectrum_address=spec_address,
         dc_analyzer_idn=dc_idn,
         dc_analyzer_address=dc_address,
         dc_channel=dc_channel,
     )
+
+
+def autosave_dir():
+    """Where finished sweeps are written on their own. Beside the checkout from
+    the repo (git-ignored), under the per-user data dir when frozen."""
+    return paths.data_root() / "autosave" / "sweeps"
+
+
+def _autosaver(rig: RigInfo | None):
+    """The runner's on-finish hook: write the run's workbook to disk.
+
+    The rows used to live only in the runner's memory, so a backend stopped
+    mid-run -- or restarted after one without an Export -- came back with an
+    empty table and the run gone. Same file Export would produce, so the
+    autosave opens in Import like any other.
+    """
+    async def save(status: RunStatus, rows: list[ResultRow]) -> str:
+        data = await asyncio.to_thread(
+            build_workbook, rows, status.config, status.started_at, status.finished_at, rig,
+        )
+        folder = autosave_dir()
+        mac = rig.dut_mac if rig else None
+        path = folder / export_filename(mac, EXPORT_SLUG, "xlsx")
+
+        def write() -> None:
+            folder.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+
+        await asyncio.to_thread(write)
+        log.info("Sweep autosaved to %s (%d rows, %s)", path, len(rows), status.state.value)
+        return str(path)
+
+    return save
 
 
 def _close_quietly(*instruments: PowerMeter | CurrentMeter | None) -> None:
@@ -143,10 +206,14 @@ async def start(req: StartRequest) -> RunStatus:
     try:
         with handle_driver_errors("instrument init"):
             pm = _build_power_meter(req)
-            cm = _build_current_meter(req)
+            # Skipped entirely when CC is off: a power-only sweep must run on a
+            # rig with no analyzer attached, and opening one would fail it.
+            if req.config.measure_current:
+                cm = _build_current_meter(req)
             # Opening a VISA/USB session blocks; keep it off the event loop.
             await asyncio.to_thread(pm.connect)
-            await asyncio.to_thread(cm.connect)
+            if cm is not None:
+                await asyncio.to_thread(cm.connect)
 
         try:
             rig = await asyncio.to_thread(_capture_rig, req, pm, cm)
@@ -155,7 +222,10 @@ async def start(req: StartRequest) -> RunStatus:
             rig = None
 
         with handle_driver_errors("sweep start"):
-            status = await runner.start(req.config, device, pm, cm)
+            status = await runner.start(
+                req.config, device, pm, cm, _autosaver(rig),
+                relink=manager.wait_for_device,
+            )
     except Exception:
         # The runner never took ownership, so nothing else will close these.
         _close_quietly(pm, cm)

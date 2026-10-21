@@ -135,6 +135,11 @@ export const CARD_SX = {
  * table rows, so a sweep result still fits without scrolling.
  */
 export const GRID_GAP = 12
+
+/** Height of a results table on a page that scrolls (Load Pull, Mode Sweep).
+ *  Fixed, so the panel is the same size empty, mid-run and full, and the two
+ *  pages' tables read as one control. */
+export const RESULTS_H = 240
 export const CARD_PAD = 16
 export const TILE_PAD = 12
 

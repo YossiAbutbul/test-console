@@ -4,7 +4,7 @@ import {
 } from '@mui/material'
 import type { ResultRow } from '../../types/models'
 import { fmt } from '../../lib/format'
-import { scrollBehavior, HeadCell, NUM_CELL_SX } from '../../ui'
+import { scrollBehavior, HeadCell, NUM_CELL_SX, RESULTS_H } from '../../ui'
 
 /**
  * Columns follow the sweep's configuration — Power, PA DC, HP Max — and mirror
@@ -57,7 +57,9 @@ export function SweepResultsTable({ rows }: { rows: ResultRow[] }) {
     // exactly that much and earns a horizontal scrollbar it has no use for --
     // a strip of dead space along the bottom of the panel. The columns are
     // percentage widths on a fixed layout, so there is nothing to scroll to.
-    <Box ref={scrollRef} sx={{ flexGrow: 1, minHeight: 0, overflowY: 'scroll', overflowX: 'hidden' }}>
+    // Fixed height, as Load Pull's: it used to take whatever the page had left,
+    // which was nothing at all once the cards above it grew (the spectrum card).
+    <Box ref={scrollRef} sx={{ height: RESULTS_H, overflowY: 'scroll', overflowX: 'hidden' }}>
       <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%' }}>
         <colgroup>
           <col style={{ width: 40 }} />

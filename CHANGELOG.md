@@ -14,8 +14,42 @@ turns that heading into the version and date.
 - `scripts/publish-release.ps1` creates the GitHub Release page from the
   changelog; `release.ps1 -Push` runs it, and `-Bundle` attaches the
   DUT-only zip.
+- Mode Sweep: a "Measure CC" checkbox on the Last measured row card. Unchecked, the
+  sweep reads power only: the DC analyzer is not preflighted, opened or read,
+  and the Run sheet records "Current measured: No".
+- Mode Sweep autosaves every run's workbook when it ends (done, stopped,
+  failed or cut short by a backend shutdown) to `autosave/sweeps/`, and the
+  page logs the path. A restart no longer loses the rows; open the file with
+  Import.
+- Mode Sweep: "Power from" picks the power sensor or the spectrum analyzer.
+  With the analyzer, a Spectrum analyzer card sets span, RBW, VBW and
+  detector; the run centres it on the sweep frequency, zeroes its reference
+  offset (path loss is still applied in software), and reads the peak marker
+  after one sweep per step. The Run sheet records the source and settings.
+
+### Fixed
+- Mode Sweep: a lost DUT link ends the run as an error ("DUT not answering")
+  after three failed commands in a row, instead of failing every remaining
+  step in milliseconds and finishing as "done".
+- Stopping the backend mid-sweep stops the sweep and keys the DUT down before
+  the BLE link is released, and the run reports "backend shut down mid-run".
+
+- Mode Sweep survives a BLE drop: a failed command waits (up to 45 s) for the
+  manager's reconnect and resends that step on the new link. The run used to
+  keep the old, dead device, so every step after a drop failed with "Not
+  connected" even once the link was back. A step whose command fails on a
+  link that still looks up (a timeout just before the drop is reported) is
+  resent once after 1.5 s, on the new link if one appeared, so it is no
+  longer skipped. Only a step that fails twice is recorded as an error.
+- A late disconnect callback from a replaced BLE client no longer wipes the
+  client that reconnected after it.
+- A timed-out instrument call keeps the driver's own message ("no SCPI
+  answer from 172.16.10.1:5555 …") instead of a bare "timed out".
 
 ### Changed
+- Mode Sweep's results table is a fixed 240 px, the same as Load Pull's
+  (`RESULTS_H` in the UI kit), and the page scrolls when the cards above it
+  do not fit, instead of squeezing the table.
 - A disabled primary key ("Needs DUT") is the faded grey of any disabled key,
   not a blue wash that looked pressable, and no longer shows a tooltip.
 - The inspector always opens on the Bench tab.

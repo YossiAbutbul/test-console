@@ -295,7 +295,21 @@ def _write_run_sheet(
         ("Settle [ms]", cfg.settle_ms),
         ("PA mode", f"{_PA_MODE_NAMES.get(cfg.pa_mode, '?')} ({cfg.pa_mode})"),
         ("Command timeout [s]", cfg.cmd_timeout_s),
+        # Says why the CC column is empty, so a power-only run is not read as
+        # an analyzer that failed on every row.
+        ("Current measured", "Yes" if cfg.measure_current else "No"),
+        ("Power source", "Spectrum analyzer" if cfg.power_source == "spectrum" else "Power sensor"),
     ]
+    if cfg.power_source == "spectrum":
+        sp = cfg.spectrum
+        # The figures that decide what the analyzer reported, so two runs with
+        # different RBW are not compared as if they were the same measurement.
+        entries += [
+            ("Spectrum span [kHz]", sp.span_hz / 1e3),
+            ("Spectrum RBW [kHz]", sp.rbw_hz / 1e3),
+            ("Spectrum VBW [kHz]", sp.vbw_hz / 1e3),
+            ("Spectrum detector", sp.detector),
+        ]
     # A multi-block plan cannot be described by three lines of values -- the
     # whole point of it is that the axes do not apply uniformly -- so each
     # block gets its own row. A single-block plan keeps the flat form it has
@@ -331,6 +345,11 @@ def _write_run_sheet(
         dc_analyzer_idn=rig.dc_analyzer_idn, dc_analyzer_address=rig.dc_analyzer_address,
         dc_channel=rig.dc_channel,
     )
+    if rig.spectrum_idn or rig.spectrum_address:
+        entries += [
+            ("Spectrum analyzer", rig.spectrum_idn or "—"),
+            ("Spectrum address", rig.spectrum_address or "—"),
+        ]
     entries += wbk.export_entries(rig.operator, rig.notes)
     _write_run_entries(ws, entries)
 

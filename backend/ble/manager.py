@@ -26,6 +26,10 @@ HEARTBEAT_CHAR_UUID = "00002a00-0000-1000-8000-00805f9b34fb"
 RECONNECT_ATTEMPTS = 3
 RECONNECT_BACKOFF_S = 2.0
 
+# How long a sweep waits on a dropped link before giving up on it: room for
+# the reconnect attempts above, each a scan plus a connect.
+RELINK_WAIT_S = 45.0
+
 
 class BLEManager:
     def __init__(self) -> None:
@@ -161,6 +165,10 @@ class BLEManager:
 
             def _on_disconnect(_c: BleakClient) -> None:
                 log.info("BLE disconnect callback fired for %s", address)
+                # A late callback from a client already replaced -- a reconnect
+                # that went ahead before this fired -- must not wipe the new one.
+                if self._client is not None and self._client is not _c:
+                    return
                 self._stop_heartbeat()
                 self._client = None
                 self._connected_device = None
@@ -205,6 +213,30 @@ class BLEManager:
             self._stop_heartbeat()
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
             return self._status()
+
+    async def wait_for_device(self, stale: Device, timeout: float = RELINK_WAIT_S) -> Optional[Device]:
+        """The device to use after `stale` failed a command, once the link is back.
+
+        None when the link never went down -- the command failed for its own
+        reasons, and a new device would not change that -- or when it did not
+        come back within `timeout`, or the operator disconnected on purpose.
+        """
+        c = self._client
+        if self._device is stale and c is not None and c.is_connected:
+            return None
+        # The disconnect callback normally queues the reconnect; if bleak
+        # reported "not connected" before it fired, start it here.
+        self._schedule_reconnect()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            if self._intentional:
+                return None
+            d, c = self._device, self._client
+            if d is not None and d is not stale and c is not None and c.is_connected:
+                return d
+            await asyncio.sleep(0.25)
+        return None
 
     def _schedule_reconnect(self) -> None:
         """Start a reconnect attempt, unless one is already running."""

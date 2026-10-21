@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import importlib
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -18,6 +19,10 @@ import pytest
 from backend.sweep.models import MIN_SETTLE_MS, RunState, SweepConfig
 # Aliased: pytest would otherwise try to collect `TestRunner` as a test class.
 from backend.sweep.runner import TestRunner as SweepRunner
+
+# By name: `backend.sweep.runner` as an attribute is the package's runner
+# singleton, not the module whose constants these tests patch.
+runner_mod = importlib.import_module("backend.sweep.runner")
 
 
 def sync(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -185,6 +190,177 @@ class TestSweepRun:
         assert len(rows) == 4
         assert rows[1].error is not None and "boom" in rows[1].error
         assert rows[2].error is None, "a bad point must not poison the rest"
+
+    @sync
+    async def test_a_lost_link_ends_the_run_as_an_error(self) -> None:
+        """A dropped BLE link failed every remaining step in milliseconds and
+        the run still ended "done". Several failed commands in a row is the
+        link, not the points, and must stop the run and say so."""
+        class DeadLinkDevice(FakeDevice):
+            async def lora_cw(self, **kw):
+                self.calls.append(("cw",))
+                if len(self.calls) > 1:
+                    raise RuntimeError("Service Discovery has not been performed yet")
+                return FakeResult()
+
+        runner = SweepRunner()
+        cfg = config(power_values=list(range(1, 23)))
+        await run_to_completion(runner, cfg, DeadLinkDevice(), FakePowerMeter(), FakeCurrentMeter())
+
+        status = runner.status()
+        assert status.state is RunState.ERROR
+        assert status.error is not None and "not answering" in status.error
+        assert status.completed == 4, "one good point, then three failures"
+
+    @sync
+    async def test_a_dropped_link_carries_on_on_the_reconnected_device(self) -> None:
+        """The BLE manager reconnects to a NEW device. The run kept the old one
+        and failed every point after a drop with "Not connected"."""
+        class DroppedDevice(FakeDevice):
+            async def lora_cw(self, **kw):
+                self.calls.append(("cw",))
+                if len(self.calls) >= 2:
+                    raise RuntimeError("BleakError: Not connected")
+                return FakeResult()
+
+        dead, fresh = DroppedDevice(), FakeDevice()
+        relinked: list = []
+
+        async def relink(stale):
+            relinked.append(stale)
+            return fresh
+
+        runner = SweepRunner()
+        await runner.start(
+            config(), dead, FakePowerMeter(), FakeCurrentMeter(), None, relink=relink,
+        )
+        await runner._ctx.task  # noqa: SLF001
+
+        status = runner.status()
+        assert status.state is RunState.DONE
+        assert all(r.error is None for r in runner.results()), "the dropped point is resent, not lost"
+        assert relinked == [dead]
+        assert [c[0] for c in fresh.calls].count("cw") == 3
+        assert fresh.calls[-1] == ("stop",), "teardown keys the DUT down on the live link"
+
+    @sync
+    async def test_a_failed_step_on_a_live_link_is_resent_not_skipped(self, monkeypatch) -> None:
+        monkeypatch.setattr(runner_mod, "_RETRY_DELAY_S", 0)
+
+        async def relink(stale):
+            return None  # link still up
+
+        device = FakeDevice(fail_on_call=2)
+        runner = SweepRunner()
+        await runner.start(
+            config(), device, FakePowerMeter(), FakeCurrentMeter(), None, relink=relink,
+        )
+        await runner._ctx.task  # noqa: SLF001
+
+        rows = runner.results()
+        assert all(r.error is None for r in rows), "the failed point gets a second try"
+        assert [c[0] for c in device.calls].count("cw") == 5
+
+    @sync
+    async def test_a_timeout_before_the_drop_is_reported_still_resends_on_the_new_link(
+        self, monkeypatch,
+    ) -> None:
+        """Bench row 70: the command timed out while the link still looked up,
+        so the first look said "fine" and the point was skipped. The second
+        look, a moment later, sees the reconnect."""
+        monkeypatch.setattr(runner_mod, "_RETRY_DELAY_S", 0)
+        dead, fresh = FakeDevice(fail_on_call=2), FakeDevice()
+        looks: list = []
+
+        async def relink(stale):
+            looks.append(stale)
+            return None if len(looks) == 1 else fresh
+
+        runner = SweepRunner()
+        await runner.start(
+            config(), dead, FakePowerMeter(), FakeCurrentMeter(), None, relink=relink,
+        )
+        await runner._ctx.task  # noqa: SLF001
+
+        assert all(r.error is None for r in runner.results())
+        assert len(looks) == 2
+        assert [c[0] for c in fresh.calls].count("cw") == 3
+
+    @sync
+    async def test_a_step_that_fails_twice_is_recorded(self, monkeypatch) -> None:
+        monkeypatch.setattr(runner_mod, "_RETRY_DELAY_S", 0)
+
+        class TwiceDevice(FakeDevice):
+            async def lora_cw(self, **kw):
+                self.calls.append(("cw",))
+                if len(self.calls) in (2, 3):
+                    raise RuntimeError("boom")
+                return FakeResult()
+
+        async def relink(stale):
+            return None
+
+        runner = SweepRunner()
+        await runner.start(
+            config(), TwiceDevice(), FakePowerMeter(), FakeCurrentMeter(), None, relink=relink,
+        )
+        await runner._ctx.task  # noqa: SLF001
+
+        rows = runner.results()
+        assert rows[1].error is not None and "boom" in rows[1].error
+        assert rows[2].error is None
+
+    @sync
+    async def test_shutdown_stops_the_sweep_and_keys_the_dut_down(self) -> None:
+        device = FakeDevice()
+        runner = SweepRunner()
+        cfg = config(power_values=list(range(1, 23)))
+        await runner.start(cfg, device, FakePowerMeter(), FakeCurrentMeter())
+        await asyncio.sleep(0.05)
+        await runner.shutdown()
+
+        status = runner.status()
+        assert status.state is RunState.CANCELLED
+        assert status.error == "backend shut down mid-run", "a stop nobody pressed must say why"
+        assert device.calls[-1] == ("stop",), "teardown must run before the link goes"
+
+    @sync
+    async def test_a_finished_run_is_autosaved_before_it_reports_done(self) -> None:
+        seen: list = []
+
+        async def save(status, rows):
+            seen.append((status.state, len(rows)))
+            return "C:/autosave/run.xlsx"
+
+        runner = SweepRunner()
+        await run_to_completion(
+            runner, config(), FakeDevice(), FakePowerMeter(), FakeCurrentMeter(), save,
+        )
+
+        assert seen == [(RunState.DONE, 4)]
+        status = runner.status()
+        assert status.state is RunState.DONE
+        assert status.autosave_path == "C:/autosave/run.xlsx"
+
+    @sync
+    async def test_a_failed_autosave_does_not_fail_the_run(self) -> None:
+        async def save(status, rows):
+            raise OSError("disk full")
+
+        runner = SweepRunner()
+        await run_to_completion(
+            runner, config(), FakeDevice(), FakePowerMeter(), FakeCurrentMeter(), save,
+        )
+
+        status = runner.status()
+        assert status.state is RunState.DONE and status.error is None
+        assert status.autosave_path is None
+
+    @sync
+    async def test_shutdown_on_an_idle_runner_is_harmless(self) -> None:
+        runner = SweepRunner()
+        await runner.shutdown()
+        assert runner.status().state is RunState.IDLE
 
     @sync
     async def test_points_are_not_stopped_between_each_other(self) -> None:

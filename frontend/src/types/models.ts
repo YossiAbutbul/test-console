@@ -118,6 +118,23 @@ export interface SweepConfig {
   cmd_timeout_s: number
   pa_mode?: number
   path_loss_db?: number
+  /** Off skips the DC analyzer entirely -- not opened, not read. Defaults to
+   *  on in backend/sweep/models.py, so an older client still measures CC. */
+  measure_current?: boolean
+  /** What reads TX power. Defaults to the sensor in backend/sweep/models.py. */
+  power_source?: PowerSource
+  spectrum?: SpectrumSweepSettings
+}
+
+export type PowerSource = 'sensor' | 'spectrum'
+
+/** Mirrors SpectrumSettings in backend/sweep/models.py. Centred on the
+ *  sweep's frequency; the analyzer's reference offset is zeroed by the run. */
+export interface SpectrumSweepSettings {
+  span_hz: number
+  rbw_hz: number
+  vbw_hz: number
+  detector: string
 }
 
 export interface StartRequest {
@@ -125,6 +142,7 @@ export interface StartRequest {
   power_sensor_serial?: string | null
   dc_analyzer_resource?: string | null
   dc_analyzer_channel: number
+  spectrum_address?: string | null
 }
 
 export type RunState = 'idle' | 'running' | 'done' | 'cancelled' | 'error'
@@ -155,6 +173,8 @@ export interface RunStatus {
   error?: string | null
   config?: SweepConfig | null
   last_row?: ResultRow | null
+  /** Where the backend saved the finished run's workbook on its own. */
+  autosave_path?: string | null
 }
 
 /** One row of the Meter Information read.

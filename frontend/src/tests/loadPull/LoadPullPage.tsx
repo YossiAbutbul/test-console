@@ -45,7 +45,7 @@ import {
   RunControls, Section, StatusChip, TEXT, TwoCol,
   HeadCell, NUM_CELL_SX,
   HazardGlyph, hazardRingSx,
-  GRID_GAP, JogPad, CheckMark, KeySpinner, MiniAction, SegmentedChoice, type CheckState,
+  GRID_GAP, JogPad, CheckMark, KeySpinner, MiniAction, RESULTS_H, SegmentedChoice, type CheckState,
 } from '../../ui'
 import { useAppPalette } from '../../context/ThemeModeContext'
 import type { TestPageProps } from '../types'
@@ -118,10 +118,6 @@ interface PlanPoint {
 /** Attenuator sweep. Fixed 1 dB steps from 0 up to a configurable ceiling. */
 const ATT_STEP_DB = 1
 const ATT_MAX_LIMIT_DB = 20
-
-/** Fixed height for the results area, so the panel is the same size empty,
- *  mid-run and full. */
-const RESULTS_H = 240
 
 /** One height for every control in the drive column. Four kinds of control —
  *  buttons, a jog pad, a toggle group — at three different sizes read as

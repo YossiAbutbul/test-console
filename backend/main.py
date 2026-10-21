@@ -29,6 +29,7 @@ from .api.instruments import close_all as instruments_close_all
 from .ble import manager as ble_manager
 from .motor import manager as motor_manager
 from .servo import manager as servo_manager
+from .sweep import runner as sweep_runner
 
 # Resolved through `paths` rather than from __file__: frozen into the desktop
 # bundle there is no repo above this module, and the built SPA sits beside the
@@ -102,6 +103,9 @@ async def _release_hardware() -> None:
     steps: tuple[tuple[str, Callable[[], Awaitable[Any]]], ...] = (
         # BLE first: it is the slowest and the one the OS will not clean up on
         # its own, so it should not be the step that runs out of shutdown time.
+        # Except a running sweep, which goes before even that: releasing the
+        # link under it failed every remaining step and keyed nothing down.
+        ("sweep", sweep_runner.shutdown),
         ("BLE", ble_manager.disconnect),
         ("instruments", instruments_close_all),
         ("servo", lambda: asyncio.to_thread(servo_manager.disconnect)),

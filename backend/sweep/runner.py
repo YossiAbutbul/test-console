@@ -15,11 +15,20 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 from ..device import Device, PaMode
 from ..hw.base import CurrentMeter, PowerMeter
 from .models import ResultRow, RunState, RunStatus, SweepConfig
+
+#: Called once a run has ended and the DUT is keyed down, with the run's final
+#: status and rows. Returns where it saved them, or None. See api/test.py.
+OnFinish = Callable[[RunStatus, list[ResultRow]], Awaitable[Optional[str]]]
+
+#: Called when a CW command raised, with the device it was sent to. Returns the
+#: device to carry on with once the BLE link is back, or None when the link was
+#: never down (or did not come back). See BLEManager.wait_for_device.
+Relink = Callable[[Device], Awaitable[Optional[Device]]]
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +36,21 @@ log = logging.getLogger(__name__)
 # without flooding the console on a 600-step sweep.
 _LOG_HEAD_STEPS = 3
 _LOG_EVERY = 50
+
+# Consecutive CW commands that raised before the run is abandoned. One failed
+# point is a bad point; several in a row is the DUT link gone. Without a limit
+# a dropped link failed every remaining step in milliseconds and the run still
+# finished as "done", hundreds of empty rows and no error.
+_LINK_FAIL_LIMIT = 3
+
+# Pause before resending a failed step on a link that still looked up, so a
+# drop that has not been reported yet has time to show. See _send_cw.
+_RETRY_DELAY_S = 1.5
+
+# How long shutdown waits for a running sweep to stop and key the DUT down
+# before the BLE link is released under it. One command timeout plus a settle
+# covers the step in flight; teardown's stop needs another command timeout.
+_SHUTDOWN_GRACE_S = 15.0
 
 
 @dataclass
@@ -41,6 +65,17 @@ class _RunCtx:
     error: Optional[str] = None
     cancel: asyncio.Event = field(default_factory=asyncio.Event)
     task: Optional[asyncio.Task] = None
+    #: CW commands that raised in a row -- see _LINK_FAIL_LIMIT.
+    cmd_failures: int = 0
+    #: Why the run was cancelled, when it was not the operator: reported as
+    #: the run's error so a stop nobody pressed does not read as a clean one.
+    cancel_reason: Optional[str] = None
+    autosave_path: Optional[str] = None
+    #: The device commands go to. Replaced when the link drops and the BLE
+    #: manager reconnects: its reconnect builds a new Device, and the one the
+    #: run started with stays bound to the dead client for good.
+    device: Optional[Device] = None
+    relink: Optional[Relink] = None
 
 
 class TestRunner:
@@ -63,6 +98,7 @@ class TestRunner:
             error=ctx.error,
             config=ctx.config,
             last_row=ctx.results[-1] if ctx.results else None,
+            autosave_path=ctx.autosave_path,
         )
 
     def results(self) -> list[ResultRow]:
@@ -74,12 +110,14 @@ class TestRunner:
         device: Device,
         power_meter: Optional[PowerMeter],
         current_meter: Optional[CurrentMeter],
+        on_finish: Optional[OnFinish] = None,
+        relink: Optional[Relink] = None,
     ) -> RunStatus:
         async with self._lock:
             if self._ctx and self._ctx.state == RunState.RUNNING:
                 raise RuntimeError("Test already running")
             config.validate_ranges()
-            ctx = _RunCtx(config=config)
+            ctx = _RunCtx(config=config, device=device, relink=relink)
             # Mark RUNNING here, not inside _run: the task does not begin
             # executing until this coroutine yields, so a second /test/run
             # arriving first would otherwise pass the guard above and drive a
@@ -88,7 +126,7 @@ class TestRunner:
             ctx.started_at = time.time()
             self._ctx = ctx
             ctx.task = asyncio.create_task(
-                self._run(ctx, device, power_meter, current_meter)
+                self._run(ctx, device, power_meter, current_meter, on_finish)
             )
             return self.status()
 
@@ -96,6 +134,25 @@ class TestRunner:
         if self._ctx and self._ctx.state == RunState.RUNNING:
             self._ctx.cancel.set()
         return self.status()
+
+    async def shutdown(self) -> None:
+        """Stop a running sweep before the process releases its hardware.
+
+        Shutdown used to drop the BLE link with the sweep still going: every
+        remaining step then failed at once, the run ended "done", and the
+        process exited with the rows only in memory. Stopping here first lets
+        teardown key the DUT down while the link is still up.
+        """
+        ctx = self._ctx
+        if ctx is None or ctx.state != RunState.RUNNING or ctx.task is None:
+            return
+        log.warning("Backend shutting down mid-sweep at step %d", len(ctx.results))
+        ctx.cancel_reason = "backend shut down mid-run"
+        ctx.cancel.set()
+        try:
+            await asyncio.wait_for(asyncio.shield(ctx.task), _SHUTDOWN_GRACE_S)
+        except Exception as e:
+            log.warning("Sweep did not stop within %.0fs: %s", _SHUTDOWN_GRACE_S, e)
 
     def clear(self) -> RunStatus:
         """Drop the finished run's results, returning to idle.
@@ -109,10 +166,50 @@ class TestRunner:
         self._ctx = None
         return self.status()
 
+    async def _send_cw(self, ctx: _RunCtx, hp: int, duty: int, power: int):
+        """The step's CW command, retried once on a link that came back.
+
+        A BLE drop mid-sweep used to fail every remaining point with "Not
+        connected" -- the manager had already reconnected, but to a new Device
+        this run never saw. Now a failed command asks for the current link and,
+        if it is a new one, sends the same point again on it.
+        """
+        async def send(device: Device):
+            return await device.lora_cw(
+                freq_hz=ctx.config.freq_hz,
+                power_dbm=power,
+                pa_duty_cycle=duty,
+                hp_max=hp,
+                pa_mode=PaMode(ctx.config.pa_mode),
+                timeout=ctx.config.cmd_timeout_s,
+            )
+
+        try:
+            return await send(ctx.device)
+        except Exception as e:
+            if ctx.relink is None:
+                raise
+            log.warning("CW command failed (%s: %s); checking the BLE link", type(e).__name__, e)
+            fresh = await ctx.relink(ctx.device)
+            if fresh is None:
+                # The link still looked up -- but a command that times out is
+                # often the first sign of a drop bleak has not reported yet,
+                # and trusting that first look skipped the point (row 70 of a
+                # bench run, a TimeoutError a moment before the reconnect).
+                # Give the drop time to surface, look again, and resend either
+                # way: on the new link if there is one, on the same one if not.
+                await asyncio.sleep(_RETRY_DELAY_S)
+                fresh = await ctx.relink(ctx.device)
+            if fresh is not None:
+                log.info("BLE link back; resending step hp=%d duty=%d pow=%d", hp, duty, power)
+                ctx.device = fresh
+            else:
+                log.info("Resending step hp=%d duty=%d pow=%d on the same link", hp, duty, power)
+            return await send(ctx.device)
+
     async def _measure_step(
         self,
         ctx: _RunCtx,
-        device: Device,
         pm: Optional[PowerMeter],
         cm: Optional[CurrentMeter],
         idx: int,
@@ -142,14 +239,12 @@ class TestRunner:
             # readings. Settle time is what governs them. A stop here cost
             # POST_STOP_RECOVERY_S (1.5s) per point — ~16 min over a 616-point
             # sweep — for nothing.
-            result = await device.lora_cw(
-                freq_hz=ctx.config.freq_hz,
-                power_dbm=power,
-                pa_duty_cycle=duty,
-                hp_max=hp,
-                pa_mode=PaMode(ctx.config.pa_mode),
-                timeout=ctx.config.cmd_timeout_s,
-            )
+            try:
+                result = await self._send_cw(ctx, hp, duty, power)
+            except Exception:
+                ctx.cmd_failures += 1
+                raise
+            ctx.cmd_failures = 0
             t_cmd = time.perf_counter()
             row.tx_hex = result.tx.hex(" ")
             row.rx_hex = result.rx.hex(" ")
@@ -202,9 +297,17 @@ class TestRunner:
         device: Device,
         pm: Optional[PowerMeter],
         cm: Optional[CurrentMeter],
+        on_finish: Optional[OnFinish] = None,
     ) -> None:
+        # `device` is only the one the run started with; steps and teardown use
+        # ctx.device, which a reconnect replaces.
         # state/started_at are set by start() so the guard there is race-free.
         t0 = time.perf_counter()
+        # Published only once teardown and the autosave are done: the page
+        # stops polling the moment the run leaves RUNNING, so a state set
+        # earlier would never carry the saved path to it, and a new run could
+        # start while this one was still keying the DUT down.
+        final = RunState.DONE
         log.info("Sweep started: %d steps", ctx.config.total_steps)
 
         try:
@@ -222,23 +325,36 @@ class TestRunner:
                     for duty in block.duty_values:
                         for power in block.power_values:
                             if ctx.cancel.is_set():
-                                ctx.state = RunState.CANCELLED
+                                final = RunState.CANCELLED
+                                ctx.error = ctx.cancel_reason
                                 return
-                            ctx.results.append(
-                                await self._measure_step(
-                                    ctx, device, pm, cm, idx, hp, duty, power, t0,
-                                )
+                            row = await self._measure_step(
+                                ctx, pm, cm, idx, hp, duty, power, t0,
                             )
+                            ctx.results.append(row)
                             idx += 1
+                            if ctx.cmd_failures >= _LINK_FAIL_LIMIT:
+                                raise RuntimeError(
+                                    f"DUT not answering: {_LINK_FAIL_LIMIT} commands "
+                                    f"failed in a row, last: {row.error}"
+                                )
 
-            ctx.state = RunState.DONE
         except Exception as e:
-            ctx.state = RunState.ERROR
+            final = RunState.ERROR
             ctx.error = f"{type(e).__name__}: {e}"
             log.exception("Sweep failed")
         finally:
             ctx.finished_at = time.time()
-            await self._teardown(ctx, device, pm, cm)
+            await self._teardown(ctx, ctx.device or device, pm, cm)
+            if on_finish is not None and ctx.results:
+                try:
+                    status = self.status().model_copy(update={"state": final})
+                    ctx.autosave_path = await on_finish(status, list(ctx.results))
+                except Exception as e:
+                    # The rows are still in memory and Export still works; a
+                    # failed autosave must not turn a good run into a bad one.
+                    log.warning("Sweep autosave failed: %s: %s", type(e).__name__, e)
+            ctx.state = final
             log.info("Sweep ended: state=%s completed=%d", ctx.state, len(ctx.results))
 
     async def _teardown(

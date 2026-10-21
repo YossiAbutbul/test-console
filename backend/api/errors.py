@@ -50,7 +50,12 @@ def handle_driver_errors(what: str) -> Iterator[None]:
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=f"{what}: {e}") from e
     except (asyncio.TimeoutError, TimeoutError) as e:
-        raise HTTPException(status_code=504, detail=f"{what}: timed out") from e
+        # Keep the driver's own words when it gave some: the spectrum connect
+        # raises "no SCPI answer from host:port - check the LAN cable...", and
+        # a bare "timed out" left the operator guessing which link it was.
+        msg = str(e).strip()
+        detail = f"{what}: timed out" + (f" ({msg})" if msg and msg != "timed out" else "")
+        raise HTTPException(status_code=504, detail=detail) from e
     except Exception as e:
         log.exception("%s failed", what)
         raise HTTPException(

@@ -7,11 +7,15 @@ import { measuresAnything, type MeasureSelection } from './measure'
  * Lives in the kit rather than on one page because the LoRa and LTE CW pages
  * both offer it and it must read identically on each. The types and the
  * preflight helper it drives are in `measure.ts`.
+ *
+ * `offer` narrows the boxes shown. Mode Sweep offers only current: a sweep
+ * without power has nothing to sweep against, so power is not a choice there.
  */
-export function MeasureOptions({ value, onChange, disabled }: {
+export function MeasureOptions({ value, onChange, disabled, offer = ['power', 'current'] }: {
   value: MeasureSelection
   onChange: (next: MeasureSelection) => void
   disabled?: boolean
+  offer?: (keyof MeasureSelection)[]
 }) {
   const box = (key: keyof MeasureSelection, label: string, hint: string) => (
     <Tooltip title={hint} placement="top">
@@ -33,8 +37,8 @@ export function MeasureOptions({ value, onChange, disabled }: {
 
   return (
     <Stack direction="row" alignItems="center" spacing={2} flexWrap="wrap">
-      {box('power', 'Measure power', 'Read TX power from the power sensor after sending')}
-      {box('current', 'Measure CC', 'Read current consumption from the DC analyzer after sending')}
+      {offer.includes('power') && box('power', 'Measure power', 'Read TX power from the power sensor after sending')}
+      {offer.includes('current') && box('current', 'Measure CC', 'Read current consumption from the DC analyzer after sending')}
       {/* Said out loud, because the absence of the measurement strip below is
           easy to read as something being broken rather than switched off. */}
       {!measuresAnything(value) && (

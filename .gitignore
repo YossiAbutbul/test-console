@@ -22,3 +22,6 @@ build/
 # Gemini API key for the assistant panel, and its spend counter.
 .gemini_key
 .chat-quota.json
+
+# Sweeps the backend saved on its own when a run ended (backend/api/test.py).
+autosave/

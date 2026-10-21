@@ -24,6 +24,13 @@ export interface PowerSweepPageSnapshot {
   advBlocks?: BlockDraft[]
   settleMs?: number
   paMode?: number
+  measureCurrent?: boolean
+  powerSource?: 'sensor' | 'spectrum'
+  /** Spectrum settings as typed, in kHz. */
+  specSpanKhz?: string
+  specRbwKhz?: string
+  specVbwKhz?: string
+  specDetector?: string
 }
 
 const store = makePageStore<PowerSweepPageSnapshot>(STORAGE_KEYS.powerSweepPage, {})

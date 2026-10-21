@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Box, Button, Stack, Tooltip, Typography } from '@mui/material'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
@@ -50,6 +50,9 @@ interface Props {
     label?: string
     subLabel?: string
   } | null
+  /** A control at the end of the heading row, after the sub-label -- Mode
+   *  Sweep's "Measure CC", which belongs with the reading it switches off. */
+  action?: ReactNode
 }
 
 /** Numeric part only — the unit rides in the tile's `unit` slot. */
@@ -60,7 +63,7 @@ function num(v: number | null | undefined, digits: number): string {
 
 export function MeasurementCard({
   freqHz, triggerId, settleMs = DEFAULT_SETTLE_MS, onResult, staticData,
-  targetDbm, toleranceDb = 1, wants = MEASURE_ALL,
+  targetDbm, toleranceDb = 1, wants = MEASURE_ALL, action,
 }: Props) {
   const { instruments, connect } = useInstruments()
   const { lossAt } = usePathLoss()
@@ -238,6 +241,7 @@ export function MeasurementCard({
       {staticData?.subLabel && (
         <Typography noWrap sx={{ ...TEXT.hint, color: 'text.secondary' }}>{staticData.subLabel}</Typography>
       )}
+      {action}
       {!isStatic && (
         <Typography sx={{ ...TEXT.hint, color: 'text.secondary', width: 56, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
           {data?.t_ms != null ? `${data.t_ms} ms` : ''}
