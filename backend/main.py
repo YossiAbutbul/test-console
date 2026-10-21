@@ -126,7 +126,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await _release_hardware()
 
 
-app = FastAPI(title="Test Console Backend", version="0.1.0", lifespan=lifespan)
+# Kept equal to the VERSION file by scripts/release.ps1 (and checked by
+# tests/test_version.py), so /docs names the release that is running.
+APP_VERSION = "1.0.0"
+
+app = FastAPI(title="Test Console Backend", version=APP_VERSION, lifespan=lifespan)
 
 # The API is bound to localhost and consumed by the bundled SPA (and by the
 # Vite dev server on another port), so origin checks add nothing here.

@@ -25,6 +25,21 @@ cd frontend; npx tsc -b; npm test; npx eslint src
 - Say what was left out or is still failing. Do not report a task complete on a
   suite that did not pass.
 
+## Releasing
+
+Versions are semantic (`major.minor.patch`); the current one is in `VERSION`.
+
+- As work lands on `main`, add a line under `## [Unreleased]` in
+  `CHANGELOG.md` (Added / Changed / Fixed). Do this in the same commit as the
+  change.
+- To cut a release, run the checks, then
+  `scriptselease.ps1 -Bump patch|minor|major` (or `-Version x.y.z`). It
+  refuses a dirty tree or an empty Unreleased section, writes the version into
+  `VERSION`, `backend/main.py` and `frontend/package.json`, dates the
+  changelog, commits `release: vX.Y.Z` and tags `vX.Y.Z`.
+- It pushes only with `-Push`. Push only when asked, as for any commit.
+- `backend/tests/test_version.py` fails if the three version strings drift.
+
 ## Running the app
 
 Use the **"Backend"** launch config (no `--reload`) or a terminal:
