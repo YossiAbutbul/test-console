@@ -359,6 +359,18 @@ Two 30 px outlined lamps in the top bar: DUT (opens the DUT controls in a
 popover) and Instruments n/7 (opens the Instruments panel). Mark plus words,
 never a bare dot; the Instruments mark is ticked only with the whole rig up.
 
+### Verdict tally
+Above every judged results table: "✓ 11 PASS" and "✕ 7 FAIL" as 16 px bold
+framed counts, then N/A and "n of N measured". FAIL takes its red frame only
+when it is above zero. The end-of-run modal leads with the same verdict
+("LoRa CW: 7 of 18 FAIL", error severity); "complete" is kept for a run with
+no tolerance, and says no verdict was given.
+
+### Results actions
+One order on every results panel: Graph (or Smith chart) · Export · Import,
+a divider, then Clear -- the one action that throws results away, last and
+apart.
+
 ### Status chip / dot
 Dot + label chip used for every instrument and connection state: ok green,
 busy amber (with spinner), off disabled grey, error red.

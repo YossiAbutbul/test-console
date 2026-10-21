@@ -70,3 +70,54 @@ export function VerdictMark({ verdict }: { verdict: 'pass' | 'fail' | null | und
     </Box>
   )
 }
+
+interface VerdictTallyProps {
+  pass: number
+  fail: number
+  /** Measured points with no tolerance to judge them against. */
+  na: number
+  /** Points in the table. */
+  measured: number
+  /** Points planned, while a run is filling the table in. */
+  planned?: number
+}
+
+/**
+ * The run's verdict, above its table: PASS and FAIL counts as the largest
+ * text in the panel, then N/A and how much of the plan is in.
+ *
+ * Without it the only tally was a line in the log, and a long run had to be
+ * scrolled to find out whether anything failed. FAIL takes the red frame only
+ * when there is at least one; at zero it stays quiet so a clean run does not
+ * look alarmed.
+ */
+export function VerdictTally({ pass, fail, na, measured, planned }: VerdictTallyProps) {
+  const box = (tone: 'success' | 'error' | null) => ({
+    display: 'inline-flex', alignItems: 'center', gap: 0.5,
+    px: 1.25, height: 34, borderRadius: 1, border: 1,
+    borderColor: tone ? `${tone}.main` : 'divider',
+    color: tone ? `${tone}.main` : 'text.secondary',
+    fontSize: 16, fontWeight: 700, whiteSpace: 'nowrap',
+    fontVariantNumeric: 'tabular-nums',
+  })
+  return (
+    <Box
+      role="status"
+      aria-label={`${pass} pass, ${fail} fail, ${na} not judged, ${measured} measured`}
+      sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1 }}
+    >
+      <Box sx={box(pass > 0 ? 'success' : null)}>
+        <CheckRoundedIcon sx={{ fontSize: 19 }} />{pass} PASS
+      </Box>
+      <Box sx={box(fail > 0 ? 'error' : null)}>
+        <CloseRoundedIcon sx={{ fontSize: 19 }} />{fail} FAIL
+      </Box>
+      <Box component="span" sx={{ fontSize: 13, color: 'text.secondary', ml: 0.5 }}>
+        {na > 0 && `${na} N/A · `}
+        {planned != null && planned > measured
+          ? `${measured} of ${planned} measured`
+          : `${measured} measured`}
+      </Box>
+    </Box>
+  )
+}

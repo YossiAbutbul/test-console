@@ -16,7 +16,7 @@ import type { DiscoverCandidate } from '../api/instruments'
 import { filterCandidates } from '../lib/instrumentCandidates'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
-import { MONO } from '../ui'
+import { CheckMark, MONO } from '../ui'
 import { FailureNote } from './FailureNote'
 
 interface CategoryGroup {
@@ -33,15 +33,6 @@ const GROUPS: CategoryGroup[] = [
   { label: 'Motion', ids: ['rf-trombone'] },
   { label: 'Attenuation', ids: ['attenuator'] },
 ]
-
-function statusColor(s: InstrumentState['status'], p: ReturnType<typeof getAppPalette>) {
-  switch (s) {
-    case 'connected': return p.sidebar.success
-    case 'connecting': return p.sidebar.textDim
-    case 'error': return p.data.bad
-    default: return p.sidebar.successOff
-  }
-}
 
 function fieldPlaceholder(id: InstrumentId, placeholder?: boolean): string {
   if (placeholder) return 'not wired yet'
@@ -71,7 +62,6 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
   const lastAutoKey = useRef<string | null>(null)
   const busy = inst.status === 'connecting'
   const connected = inst.status === 'connected'
-  const sColor = statusColor(inst.status, p)
   const highlight = required && !connected
 
   const runDiscover = async (opts: { focus?: boolean } = {}) => {
@@ -129,15 +119,17 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
           rowGap: 1,
         }}
       >
-        {/* Col 1: status dot + label/model */}
+        {/* Col 1: status mark + label, then the state in words beside the
+            model. A 9 px dot was the only sign of state on each row, and grey
+            "off" and red "error" differ by hue alone. */}
         <Stack direction="row" alignItems="center" spacing={1.25} sx={{ minWidth: 0 }}>
-          <Box
-            sx={{
-              width: 9, height: 9, borderRadius: '50%',
-              bgcolor: sColor,
-              boxShadow: connected ? `0 0 0 3px ${sColor}26` : 'none',
-              flexShrink: 0,
-            }}
+          <CheckMark
+            size={20}
+            state={
+              inst.status === 'connected' ? 'ok'
+                : inst.status === 'error' ? 'error'
+                  : inst.status === 'connecting' ? 'busy' : 'todo'
+            }
           />
           <Box sx={{ minWidth: 0, height: 32, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <Typography sx={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -151,7 +143,19 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}
             >
-              {inst.model ?? ' '}
+              <Box
+                component="span"
+                sx={{
+                  fontFamily: 'inherit', fontWeight: 600,
+                  color: inst.status === 'error' ? 'error.main'
+                    : inst.status === 'connected' ? 'success.main' : 'text.secondary',
+                }}
+              >
+                {inst.placeholder
+                  ? 'not wired yet'
+                  : { connected: 'connected', connecting: 'connecting…', error: 'error', disconnected: 'off' }[inst.status]}
+              </Box>
+              {inst.model ? ` · ${inst.model}` : ''}
             </Typography>
           </Box>
         </Stack>

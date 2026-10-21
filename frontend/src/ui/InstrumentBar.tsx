@@ -36,6 +36,12 @@ interface InstrumentBarProps {
   /** False blocks Connect and says so in the summary line: nothing chosen yet. */
   configReady?: boolean
   pending?: boolean
+  /**
+   * Why the last connect failed, already classified (lib/instrumentError).
+   * With it, an error says what went wrong and what to try -- the same words
+   * the Instruments panel uses -- instead of a bare "Error".
+   */
+  failure?: { title: string; hint: string } | null
   /** Blocks both buttons, e.g. while a move is in flight. */
   disabled?: boolean
   onConnect: () => void
@@ -57,7 +63,7 @@ interface InstrumentBarProps {
  */
 export function InstrumentBar({
   name, model, status, liveLabel, liveTone = 'ok', detail, summary, config,
-  configReady = true, pending, disabled, onConnect, onDisconnect,
+  configReady = true, pending, disabled, failure, onConnect, onDisconnect,
 }: InstrumentBarProps) {
   const [open, setOpen] = useState(false)
   const connected = status === 'connected'
@@ -67,10 +73,10 @@ export function InstrumentBar({
     : status === 'connecting'
       ? { label: 'Connecting', tone: 'busy' as const }
       : status === 'error'
-        ? { label: 'Error', tone: 'error' as const }
+        ? { label: failure?.title ?? 'Connect failed', tone: 'error' as const }
         : { label: 'Disconnected', tone: 'off' as const }
 
-  const line = connected ? detail : summary
+  const line = connected ? detail : status === 'error' && failure ? failure.hint : summary
 
   return (
     <Box sx={{ ...PANEL_SX, px: 2, py: 1.25, mb: 2 }}>
@@ -91,8 +97,11 @@ export function InstrumentBar({
             noWrap
             title={line ?? undefined}
             sx={{
-              fontFamily: MONO, fontSize: 12, lineHeight: 1.3,
-              color: !connected && !configReady ? 'warning.main' : 'text.secondary',
+              fontSize: 12, lineHeight: 1.3,
+              color: status === 'error' && failure
+                ? 'error.main'
+                : !connected && !configReady ? 'warning.main' : 'text.secondary',
+              fontFamily: status === 'error' && failure ? 'inherit' : MONO,
             }}
           >
             {line || (connected ? '' : 'not configured — open Config')}

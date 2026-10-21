@@ -258,7 +258,9 @@ function StatusFoot() {
         />
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: s.text }}>
-            {connected ? 'Connected' : 'Disconnected'}
+            {/* Says what is connected: on its own, "Disconnected" at the foot of
+                the menu could have meant the backend, an instrument or the DUT. */}
+            {connected ? 'DUT connected' : 'DUT not connected'}
           </Typography>
           {connected && (
             <Tooltip title={status?.address ?? ''} placement="top">

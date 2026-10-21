@@ -487,6 +487,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
         <InstrumentBar
           name="Spectrum analyzer"
           model="R&S FSC3 · LAN SCPI"
+          failure={sa.failure}
           status={sa.status}
           detail={[sa.idn, address].filter(Boolean).join(' · ') || null}
           summary={address || null}

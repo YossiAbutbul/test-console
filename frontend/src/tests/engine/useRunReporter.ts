@@ -4,7 +4,8 @@
  * Every test announces itself the same way, whichever side owns the loop:
  *
  *   start      → log line + "started" toast
- *   finish     → log line + completion modal (success, or warning if rows failed)
+ *   finish     → log line + completion modal led by the verdict (FAIL count,
+ *                all PASS, or errors), when the test judges its points
  *   stop       → log line + completion modal (warning)
  *   failure    → log line + completion modal (error)
  *
@@ -24,6 +25,9 @@ export interface RunSummary {
   total: number
   /** Rows that recorded an error. */
   errors?: number
+  /** PASS / FAIL over the measured points, for a test that judges them.
+   *  `total` counts judged points only; the rest are N/A. */
+  verdicts?: { pass: number; fail: number; total: number }
 }
 
 export interface RunReporter {
@@ -87,6 +91,7 @@ export function useRunReporter(
 
       finished: (summary) => {
         const errors = summary.errors ?? 0
+        const v = summary.verdicts
         const took = elapsed()
         log(
           source,
@@ -95,20 +100,45 @@ export function useRunReporter(
           + suffix('in', took),
           errors ? 'warn' : 'info',
         )
-        notify.complete(
-          errors
-            ? {
-                severity: 'warning',
-                title: `${name} finished with errors`,
-                message: `${errors} of ${summary.completed} ${unit} failed.`
-                  + suffix('· Took', took),
-              }
-            : {
-                severity: 'success',
-                title: `${name} complete`,
-                message: `${count(summary.completed)} measured.` + suffix('· Took', took),
-              },
-        )
+        // What the run measured, in one line, after the verdict. "complete"
+        // used to be the headline and meant only "every point was measured" --
+        // a run full of FAILs still ended on a green "complete".
+        const measured = errors
+          ? `${errors} of ${summary.completed} ${unit} could not be measured.`
+          : `All ${count(summary.completed)} measured.`
+        const tally = v && v.total > 0
+          ? ` ${v.pass} PASS · ${v.fail} FAIL${summary.completed > v.total ? ` · ${summary.completed - v.total} N/A` : ''}.`
+          : ''
+        if (v && v.fail > 0) {
+          notify.complete({
+            severity: 'error',
+            title: `${name}: ${v.fail} of ${v.total} FAIL`,
+            message: measured + tally + suffix('· Took', took),
+          })
+        } else if (v && v.total > 0 && !errors) {
+          notify.complete({
+            severity: 'success',
+            title: `${name}: all ${v.total} PASS`,
+            message: measured + tally + suffix('· Took', took),
+          })
+        } else {
+          notify.complete(
+            errors
+              ? {
+                  severity: 'warning',
+                  title: `${name} finished with errors`,
+                  message: measured + tally + suffix('· Took', took),
+                }
+              : {
+                  severity: 'success',
+                  // No tolerance anywhere: nothing was judged, so say so
+                  // rather than imply a pass.
+                  title: `${name} complete`,
+                  message: `${count(summary.completed)} measured, no tolerance set, so no verdict.`
+                    + suffix('· Took', took),
+                },
+          )
+        }
       },
 
       stopped: (summary) => {
@@ -118,6 +148,7 @@ export function useRunReporter(
           severity: 'warning',
           title: `${name} stopped`,
           message: `Stopped after ${summary.completed} of ${summary.total} ${unit}.`
+            + (summary.verdicts?.fail ? ` ${summary.verdicts.fail} FAIL so far.` : '')
             + suffix('· Ran for', took),
         })
       },

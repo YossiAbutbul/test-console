@@ -261,6 +261,7 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
         <InstrumentBar
           name="Power sensor"
           model="Mini-Circuits PWR-SEN-4GHS"
+          failure={sensor.failure}
           status={connecting && !connected ? 'connecting' : sensor.status}
           detail={sensor.idn}
           summary={sensor.address ? `serial ${sensor.address}` : 'first sensor found'}

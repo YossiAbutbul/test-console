@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useMemo, useState } from 'react'
 import {
-  Box, Button, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
+  Box, Divider, Button, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
@@ -26,6 +26,7 @@ import {
 } from '../../lib/settle'
 import { GRID_GAP, Section, TEXT,
   FAIL_ROW_SX, HeadCell, NUM_CELL_SX, VerdictMark, deltaText,
+  VerdictTally,
 } from '../../ui'
 import { CSV_HEADER, PA_MODE_LABEL, parsePowerCsv, toCsvBody } from './csv'
 import { ResultsGraphModal, type GraphableRow } from './ResultsGraphModal'
@@ -448,6 +449,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
           markRowError: (item, _i, message) => ({ ...blankRow(item), error: message }),
           after: async () => { try { await device.stop() } catch { /* ignore */ } },
           rowHasError: (r) => !!r.error,
+          judge: tallyVerdicts,
           onRows: (next) => { resultsRef.current = next; setResults(next) },
           onProgress: setProgressIdx,
           // The settle delay is operator-set and can be long; the guard has to
@@ -769,29 +771,8 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
         action={
           <Stack direction="row" alignItems="center" spacing={0.75}>
             <Typography sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5 }}>
-              measured + path loss (per frequency; default {defaultDb} dB)
+              power at the DUT = sensor + path loss
             </Typography>
-            <Button
-              size="small"
-              variant="text"
-              startIcon={<UploadIcon sx={{ fontSize: 15 }} />}
-              onClick={() => fileInput.current?.click()}
-              disabled={running}
-              sx={resultActionSx}
-            >
-              Import
-            </Button>
-            <Button
-              size="small"
-              variant="text"
-              color="inherit"
-              startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
-              onClick={() => { resultsRef.current = []; setResults([]) }}
-              disabled={results.length === 0 || running}
-              sx={resultActionSx}
-            >
-              Clear
-            </Button>
             <Button
               size="small"
               variant="text"
@@ -812,6 +793,30 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
             >
               Export
             </Button>
+            <Button
+              size="small"
+              variant="text"
+              startIcon={<UploadIcon sx={{ fontSize: 15 }} />}
+              onClick={() => fileInput.current?.click()}
+              disabled={running}
+              sx={resultActionSx}
+            >
+              Import
+            </Button>
+            {/* Clear last and apart: it is the one action here that throws
+                results away, and it used to sit between Import and Graph. */}
+            <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.5 }} />
+            <Button
+              size="small"
+              variant="text"
+              color="inherit"
+              startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
+              onClick={() => { resultsRef.current = []; setResults([]) }}
+              disabled={results.length === 0 || running}
+              sx={resultActionSx}
+            >
+              Clear
+            </Button>
           </Stack>
         }
       >
@@ -828,6 +833,19 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
             if (f) void importFile(f)
           }}
         />
+
+        {results.length > 0 && (() => {
+          const t = tallyVerdicts(results)
+          return (
+            <VerdictTally
+              pass={t.pass}
+              fail={t.fail}
+              na={results.length - t.total}
+              measured={results.length}
+              planned={running ? totalPoints : undefined}
+            />
+          )
+        })()}
 
         {results.length === 0 ? (
           <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>

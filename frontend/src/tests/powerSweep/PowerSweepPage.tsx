@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import {
-  Box, Button, FormControlLabel, MenuItem, Stack, Switch, Tooltip, Typography,
+  Box, Button, Divider, FormControlLabel, MenuItem, Stack, Switch, Tooltip, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DownloadIcon from '@mui/icons-material/Download'
@@ -679,21 +679,8 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
           action={
             <Stack direction="row" alignItems="center" spacing={0.75}>
               <Typography sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5 }}>
-                measured + path loss ({pathLossDb} dB)
+                power at the DUT = sensor + path loss
               </Typography>
-              <Button
-                size="small"
-                variant="text"
-                color="inherit"
-                startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
-                onClick={() => (imported ? closeImported() : clearResults.mutate())}
-                // Refused mid-run by the backend; disabled here so the refusal
-                // is not the way the operator finds that out.
-                disabled={rows.length === 0 || running || clearResults.isPending}
-                sx={resultActionSx}
-              >
-                Clear
-              </Button>
               <Button
                 size="small"
                 variant="text"
@@ -707,16 +694,6 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
               <Button
                 size="small"
                 variant="text"
-                startIcon={<UploadFileIcon sx={{ fontSize: 15 }} />}
-                onClick={() => fileInput.current?.click()}
-                disabled={running || importXlsx.isPending}
-                sx={resultActionSx}
-              >
-                {importXlsx.isPending ? 'Reading…' : 'Import'}
-              </Button>
-              <Button
-                size="small"
-                variant="text"
                 startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
                 onClick={() => exportXlsx.mutate()}
                 // With a file open this re-exports the file (see exportXlsx),
@@ -725,6 +702,32 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                 sx={resultActionSx}
               >
                 Export
+              </Button>
+              <Button
+                size="small"
+                variant="text"
+                startIcon={<UploadFileIcon sx={{ fontSize: 15 }} />}
+                onClick={() => fileInput.current?.click()}
+                disabled={running || importXlsx.isPending}
+                sx={resultActionSx}
+              >
+                {importXlsx.isPending ? 'Reading…' : 'Import'}
+              </Button>
+              {/* Clear last and apart, in the same order as every results
+                  panel: it is the one action here that throws results away. */}
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.5 }} />
+              <Button
+                size="small"
+                variant="text"
+                color="inherit"
+                startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
+                onClick={() => (imported ? closeImported() : clearResults.mutate())}
+                // Refused mid-run by the backend; disabled here so the refusal
+                // is not the way the operator finds that out.
+                disabled={rows.length === 0 || running || clearResults.isPending}
+                sx={resultActionSx}
+              >
+                Clear
               </Button>
             </Stack>
           }

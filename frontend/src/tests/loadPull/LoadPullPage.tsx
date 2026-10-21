@@ -1345,17 +1345,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           action={
             <Stack direction="row" alignItems="center" spacing={0.75}>
               <Typography sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5 }}>
-                power = sensor + path loss ({pathLossDb} dB)
+                power at the DUT = sensor + path loss
               </Typography>
-              <Button
-                size="small" variant="text" color="inherit"
-                startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
-                onClick={() => { setResults([]); setImportedName(null); runTimesRef.current = null }}
-                disabled={results.length === 0 || running}
-                sx={RESULT_ACTION_SX}
-              >
-                Clear
-              </Button>
               <Button
                 size="small" variant="text"
                 startIcon={<ScatterPlotIcon sx={{ fontSize: 15 }} />}
@@ -1367,6 +1358,15 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               </Button>
               <Button
                 size="small" variant="text"
+                startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
+                onClick={() => exportXlsx.mutate()}
+                disabled={results.length === 0 || exportXlsx.isPending}
+                sx={RESULT_ACTION_SX}
+              >
+                {exportXlsx.isPending ? 'Building…' : 'Export'}
+              </Button>
+              <Button
+                size="small" variant="text"
                 startIcon={<UploadFileIcon sx={{ fontSize: 15 }} />}
                 onClick={() => csvInput.current?.click()}
                 disabled={running}
@@ -1374,14 +1374,17 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               >
                 Import
               </Button>
+              {/* Clear last and apart, in the same order as every results
+                  panel: it is the one action here that throws results away. */}
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.5 }} />
               <Button
-                size="small" variant="text"
-                startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
-                onClick={() => exportXlsx.mutate()}
-                disabled={results.length === 0 || exportXlsx.isPending}
+                size="small" variant="text" color="inherit"
+                startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
+                onClick={() => { setResults([]); setImportedName(null); runTimesRef.current = null }}
+                disabled={results.length === 0 || running}
                 sx={RESULT_ACTION_SX}
               >
-                {exportXlsx.isPending ? 'Building…' : 'Export'}
+                Clear
               </Button>
             </Stack>
           }

@@ -270,6 +270,7 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
         <InstrumentBar
           name="Signal generator"
           model="R&S SML03"
+          failure={gen.failure}
           status={gen.status}
           detail={gen.idn}
           summary={port ? `${port} · ${baud} baud` : null}

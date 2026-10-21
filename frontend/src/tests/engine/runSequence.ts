@@ -55,6 +55,12 @@ export interface RunSequenceArgs<Item, Row> {
   /** Max wall time for one point. Should exceed the settle delay. */
   stepTimeoutMs?: number
   /** Lifecycle announcer — see `useRunReporter`. */
+  /**
+   * PASS / FAIL count over the collected rows, for pages that judge points.
+   * Handed to the reporter so the end of the run can lead with the verdict
+   * rather than with "complete", which only ever meant "all measured".
+   */
+  judge?: (rows: Row[]) => { pass: number; fail: number; total: number }
   reporter: RunReporter
 }
 
@@ -110,6 +116,7 @@ export async function runSequence<Item, Row>(
     completed: collected.length,
     total,
     errors: collected.filter(rowHasError).length,
+    verdicts: a.judge?.(collected),
   }
   if (abort.signal.aborted) reporter.stopped(summary)
   else reporter.finished(summary)

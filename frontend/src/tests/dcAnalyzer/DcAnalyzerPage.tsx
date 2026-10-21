@@ -255,6 +255,7 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
         <InstrumentBar
           name="DC analyzer"
           model="Keysight N6705B"
+          failure={dc.failure}
           status={dc.status}
           detail={dc.idn ? `${dc.idn} · ch ${channel}` : `ch ${channel}`}
           summary={address ? `${address} · ch ${channel}` : null}
