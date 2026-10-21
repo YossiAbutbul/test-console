@@ -18,6 +18,7 @@ import { DASH, fmt, fmtHz, fmtMhz } from '../../lib/format'
 import {
   ACTION_W, CONTROL_H, DenseTabs, InstrumentBar, MiniAction, MONO, PageBody, Section,
   StatRow, StatTile, TEXT, TwoCol,
+  HeadCell, NUM_CELL_SX,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import { pickCandidate } from '../../context/InstrumentsContext'
@@ -248,19 +249,21 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
               label="Start"
               value={cfg?.start_hz == null ? DASH : fmtMhz(cfg.start_hz, 3)}
               unit={cfg?.start_hz == null ? undefined : 'MHz'}
+              sub={connected ? undefined : 'not connected'}
               off={!connected}
             />
             <StatTile
               label="Stop"
               value={cfg?.stop_hz == null ? DASH : fmtMhz(cfg.stop_hz, 3)}
               unit={cfg?.stop_hz == null ? undefined : 'MHz'}
+              sub={connected ? undefined : 'not connected'}
               off={!connected}
             />
             <StatTile
               label="Points"
               value={cfg?.points == null ? DASH : String(cfg.points)}
               sub={cfg?.source_power_dbm == null
-                ? undefined
+                ? (connected ? undefined : 'not connected')
                 : `source ${fmt(cfg.source_power_dbm, 1)} dBm`}
               off={!connected}
             />
@@ -268,6 +271,7 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
               label="IF bandwidth"
               value={cfg?.if_bandwidth_hz == null ? DASH : fmt(cfg.if_bandwidth_hz / 1e3, 1)}
               unit={cfg?.if_bandwidth_hz == null ? undefined : 'kHz'}
+              sub={connected ? undefined : 'not connected'}
               off={!connected}
             />
           </StatRow>
@@ -280,7 +284,8 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
             // Says which of the two ranges a sweep would actually use.
             hint={pendingFreq ? 'Not applied — the instrument still has the range above.' : undefined}
           >
-            <Stack direction="row" spacing={1} alignItems="flex-start">
+            {/* Bottom-aligned: Apply belongs to the inputs' row, not their labels'. */}
+            <Stack direction="row" spacing={1} alignItems="flex-end">
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
               <LabeledField
                 label="Start"
@@ -385,15 +390,15 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
                 <Tab value="s11" label="S11" />
                 <Tab value="s21" label="S21" />
               </DenseTabs>
-              <Button
-                size="small"
-                variant="outlined"
+              <MiniAction
                 disabled={!connected || busy || markerHzList.length === 0}
                 onClick={() => (sTab === 's11' ? measureM.mutate() : measureS21M.mutate())}
-                sx={{ height: 26, fontSize: 12 }}
+                // One width for "Read S11" and "Read S21": switching tab must
+                // not shift the sweep summary beside it.
+                sx={{ width: 76 }}
               >
                 {sTab === 's11' ? 'Read S11' : 'Read S21'}
-              </Button>
+              </MiniAction>
               {shown ? (
                 <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
                   {fmtHz(shown.start_hz)} → {fmtHz(shown.stop_hz)} · {shown.points} pts
@@ -412,16 +417,16 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
               <Table size="small" sx={{ width: '100%' }}>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Mk</TableCell>
+                    <HeadCell label="Mk" />
                     {/* The frequency as configured. The reading itself comes
                         from the nearest point the sweep actually visited, which
                         on a coarse span is not the same frequency. */}
-                    <TableCell>Freq (MHz)</TableCell>
-                    <TableCell align="right">R (Ω)</TableCell>
-                    <TableCell align="right">jX (Ω)</TableCell>
-                    <TableCell align="right">|S11| (dB)</TableCell>
-                    <TableCell align="right">S11 real</TableCell>
-                    <TableCell align="right">S11 imag</TableCell>
+                    <HeadCell label="Freq" unit="MHz" numeric />
+                    <HeadCell label="R" unit="Ω" numeric />
+                    <HeadCell label="jX" unit="Ω" numeric />
+                    <HeadCell label="|S11|" unit="dB" numeric />
+                    <HeadCell label="S11 real" numeric />
+                    <HeadCell label="S11 imag" numeric />
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -429,12 +434,12 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
                     return (
                     <TableRow key={m.index}>
                       <TableCell>M{m.index}</TableCell>
-                      <TableCell sx={{ fontFamily: MONO }}>{fmtMhz(m.requested_hz)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.r_ohm, 2)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.x_ohm, 2)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: MONO, fontWeight: 700 }}>{fmt(m.s11_mag_db, 2)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: MONO, color: 'text.secondary' }}>{fmt(m.s11_real, 4)}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: MONO, color: 'text.secondary' }}>{fmt(m.s11_imag, 4)}</TableCell>
+                      <TableCell sx={NUM_CELL_SX}>{fmtMhz(m.requested_hz)}</TableCell>
+                      <TableCell sx={NUM_CELL_SX}>{fmt(m.r_ohm, 2)}</TableCell>
+                      <TableCell sx={NUM_CELL_SX}>{fmt(m.x_ohm, 2)}</TableCell>
+                      <TableCell sx={{ ...NUM_CELL_SX, fontWeight: 700 }}>{fmt(m.s11_mag_db, 2)}</TableCell>
+                      <TableCell sx={{ ...NUM_CELL_SX, color: 'text.secondary' }}>{fmt(m.s11_real, 4)}</TableCell>
+                      <TableCell sx={{ ...NUM_CELL_SX, color: 'text.secondary' }}>{fmt(m.s11_imag, 4)}</TableCell>
                     </TableRow>
                     )
                   })}
@@ -446,12 +451,12 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
               <Table size="small" sx={{ width: '100%' }}>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Mk</TableCell>
-                    <TableCell>Freq (MHz)</TableCell>
-                    <TableCell align="right">|S21| (dB)</TableCell>
-                    <TableCell align="right">Phase (°)</TableCell>
-                    <TableCell align="right">S21 real</TableCell>
-                    <TableCell align="right">S21 imag</TableCell>
+                    <HeadCell label="Mk" />
+                    <HeadCell label="Freq" unit="MHz" numeric />
+                    <HeadCell label="|S21|" unit="dB" numeric />
+                    <HeadCell label="Phase" unit="°" numeric />
+                    <HeadCell label="S21 real" numeric />
+                    <HeadCell label="S21 imag" numeric />
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -459,13 +464,13 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
                     return (
                       <TableRow key={m.index}>
                         <TableCell>M{m.index}</TableCell>
-                        <TableCell sx={{ fontFamily: MONO }}>{fmtMhz(m.requested_hz)}</TableCell>
-                        <TableCell align="right" sx={{ fontFamily: MONO, fontWeight: 700 }}>
+                        <TableCell sx={NUM_CELL_SX}>{fmtMhz(m.requested_hz)}</TableCell>
+                        <TableCell sx={{ ...NUM_CELL_SX, fontWeight: 700 }}>
                           {fmt(m.mag_db, 2)}
                         </TableCell>
-                        <TableCell align="right" sx={{ fontFamily: MONO }}>{fmt(m.phase_deg, 1)}</TableCell>
-                        <TableCell align="right" sx={{ fontFamily: MONO, color: 'text.secondary' }}>{fmt(m.real, 4)}</TableCell>
-                        <TableCell align="right" sx={{ fontFamily: MONO, color: 'text.secondary' }}>{fmt(m.imag, 4)}</TableCell>
+                        <TableCell sx={NUM_CELL_SX}>{fmt(m.phase_deg, 1)}</TableCell>
+                        <TableCell sx={{ ...NUM_CELL_SX, color: 'text.secondary' }}>{fmt(m.real, 4)}</TableCell>
+                        <TableCell sx={{ ...NUM_CELL_SX, color: 'text.secondary' }}>{fmt(m.imag, 4)}</TableCell>
                       </TableRow>
                     )
                   })}

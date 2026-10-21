@@ -5,6 +5,7 @@ import {
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import { useNicknames } from '../context/NicknamesContext'
+import { MONO } from '../ui'
 
 interface Props {
   mac: string | null
@@ -39,7 +40,7 @@ export function NicknameModal({ mac, onClose }: Props) {
       </DialogTitle>
       <DialogContent>
         <Stack spacing={2}>
-          <Typography sx={{ fontFamily: 'ui-monospace, monospace', fontSize: 12, color: 'text.secondary' }}>
+          <Typography sx={{ fontFamily: MONO, fontSize: 12, color: 'text.secondary' }}>
             {mac}
           </Typography>
           <TextField

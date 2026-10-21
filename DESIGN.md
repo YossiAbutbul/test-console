@@ -412,6 +412,12 @@ with a muted unit, one sub-line. Tone colours the value only (ok / warn / bad);
 The connection row at the top of each Components page: status chip, name +
 model, the settings Connect will use (mono), Config dialog, Connect.
 
+### Instrument error
+One shape on every Components page (`InstrumentError`): an error glyph, a
+13 px red title ("The instrument reported an error", or the classified
+failure's title) and the detail in secondary text -- mono when it is the
+instrument's own words, with a leading "RuntimeError: " dropped.
+
 ### Inputs
 36 px outlined fields on panel paper, hairline border that does not change on
 hover or focus, no floating label (label sits above via LabeledField),

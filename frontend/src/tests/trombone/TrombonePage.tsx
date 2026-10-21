@@ -18,6 +18,8 @@ import {
   ACTION_W, CONTROL_H, InstrumentBar, MONO, PageBody, Section,
   StatRow, StatTile, TEXT, TwoCol,
   hazardRingSx,
+  InstrumentError,
+  HazardGlyph,
 } from '../../ui'
 import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
@@ -153,9 +155,10 @@ export function TrombonePage({ group }: TestPageProps) {
           // should be in one fixed place and reachable without first finding
           // which panel began the motion.
           <Stack direction="row" spacing={1}>
+            {/* Plain outlined, like Stop on every other page: the safe way out
+                is not red -- red marks the keys that act on the bench. */}
             <Button
               variant="outlined"
-              color="error"
               startIcon={<StopIcon />}
               onClick={() => stopM.mutate()}
               disabled={!connected || stopM.isPending}
@@ -265,7 +268,7 @@ export function TrombonePage({ group }: TestPageProps) {
           )}
 
           {s?.error && (
-            <Typography sx={{ ...TEXT.hint, color: 'error.main', mt: 1 }}>{s.error}</Typography>
+            <InstrumentError message={s.error} raw />
           )}
         </Box>
 
@@ -273,7 +276,7 @@ export function TrombonePage({ group }: TestPageProps) {
           <Section title="Move to" panel>
             <Stack direction="row" spacing={1} alignItems="flex-start">
               <LabeledField
-                label="Target (mm)"
+                label="Target"
                 hint={hasLimits
                   ? `${pulsesToMm(softMin).toFixed(2)} … ${pulsesToMm(softMax).toFixed(2)}`
                   : 'mm'}
@@ -284,6 +287,19 @@ export function TrombonePage({ group }: TestPageProps) {
                 onFocus={() => setTargetFocused(true)}
                 onBlur={() => setTargetFocused(false)}
                 error={targetOutOfRange || (!targetValid && targetStr.trim() !== '')}
+                // On the input's own row, through the kit's slot for it: a
+                // margin nudge to line it up was being reset by the Stack.
+                action={
+                  <Button
+                    variant="contained"
+                    onClick={() => moveM.mutate()}
+                    disabled={!connected || busy || !targetInRange}
+                    startIcon={<HazardGlyph kind="move" />}
+                    sx={[{ width: ACTION_W.default, height: CONTROL_H.md, flexShrink: 0 }, hazardRingSx('move')]}
+                  >
+                    Move
+                  </Button>
+                }
                 InputProps={{
                   endAdornment: (
                     <ValidationAdornment
@@ -299,14 +315,6 @@ export function TrombonePage({ group }: TestPageProps) {
                   ),
                 }}
               />
-              <Button
-                variant="contained"
-                onClick={() => moveM.mutate()}
-                disabled={!connected || busy || !targetInRange}
-                sx={[{ minWidth: ACTION_W.compact, height: CONTROL_H.md, mt: '22px', flexShrink: 0 }, hazardRingSx('move')]}
-              >
-                Move
-              </Button>
             </Stack>
             <Typography sx={{ ...TEXT.hint, color: 'text.secondary', mt: 0.75 }}>
               {targetValid ? `Sends ${pulseNum(targetPulses)}.` : DASH}

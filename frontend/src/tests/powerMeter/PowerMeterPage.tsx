@@ -16,6 +16,9 @@ import { describeMeasureError } from '../../lib/instrumentError'
 import { DASH } from '../../lib/format'
 import {
   DenseTabs, Eyebrow, InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
+  InstrumentError,
+  ACTION_W,
+  MiniAction,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import {
@@ -220,14 +223,15 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
               onClick={() => void readOnce()}
               disabled={!connected || busy}
               startIcon={<RefreshIcon sx={{ fontSize: 16 }} />}
-              sx={{ minWidth: 130, height: 36 }}
+              sx={{ width: ACTION_W.default, minWidth: ACTION_W.default, height: 36 }}
             >
               {reading ? 'Reading' : 'Read'}
             </Button>
           ) : (
             <Button
               variant={tracing ? 'outlined' : 'contained'}
-              color={tracing ? 'error' : 'primary'}
+              // Not red when tracing: stopping a read-out is not a hazard, and
+              // red is kept for the keys that act on the bench.
               onClick={() => setTracing((v) => !v)}
               disabled={!connected}
               startIcon={
@@ -235,7 +239,7 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
                   ? <StopIcon sx={{ fontSize: 16 }} />
                   : <PlayArrowIcon sx={{ fontSize: 16 }} />
               }
-              sx={{ minWidth: 130, height: 36 }}
+              sx={{ width: ACTION_W.default, minWidth: ACTION_W.default, height: 36 }}
             >
               {tracing ? 'Stop' : 'Start'}
             </Button>
@@ -243,19 +247,6 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
         }
       />
 
-      <DenseTabs
-        value={tab}
-        onChange={(_, v: PowerMeterTab) => {
-          // Leaving the tab stops the loop rather than letting it run behind
-          // a screen that is not showing its readings.
-          if (v !== 'continuous') setTracing(false)
-          setTab(v)
-        }}
-        sx={{ mt: -0.5, borderBottom: 1, borderColor: 'divider' }}
-      >
-        <Tab value="read" label="Read" />
-        <Tab value="continuous" label="Continuous" />
-      </DenseTabs>
 
       <PageBody width="fluid">
         <InstrumentBar
@@ -285,6 +276,22 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
             </Box>
           }
         />
+
+        <DenseTabs
+          value={tab}
+          onChange={(_, v: PowerMeterTab) => {
+            // Leaving the tab stops the loop rather than letting it run behind
+            // a screen that is not showing its readings.
+            if (v !== 'continuous') setTracing(false)
+            setTab(v)
+          }}
+          // Under the instrument row, as on the test pages: what the page
+          // reads from comes first, how it reads second.
+          sx={{ mb: 1, borderBottom: 1, borderColor: 'divider' }}
+        >
+          <Tab value="read" label="Read" />
+          <Tab value="continuous" label="Continuous" />
+        </DenseTabs>
 
         <Box>
           <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1 }}>
@@ -329,16 +336,14 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
             />
               </>
             )}
-            <Button
-              size="small"
-              variant="outlined"
+            <MiniAction
+              color="inherit"
               onClick={onClear}
               disabled={!samples.length}
-              startIcon={<DeleteSweepIcon sx={{ fontSize: 16 }} />}
-              sx={{ height: 30 }}
+              startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
             >
               Clear
-            </Button>
+            </MiniAction>
           </Stack>
 
           <StatRow>
@@ -371,27 +376,28 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
               label="Result"
               value={fmt(result, 2)}
               unit={result != null ? 'dBm' : undefined}
-              sub={resultMw != null ? `${resultMw.toFixed(3)} mW` : undefined}
+              sub={resultMw != null ? `${resultMw.toFixed(3)} mW` : connected ? 'no reading' : 'sensor off'}
               off={result == null}
             />
             <StatTile
               label="Min"
               value={fmt(min, 2)}
               unit={min != null ? 'dBm' : undefined}
-              sub={samples.length ? `${samples.length} sample${samples.length === 1 ? '' : 's'}` : undefined}
+              sub={samples.length ? `${samples.length} sample${samples.length === 1 ? '' : 's'}` : 'no samples yet'}
               off={min == null}
             />
             <StatTile
               label="Max"
               value={fmt(max, 2)}
               unit={max != null ? 'dBm' : undefined}
-              sub={min != null && max != null ? `span ${(max - min).toFixed(2)} dB` : undefined}
+              sub={min != null && max != null ? `span ${(max - min).toFixed(2)} dB` : 'no samples yet'}
               off={max == null}
             />
             <StatTile
               label="Mean"
               value={fmt(mean, 2)}
               unit={mean != null ? 'dBm' : undefined}
+              sub={mean == null ? 'no samples yet' : undefined}
               off={mean == null}
             />
           </StatRow>
@@ -400,25 +406,16 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
               it used to ride in a row above every page, and a path-loss check
               (signal generator in, this sensor out) is done from this page. */}
           <Stack direction="row" alignItems="flex-end" spacing={1.5} sx={{ mt: 1.5 }}>
-            <PathLossField label="Path loss correction (dB)" />
+            <PathLossField label="Path loss correction" unit="dB" />
           </Stack>
 
-          <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mt: 1 }}>
+          <Typography sx={{ ...TEXT.hint, color: 'text.secondary', mt: 1 }}>
             Result = reading + correction. The correction is the default path
             loss, the same figure the test pages use; change it here or under
             Path loss on any test page.
           </Typography>
 
-          {failure && (
-            <Box sx={{ mt: 1.5 }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{failure.title}</Typography>
-              {failure.hint && (
-                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                  {failure.hint}
-                </Typography>
-              )}
-            </Box>
-          )}
+          {failure && <InstrumentError title={failure.title} message={failure.hint ?? ''} />}
         </Box>
 
         {samples.length > 1 && (

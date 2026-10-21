@@ -22,6 +22,7 @@ import { useShellLayout } from '../ui/useShellLayout'
 import { testRegistry } from '../tests/registry'
 import { useInstrumentsUnavailableReason } from '../context/CapabilitiesContext'
 import type { TestModule } from '../tests/types'
+import { MONO } from '../ui'
 
 // Re-exported for the call sites that reach for them alongside Sidebar; the
 // values themselves live with the rest of the layout tokens.
@@ -268,7 +269,7 @@ function StatusFoot() {
             <Tooltip title={status?.address ?? ''} placement="top">
               <Typography
                 sx={{
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  fontFamily: MONO,
                   fontSize: 12,
                   color: s.textDim,
                   overflow: 'hidden',

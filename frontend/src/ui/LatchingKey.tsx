@@ -1,6 +1,8 @@
 import { Box, ButtonBase } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import { useAppPalette } from '../context/ThemeModeContext'
+import { hazardRingSx } from './hazardStyle'
+import { CONTROL_H } from './tokens'
 import { HazardGlyph } from './HazardGlyph'
 
 interface Props {
@@ -43,13 +45,18 @@ export function LatchingKey({
       disabled={disabled}
       aria-pressed={value}
       onClick={() => onChange(!value)}
-      sx={{
+      sx={[{
         display: 'inline-flex',
         alignItems: 'center',
         gap: 1.1,
         pl: 1.25,
         pr: 1.5,
-        py: 0.75,
+        // The header's control height, and one width for both states, so
+        // "Modem off" -> "Modem on" swaps the words without moving Stop and
+        // Send beside it.
+        height: CONTROL_H.md,
+        minWidth: 136,
+        justifyContent: 'flex-start',
         borderRadius: 1.5,
         border: 1,
         borderColor: value ? alpha(lit, 0.55) : p.appBarBorder,
@@ -61,7 +68,9 @@ export function LatchingKey({
         transition: 'border-color .18s ease',
         '&:hover': { borderColor: value ? alpha(lit, 0.8) : p.sidebar.textDim },
         '&.Mui-disabled': { opacity: 0.5, color: p.sidebar.text },
-      }}
+      // A hazard key while it would power the modem: switching it off is the
+      // safe way out and carries no ring.
+      }, hazardRingSx(value ? null : 'power')]}
     >
       <Box
         component="span"

@@ -32,6 +32,7 @@ export {
 export { DutGateContext, useDutGated } from './gate'
 export { hazardRingSx, type HazardKind } from './hazardStyle'
 export { HazardGlyph } from './HazardGlyph'
+export { InstrumentError } from './InstrumentError'
 export { HeadCell, VerdictMark, VerdictTally } from './table'
 export { FAIL_ROW_SX, NUM_CELL_SX, deltaText } from './tableFormat'
 export { useRunEta, formatRunTiming } from './useRunEta'

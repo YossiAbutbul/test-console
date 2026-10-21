@@ -83,7 +83,7 @@ export function InstrumentBar({
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minWidth: 0 }}>
         {/* One width for every state ("Disconnected", "Connected", a failure
             title): the chip changing size slid the name beside it about. */}
-        <Box sx={{ width: 160, flexShrink: 0, display: 'flex', '& .MuiChip-root': { maxWidth: '100%' } }} title={chip.label}>
+        <Box sx={{ width: 132, flexShrink: 0, display: 'flex', '& .MuiChip-root': { maxWidth: '100%' } }} title={chip.label}>
         <StatusChip
           label={chip.label}
           tone={chip.tone}

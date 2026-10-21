@@ -3,6 +3,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import { useRef } from 'react'
 import { useLog } from '../context/LogContext'
+import { MONO } from '../ui'
 
 interface Props {
   embedded?: boolean
@@ -54,7 +55,7 @@ export function LogPanel({ embedded = false }: Props) {
           minHeight: 180,
           height: embedded ? '100%' : 180,
           overflowY: 'auto',
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontFamily: MONO,
           fontSize: 13.5,
           bgcolor: 'transparent',
           p: 1,

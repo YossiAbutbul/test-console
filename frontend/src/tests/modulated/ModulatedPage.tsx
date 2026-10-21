@@ -223,14 +223,16 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
               >
                 {BW_OPTIONS.map((bw) => (
                   <MenuItem key={bw.code} value={bw.code} disabled={bw.code === 3}>
-                    {bw.code} - {bw.label}
+                    {/* The label alone, as the Automation tab shows it: the
+                        command code is the DUT's business, not the operator's. */}
+                    {bw.label}
                   </MenuItem>
                 ))}
               </LabeledField>
 
               <LabeledField
                 label="Datarate"
-                hint={`${DR_MIN}-${DR_MAX}`}
+                hint={`${DR_MIN}–${DR_MAX}`}
                 type="number"
                 value={datarate}
                 inputProps={{ min: DR_MIN, max: DR_MAX, step: 1 }}

@@ -17,6 +17,7 @@ import { useConnection } from '../context/ConnectionContext'
 import { useDutLink } from '../context/dutLink'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
+import { MONO } from '../ui'
 
 function actionSx(
   c: { bg: string; bgHover: string; fg: string },
@@ -256,11 +257,11 @@ export function DutControls() {
                         </Box>
                       )}
                     </Box>
-                    <Box sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5, color: 'text.secondary' }}>
+                    <Box sx={{ fontFamily: MONO, fontSize: 12.5, color: 'text.secondary' }}>
                       {opt.address}
                     </Box>
                   </Box>
-                  <Box sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                  <Box sx={{ fontFamily: MONO, fontSize: 12.5, color: 'text.secondary', whiteSpace: 'nowrap' }}>
                     {opt.rssi ?? '—'} dBm
                   </Box>
                 </Box>
@@ -274,7 +275,7 @@ export function DutControls() {
               inputRef={acInputRef}
               InputProps={{
                 ...params.InputProps,
-                sx: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13 },
+                sx: { fontFamily: MONO, fontSize: 13 },
                 endAdornment: (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
                     {selectedAddr && isKnownDevice && (
@@ -380,11 +381,15 @@ export function DutControls() {
  * the places whose numbers it changes -- now that it no longer rides in a row
  * at the top of every page.
  */
-export function PathLossField({ label = 'Path loss (dB)' }: { label?: string }) {
+export function PathLossField({ label = 'Path loss', unit = 'dB' }: { label?: string; unit?: string }) {
   const { pathLossDb, setPathLossDb, points } = usePathLoss()
   const [pathLossOpen, setPathLossOpen] = useState(false)
+  // Label then a quieter unit, the LabeledField style used everywhere else.
   const fieldLabel = (text: string) => (
-    <Typography sx={{ fontSize: 13, fontWeight: 500, mb: 0.5 }}>{text}</Typography>
+    <Typography sx={{ fontSize: 13, fontWeight: 500, mb: 0.5 }}>
+      {text}
+      <Box component="span" sx={{ ml: 0.5, fontWeight: 400, color: 'text.secondary' }}>{unit}</Box>
+    </Typography>
   )
   return (
     <>

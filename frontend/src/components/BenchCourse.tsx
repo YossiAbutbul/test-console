@@ -77,7 +77,9 @@ export function BenchCourse({
       label: 'DUT',
       state: dutReady ? 'ok' : status?.connected ? 'busy' : 'block',
       summary: dutReady
-        ? <Box component="span" sx={{ fontFamily: MONO }}>{[name, status?.address].filter(Boolean).join(' · ')}</Box>
+        // A string, so the rail can put the whole line in a hover title
+        // when a seven-step rail cuts it short.
+        ? [name, status?.address].filter(Boolean).join(' · ')
         : status?.connected ? 'Connecting…' : 'Not connected',
       detail: (
         <Stack spacing={1}>
@@ -169,7 +171,7 @@ export function BenchCourse({
           : one ? `${one.db} dB at ${uniq[0]} MHz` : `calibrated at all ${uniq.length} frequencies`,
       detail: (
         <Stack direction="row" alignItems="flex-end" sx={{ flexWrap: 'wrap', gap: 2 }}>
-          <PathLossField label="Default (dB)" />
+          <PathLossField label="Default" />
           {uniq.slice(0, 8).map((f) => {
             const l = lossAt(f)
             return (

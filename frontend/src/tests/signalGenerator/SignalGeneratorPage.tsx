@@ -17,6 +17,8 @@ import { DASH, fmt } from '../../lib/format'
 import {
   FieldGrid, InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
   HazardGlyph, hazardRingSx,
+  InstrumentError,
+  CONTROL_H,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import {
@@ -343,6 +345,8 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
               <LabeledField
                 label="Frequency" hint="MHz" type="number"
                 value={freqMhz}
+                // Filled from the instrument once it is read; blank before that.
+                placeholder={connected ? undefined : 'not read'}
                 onChange={(e) => setFreqMhz(e.target.value)}
                 inputProps={{ step: 0.1, min: FREQ_MIN_MHZ, max: FREQ_MAX_MHZ }}
                 sx={{ '& input': { fontFamily: MONO } }}
@@ -350,6 +354,7 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
               <LabeledField
                 label="Level" hint="dBm" type="number"
                 value={levelDbm}
+                placeholder={connected ? undefined : 'not read'}
                 onChange={(e) => setLevelDbm(e.target.value)}
                 inputProps={{ step: 0.5, min: LEVEL_MIN_DBM, max: LEVEL_MAX_DBM }}
                 sx={{ '& input': { fontFamily: MONO } }}
@@ -360,7 +365,7 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
                 variant={pending ? 'contained' : 'outlined'}
                 disabled={!canSend || (typed.freq_hz == null && typed.level_dbm == null)}
                 onClick={() => void send(typed, 'Applied frequency and level')}
-                sx={{ minWidth: 120, height: 34 }}
+                sx={{ minWidth: 120, height: CONTROL_H.md }}
               >
                 Apply
               </Button>
@@ -388,25 +393,26 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
                 label="Frequency"
                 value={liveFreqMhz == null ? DASH : fmt(liveFreqMhz, 3)}
                 unit="MHz"
+                sub={connected ? undefined : 'not connected'}
                 off={!connected}
               />
               <StatTile
                 label="Level"
                 value={fmt(st?.level_dbm ?? null, 2)}
                 unit="dBm"
+                sub={connected ? undefined : 'not connected'}
                 off={!connected}
               />
               <StatTile
                 label="RF output"
                 value={st?.rf_on == null ? DASH : rfOn ? 'ON' : 'OFF'}
                 tone={rfOn ? 'bad' : undefined}
+                sub={connected ? undefined : 'not connected'}
                 off={!connected}
               />
             </StatRow>
             {(st?.error || fault) && (
-              <Typography sx={{ ...TEXT.micro, color: 'error.main', mt: 1.5, fontFamily: MONO }}>
-                {st?.error ?? fault}
-              </Typography>
+              <InstrumentError message={(st?.error ?? fault) as string} raw />
             )}
           </Section>
         </Box>

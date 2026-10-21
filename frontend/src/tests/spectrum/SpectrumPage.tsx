@@ -8,6 +8,7 @@ import {
   XAxis, YAxis,
 } from 'recharts'
 import { PageHeader } from '../../components/PageHeader'
+import { useAppPalette } from '../../context/ThemeModeContext'
 import { LabeledField } from '../../components/LabeledField'
 import {
   DETECTOR_NAMES, TRACE_MODE_NAMES, spectrumApi,
@@ -21,6 +22,7 @@ import { DASH, fmt } from '../../lib/format'
 import {
   ACTION_W, CONTROL_H, FieldGrid, InstrumentBar, MONO, PANEL_SX, PageBody, Section,
   TEXT,
+  HeadCell,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import { persistSpectrumPage, spectrumPageSnapshot } from '../../store/spectrumPageStore'
@@ -213,6 +215,7 @@ function SettingField({ label, action, hint, value, digits, disabled, onApply }:
 export function SpectrumPage({ group, active }: TestPageProps) {
   const { log } = useLog()
   const theme = useTheme()
+  const appPal = useAppPalette()
   const sa = useInstrumentValue('spectrum')
   const { connect, disconnect, setAddress, discover } = useInstrumentsActions()
 
@@ -452,8 +455,10 @@ export function SpectrumPage({ group, active }: TestPageProps) {
         label="Spectrum Analyzer"
         actions={
           <Stack direction="row" spacing={1} alignItems="center">
+            {/* Outlined: only Connect and Run-like keys are filled (the Quiet
+                Scan Rule), and a filled Peak search outranked Connect. */}
             <Button
-              variant="contained"
+              variant="outlined"
               disabled={!can}
               onClick={() => void markerAction('peak', 'to peak')}
               sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
@@ -521,12 +526,13 @@ export function SpectrumPage({ group, active }: TestPageProps) {
           sx={{
             display: 'grid',
             gridTemplateColumns: 'minmax(280px, 340px) minmax(0, 1fr)',
-            gap: 2,
+            gap: 1,
             // A height of its own, so the side column scrolls inside it rather
             // than stretching the page and carrying the screen away with it.
-            // The page above it — top bar, connection row, header, instrument
-            // bar — is about 380 px.
-            height: 'calc(100vh - 380px)',
+            // The page above it -- top bar, header, instrument bar -- is about
+            // 240 px now that the DUT row is gone from Components pages; at
+            // the old 380 the Trace panel was cut off with blank page below.
+            height: 'calc(100vh - 240px)',
             minHeight: 560,
             // Both columns scroll within the grid's height: the side when the
             // settings are long, the main one when the marker table is.
@@ -542,7 +548,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
             },
           }}
         >
-          <Stack spacing={2} className="spectrum-side">
+          <Stack spacing={1} className="spectrum-side">
             <Section title="Frequency" panel>
               <FieldGrid columns={2}>
                 <SettingField label="Center" hint="MHz" value={st.center_hz == null ? null : st.center_hz / 1e6} digits={6}
@@ -704,7 +710,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
             </Section>
           </Stack>
 
-          <Stack spacing={2} className="spectrum-main">
+          <Stack spacing={1} className="spectrum-main">
             {/* Fills what the marker panel leaves, with a floor: shrunk under the
                 chart, the chart spilled over the panel below. */}
             <Box sx={{ flex: '1 1 0', minHeight: 300, display: 'flex', flexDirection: 'column' }}>
@@ -738,7 +744,9 @@ export function SpectrumPage({ group, active }: TestPageProps) {
               <Box
                 sx={{
                   flexGrow: 1, minHeight: 0, position: 'relative',
-                  border: 1, borderColor: 'divider', borderRadius: 1, bgcolor: 'action.hover',
+                  // A recessed well, like the log drawer, rather than a lighter
+                  // patch than the panel around it.
+                  border: 1, borderColor: 'divider', borderRadius: 1, bgcolor: appPal.logBg,
                 }}
               >
                 {chart ? (
@@ -773,9 +781,10 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                         type="linear"
                         baseValue={typeof yDomain[0] === 'number' ? yDomain[0] : 'dataMin'}
                         isAnimationActive={false}
-                        stroke={theme.palette.success.main}
+                        // Series 1, not success green: green means PASS here.
+                        stroke={appPal.chart.series[0]}
                         strokeWidth={1.25}
-                        fill={theme.palette.success.main}
+                        fill={appPal.chart.series[0]}
                         fillOpacity={0.07}
                         dot={false}
                         activeDot={false}
@@ -855,9 +864,13 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                 <Table size="small" stickyHeader sx={{ '& td, & th': { fontFamily: MONO, fontSize: 12 } }}>
                   <TableHead>
                     <TableRow>
-                      <TableCell>Marker</TableCell>
-                      <TableCell align="right">{trace.zero_span ? 'Time (ms)' : 'Frequency (MHz)'}</TableCell>
-                      <TableCell align="right">Level (dBm)</TableCell>
+                      <HeadCell label="Marker" sx={{ fontFamily: 'inherit' }} />
+                      <HeadCell
+                        label={trace.zero_span ? 'Time' : 'Frequency'}
+                        unit={trace.zero_span ? 'ms' : 'MHz'}
+                        numeric
+                      />
+                      <HeadCell label="Level" unit="dBm" numeric />
                       <TableCell align="right" sx={{ width: 56 }} />
                     </TableRow>
                   </TableHead>

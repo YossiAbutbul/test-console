@@ -19,6 +19,8 @@ import { DASH, fmt } from '../../lib/format'
 import {
   FieldGrid, InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
   hazardRingSx,
+  InstrumentError,
+  CONTROL_H,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import { dcAnalyzerPageSnapshot, persistDcAnalyzerPage } from '../../store/dcAnalyzerPageStore'
@@ -350,7 +352,7 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
                 disabled={!canSend || vBad || iBad
                   || (typed.voltage_v == null && typed.current_limit_a == null)}
                 onClick={() => void send(typed, 'Applied voltage and current limit')}
-                sx={{ minWidth: 120, height: 34 }}
+                sx={{ minWidth: 120, height: CONTROL_H.md }}
               >
                 Apply
               </Button>
@@ -423,9 +425,7 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
               />
             </StatRow>
             {(st?.error || fault) && (
-              <Typography sx={{ ...TEXT.micro, color: 'error.main', mt: 1.5, fontFamily: MONO }}>
-                {st?.error ?? fault}
-              </Typography>
+              <InstrumentError message={(st?.error ?? fault) as string} raw />
             )}
           </Section>
         </Box>

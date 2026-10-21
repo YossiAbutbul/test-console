@@ -3,6 +3,7 @@ import { alpha } from '@mui/material/styles'
 import { useEffect, useState } from 'react'
 import type { RunStatus } from '../types/models'
 import { useAppPalette } from '../context/ThemeModeContext'
+import { MONO } from '../ui'
 
 const STATE_COLOR: Record<string, 'default' | 'info' | 'success' | 'warning' | 'error'> = {
   idle: 'default',
@@ -31,7 +32,7 @@ function Stat({ label, value, mono }: { label: string; value: string; mono?: boo
         sx={{
           fontSize: 15,
           fontWeight: 600,
-          fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined,
+          fontFamily: mono ? MONO : undefined,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
@@ -100,7 +101,7 @@ export function ProgressRow({
               },
             }}
           />
-          <Typography sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13 }}>
+          <Typography sx={{ fontFamily: MONO, fontSize: 13 }}>
             {completed} / {total}
           </Typography>
           {status?.error && (
@@ -113,7 +114,7 @@ export function ProgressRow({
           </Typography>
           <Typography
             sx={{
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              fontFamily: MONO,
               fontSize: 13,
               fontWeight: 600,
               minWidth: 50,

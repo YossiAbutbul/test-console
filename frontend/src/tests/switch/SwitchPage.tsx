@@ -14,6 +14,7 @@ import {
   ACTION_W, CONTROL_H, InstrumentBar, MiniAction, MONO, PageBody, Section,
   StatRow, StatTile, TEXT, TwoCol,
   HazardGlyph, hazardRingSx,
+  InstrumentError,
 } from '../../ui'
 import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
@@ -133,7 +134,8 @@ export function SwitchPage({ group }: TestPageProps) {
   const nudge = (by: number) => setAngle((a) => clampAngle(a + by))
 
   const nudgeSx = {
-    width: 30, height: 30, borderRadius: 1,
+    // The angle field's height, so the row reads as one line of controls.
+    width: CONTROL_H.md, height: CONTROL_H.md, borderRadius: 1,
     border: 1, borderColor: 'divider',
   }
 
@@ -199,7 +201,7 @@ export function SwitchPage({ group }: TestPageProps) {
           </StatRow>
 
           {s?.error && (
-            <Typography sx={{ ...TEXT.hint, color: 'error.main', mt: 1 }}>{s.error}</Typography>
+            <InstrumentError message={s.error} raw />
           )}
         </Box>
 
@@ -278,7 +280,9 @@ export function SwitchPage({ group }: TestPageProps) {
                 variant="contained"
                 onClick={() => moveM.mutate()}
                 disabled={!connected || busy}
-                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+                // Drives the servo, so it is a hazard key like Go VNA / Go PCB.
+                startIcon={<HazardGlyph kind="path" />}
+                sx={[{ width: ACTION_W.default, height: CONTROL_H.md }, hazardRingSx('path')]}
               >
                 Move
               </Button>

@@ -14,6 +14,7 @@ import type {
   AppModeOption, MeterInfoField, SaveResetResponse, SetAppModeResponse,
   SetChannelsResponse,
 } from '../types/models'
+import { MONO } from '../ui'
 
 interface Props {
   open: boolean
@@ -164,7 +165,7 @@ function Row({ label, value, mono, dim }: {
           fontSize: 14.5,
           color: dim ? 'text.disabled' : 'text.primary',
           fontFamily: mono
-            ? 'ui-monospace, SFMono-Regular, Menlo, monospace'
+            ? MONO
             : undefined,
           wordBreak: 'break-all',
         }}

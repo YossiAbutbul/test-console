@@ -82,6 +82,18 @@ const SHOTS = [
   // Signal generator shown keyed, to put an RF ON pill in the top bar. Its
   // state is answered in the browser; every other generator route is refused.
   { file: 'live-rf', page: 'signal-generator', connected: true, mock: exampleRfOn },
+  // The rest of the app, for the polish pass.
+  { file: 'lora-modulated-manual', page: 'modulated', connected: true },
+  { file: 'lora-modulated-automation', page: 'modulated', clicks: ['Automation'], connected: true },
+  { file: 'lora-debug', page: 'cw-debug', connected: true },
+  { file: 'lte-modulated-manual', page: 'lte-modulated', connected: true },
+  { file: 'lte-modulated-automation', page: 'lte-modulated', clicks: ['Automation'], connected: true },
+  { file: 'power-meter', page: 'power-meter' },
+  { file: 'switch', page: 'switch' },
+  { file: 'trombone', page: 'trombone' },
+  { file: 'network-analyzer', page: 'network-analyzer' },
+  { file: 'signal-generator', page: 'signal-generator' },
+  { file: 'spectrum', page: 'spectrum' },
 ]
 
 function exampleRfOn() {

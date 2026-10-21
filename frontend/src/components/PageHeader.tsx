@@ -1,5 +1,6 @@
 import { Stack, Typography, Box } from '@mui/material'
 import type { ReactNode } from 'react'
+import { CONTROL_H } from '../ui'
 
 interface Props {
   protocol?: string
@@ -14,7 +15,9 @@ export function PageHeader({ protocol, group, label, actions }: Props) {
     <Stack
       direction="row"
       alignItems="center"
-      sx={{ mb: '12px', gap: 2 }}
+      // As tall as a header key even with no actions, so a page without
+      // them (Switch) starts its content where every other page does.
+      sx={{ mb: '12px', gap: 2, minHeight: CONTROL_H.md }}
     >
       {/* The section path rides on the title's baseline, after it, rather
           than as an uppercase kicker above it. Above, it was the first thing

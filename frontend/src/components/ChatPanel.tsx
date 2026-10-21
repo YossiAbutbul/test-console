@@ -15,6 +15,7 @@ import { useChat, type PageSource } from '../context/ChatContext'
 import { detex } from '../lib/chatText'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
+import { MONO } from '../ui'
 
 /**
  * The assistant, docked beside the log.
@@ -161,7 +162,7 @@ function inline(text: string, keyBase: string): ReactNode[] {
         <Box
           key={key}
           component="code"
-          sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.92em' }}
+          sx={{ fontFamily: MONO, fontSize: '0.92em' }}
         >
           {part.slice(1, -1)}
         </Box>,

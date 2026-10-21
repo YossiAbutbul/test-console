@@ -109,13 +109,13 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
               inputProps={{ step: 0.1 }} />
             <LabeledField label="Power" hint="dBm" type="number" value={power}
               onChange={(e) => setPower(Number(e.target.value))} />
-            <LabeledField label="PA Duty Cycle" type="number" value={duty}
+            <LabeledField label="PA Duty Cycle" hint="1–7" type="number" value={duty}
               inputProps={{ min: 1, max: 7 }}
               error={!dutyValid}
               {...focusBind('duty')}
               InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(duty, dutyValid, focusKey === 'duty')} message={duty.trim() === '' ? 'Enter a value' : 'Allowed range: 1–7'} /> }}
               onChange={(e) => setDuty(e.target.value)} />
-            <LabeledField label="HP Max" type="number" value={hp}
+            <LabeledField label="HP Max" hint="1–7" type="number" value={hp}
               inputProps={{ min: 1, max: 7 }}
               error={!hpValid}
               {...focusBind('hp')}
