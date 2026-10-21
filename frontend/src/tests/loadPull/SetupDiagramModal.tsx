@@ -1,9 +1,10 @@
 import {
   Box, Dialog, DialogContent, DialogTitle, IconButton, Stack, Typography,
 } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
+import CloseIcon from '@mui/icons-material/CloseRounded'
 import setupDiagram from '../../assets/load-pull-setup.png'
 import { TEXT } from '../../ui'
+import { TOP_BAR_H } from '../../ui/tokens'
 
 /**
  * How the bench is cabled for a load pull.
@@ -17,17 +18,26 @@ import { TEXT } from '../../ui'
  */
 export function SetupDiagramModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth
-      slotProps={{ paper: { sx: { borderRadius: 2 } } }}>
+    <Dialog
+      open={open} onClose={onClose} maxWidth="lg" fullWidth
+      // Below the toolbar, scrim included: "View setup" stays live during a
+      // run, and a full-window scrim hid E-STOP and Stop behind it. Focus is
+      // not held inside either, so the keyboard can reach them too.
+      sx={{ top: TOP_BAR_H }}
+      disableEnforceFocus
+      slotProps={{ backdrop: { sx: { top: TOP_BAR_H } } }}
+    >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', py: 1.5 }}>
         <Stack direction="row" spacing={1.5} alignItems="baseline" sx={{ minWidth: 0 }}>
-          <Typography sx={{ fontSize: 17, fontWeight: 700 }}>Test setup</Typography>
+          <Typography sx={TEXT.dialog}>Test setup</Typography>
           <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
             what the RF path should look like
           </Typography>
         </Stack>
         <Box sx={{ flexGrow: 1 }} />
-        <IconButton size="small" onClick={onClose}><CloseIcon sx={{ fontSize: 18 }} /></IconButton>
+        <IconButton size="small" onClick={onClose} aria-label="Close">
+          <CloseIcon sx={{ fontSize: 18 }} />
+        </IconButton>
       </DialogTitle>
 
       <DialogContent dividers sx={{ bgcolor: 'action.hover' }}>

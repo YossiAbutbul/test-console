@@ -1,14 +1,15 @@
 import { memo, useCallback, useEffect, useRef, useMemo, useState } from 'react'
 import {
-  Box, Divider, Button, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
+  Box, Divider, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
-import AddIcon from '@mui/icons-material/Add'
-import DeleteIcon from '@mui/icons-material/Delete'
-import DownloadIcon from '@mui/icons-material/Download'
-import UploadIcon from '@mui/icons-material/Upload'
-import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
-import ShowChartIcon from '@mui/icons-material/ShowChart'
+import AddIcon from '@mui/icons-material/AddRounded'
+import DeleteIcon from '@mui/icons-material/DeleteRounded'
+import DownloadIcon from '@mui/icons-material/DownloadRounded'
+import UploadIcon from '@mui/icons-material/UploadRounded'
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweepRounded'
+import ShowChartIcon from '@mui/icons-material/ShowChartRounded'
+import WarningAmberIcon from '@mui/icons-material/WarningAmberRounded'
 import { useMutation } from '@tanstack/react-query'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { device } from '../../api/device'
@@ -29,9 +30,9 @@ import { parseLimit, tallyVerdicts, verdictWithinMargin } from '../../lib/verdic
 import {
   DEFAULT_SETTLE_MS as SHARED_DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs,
 } from '../../lib/settle'
-import { GRID_GAP, Section, TEXT,
+import { scrollBehavior, CONTROL_H, GRID_GAP, MiniAction, Section, TEXT,
   FAIL_ROW_SX, HeadCell, NUM_CELL_SX, VerdictMark, deltaText,
-  VerdictTally,
+  VerdictTally, type VerdictFilter,
 } from '../../ui'
 import { ResultsGraphModal, type GraphableRow } from '../power/ResultsGraphModal'
 import { runSequence } from '../engine/runSequence'
@@ -47,13 +48,10 @@ import {
   type ModulatedResultRow,
   type ModulatedSweepRow,
 } from '../../store/modulatedPageStore'
+import { selectOnFocus } from '../../lib/selectOnFocus'
 
 type ResultRow = ModulatedResultRow
 type SweepRow = ModulatedSweepRow
-
-/** Result actions are secondary to the run itself — quiet text buttons on the
- *  panel heading, not another row of outlined buttons competing with it. */
-const resultActionSx = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
 
 /** Instruments every measured point depends on. */
 const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
@@ -67,7 +65,14 @@ const DEFAULT_SETTLE_MS = SHARED_DEFAULT_SETTLE_MS
 const LONG_SETTLE_MS = 10_000
 
 const DEFAULT_POWER = '14'
+/**
+ * The sweep card grows with its rows up to `PANEL_HEIGHT`, then scrolls
+ * inside. A fixed 250 left ~90 px of empty card under a one-row sweep that
+ * Results wanted. The floor holds two rows, so adding or removing the
+ * second row does not move the footer or the Results card under it.
+ */
 const PANEL_HEIGHT = 250
+const PANEL_MIN_HEIGHT = 200
 
 /**
  * Sweep table columns.
@@ -79,9 +84,15 @@ const PANEL_HEIGHT = 250
  * the panel without the five inputs becoming equal-width — a picker stretched
  * to match a text field reads as a form inflated to fill space.
  */
-const COLS = '20px minmax(130px, 1.4fr) minmax(130px, 1.4fr) 100px 124px 112px'
-  + ' minmax(100px, 1fr) 56px 32px'
-const MIN_TABLE_W = 868
+// Sized to fit ~760 px, what the card has at 1440 with the inspector open: at
+// 868 the delete key and the points readout ran off the card. Spec floors 104,
+// pickers trimmed to their longest label, tolerance a fixed 80 like the other
+// sweep pages. MIN_TABLE_W is the sum of the floors and the eight 8 px gaps.
+// Tolerance is 104 px: its heading, "Tolerance ± dB", has to fit whole --
+// at 80 it was cut to "Tolerance ±…".
+const COLS = '20px minmax(104px, 1fr) minmax(104px, 1fr) 88px 112px 92px'
+  + ' 104px 64px 32px'
+const MIN_TABLE_W = 784
 
 const DEFAULT_ROW: SweepRow = {
   freq: '',
@@ -164,9 +175,14 @@ function ColHead({ label, hint }: { label: string; hint?: string }) {
   )
 }
 
+/** One line box for every body cell. The word cells (Verdict, Status) are in
+ *  the proportional face and the numbers in MONO, and with each cell keeping
+ *  its own font's line height the two sat 1-2 px apart along a row. */
+const BODY_ROW_SX = { '& > td': { verticalAlign: 'middle', lineHeight: '20px' } } as const
+
 const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i: number }) {
   return (
-    <TableRow sx={r.verdict === 'fail' ? FAIL_ROW_SX : undefined}>
+    <TableRow sx={[BODY_ROW_SX, r.verdict === 'fail' && FAIL_ROW_SX]}>
       <TableCell sx={NUM_CELL_SX}>{i + 1}</TableCell>
       <TableCell sx={NUM_CELL_SX}>{r.freq_mhz.toFixed(3)}</TableCell>
       <TableCell sx={NUM_CELL_SX}>{r.set_power_dbm}</TableCell>
@@ -564,16 +580,16 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
     pendingFocusRef.current = null
     freqRefs.current[idx]?.focus()
     const body = bodyRef.current
-    if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' })
+    if (body) body.scrollTo({ top: body.scrollHeight, behavior: scrollBehavior() })
   }, [rows.length])
 
   useEffect(() => {
     const el = resultsScrollRef.current
     if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    el.scrollTo({ top: el.scrollHeight, behavior: scrollBehavior() })
   }, [results.length])
 
-  const cellSx = { '& .MuiInputBase-root': { height: 34 } }
+  const cellSx = { '& .MuiInputBase-root': { height: CONTROL_H.md } }
 
   // The range-spec syntax under the table. Built once for both the footer
   // line and its tooltip, which shows it whole when the line is cut short.
@@ -585,10 +601,27 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
       </Box>
     </>
   )
+  // The line itself, cut down so it fits a 1440 window with the inspector
+  // open; the tooltip above still carries every form.
+  const syntaxLine = 'Freq / Power: "915" · "900-930" · "900-930:5" · "902.3,915" · Tolerance blank = no verdict'
+
+  // The results table's verdict filter (the tally's keys). A filter whose
+  // rows are all gone -- Clear, a new run -- falls back to everything rather
+  // than leaving an empty table with a key still lit.
+  const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all')
+  const verdictCounts = tallyVerdicts(results)
+  const shownVerdict: VerdictFilter = verdictFilter !== 'all' && verdictCounts[verdictFilter as 'pass' | 'fail'] === 0
+    ? 'all'
+    : verdictFilter
 
   return (
     <Stack spacing={`${GRID_GAP}px`} sx={{ flexGrow: 1, minHeight: 0 }}>
-      <Box sx={{ height: PANEL_HEIGHT, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+      <Box
+        sx={{
+          maxHeight: PANEL_HEIGHT, minHeight: PANEL_MIN_HEIGHT,
+          display: 'flex', flexDirection: 'column', flexShrink: 0,
+        }}
+      >
         {/* Same bar the Mode Sweep pins under the top bar. Fixed, so it takes
             no room here, and it disappears with the tab or page it is on. */}
         <TopProgress
@@ -601,7 +634,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
           grow
           action={
             <Stack direction="row" alignItems="center" spacing={1.25}>
-              <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
                 {totalPoints} point{totalPoints === 1 ? '' : 's'}
               </Typography>
               {/* Settle is the one thing here that is genuinely run-wide: it is
@@ -617,19 +650,16 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
                   onBlur={() => setSettleMs((v) => clampSettleMs(v))}
                   disabled={running}
                   inputProps={{ min: MIN_SETTLE_MS, step: 50 }}
-                  sx={{ width: 84, '& .MuiInputBase-root': { height: 26 } }}
+                  // The heading's one control height, shared with the segmented
+                  // choice and the text actions beside it; the theme's
+                  // small input is 32.
+                  sx={{ width: 84, '& .MuiInputBase-root': { height: CONTROL_H.sm } }}
                 />
-                <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>ms</Typography>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>ms</Typography>
               </Stack>
-              <Button
-                size="small"
-                startIcon={<AddIcon sx={{ fontSize: 16 }} />}
-                onClick={addRow}
-                disabled={running}
-                sx={{ minWidth: 0, height: 24, fontSize: 12, px: 1 }}
-              >
+              <MiniAction startIcon={<AddIcon />} onClick={addRow} disabled={running}>
                 Add
-              </Button>
+              </MiniAction>
             </Stack>
           }
         >
@@ -687,7 +717,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
                         placeholder="915 or 900-930"
                         disabled={running}
                         error={badFreq}
-                        onFocus={(e) => { (e.target as HTMLInputElement).select(); setFocusKey(`${i}-freq`) }}
+                        onFocus={(e) => { selectOnFocus(e); setFocusKey(`${i}-freq`) }}
                         onBlur={() => setFocusKey((k) => (k === `${i}-freq` ? null : k))}
                         InputProps={{
                           endAdornment: (
@@ -704,7 +734,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
                         placeholder="14 or 10-20"
                         value={r.power}
                         onChange={(e) => updateRow(i, { power: e.target.value })}
-                        onFocus={(e) => { (e.target as HTMLInputElement).select(); setFocusKey(`${i}-power`) }}
+                        onFocus={(e) => { selectOnFocus(e); setFocusKey(`${i}-power`) }}
                         onBlur={() => setFocusKey((k) => (k === `${i}-power` ? null : k))}
                         disabled={running}
                         error={badPower}
@@ -774,36 +804,51 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
                         }}
                       />
 
-                      <Stack direction="row" alignItems="center" spacing={0.5}>
-                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>±</Typography>
-                        <TextField
-                          size="small" type="number"
-                          sx={{ ...cellSx, flexGrow: 1, minWidth: 0 }}
-                          value={r.marginDb}
-                          placeholder="—"
-                          disabled={running}
-                          error={badMargin}
-                          onChange={(e) => updateRow(i, { marginDb: e.target.value })}
-                          onFocus={(e) => { (e.target as HTMLInputElement).select() }}
-                          inputProps={{ min: 0, step: 0.5 }}
-                          InputProps={{
-                            endAdornment: (
-                              <ValidationAdornment
-                                show={badMargin}
-                                message="A tolerance in dB, 0 or more — or blank for no verdict"
-                              />
-                            ),
-                          }}
-                        />
-                      </Stack>
+                      {/* No "±" in front of the field: the column heading
+                          already says "± dB", and printing it again on every
+                          row read as a second, different sign. */}
+                      <TextField
+                        size="small" type="number"
+                        sx={{ ...cellSx, minWidth: 0 }}
+                        value={r.marginDb}
+                        placeholder="—"
+                        disabled={running}
+                        error={badMargin}
+                        onChange={(e) => updateRow(i, { marginDb: e.target.value })}
+                        onFocus={selectOnFocus}
+                        inputProps={{ min: 0, step: 0.5 }}
+                        InputProps={{
+                          endAdornment: (
+                            <ValidationAdornment
+                              show={badMargin}
+                              message="A tolerance in dB, 0 or more — or blank for no verdict"
+                            />
+                          ),
+                        }}
+                      />
 
-                      <Typography sx={{ fontSize: 12, color: 'text.disabled', whiteSpace: 'nowrap' }}>
-                        {steps} step{steps === 1 ? '' : 's'}
+                      {/* "points", the heading's word for the same count. */}
+                      <Typography sx={{ fontSize: 12, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                        {steps} point{steps === 1 ? '' : 's'}
                       </Typography>
 
-                      <IconButton size="small" onClick={() => removeRow(i)} disabled={running}>
-                        <DeleteIcon sx={{ fontSize: 18 }} />
-                      </IconButton>
+                      {/* Pinned to the right edge, on the card's own fill, so
+                          when a narrow panel scrolls the row sideways the key
+                          that removes it stays in reach. */}
+                      <Box sx={{ display: 'flex', position: 'sticky', right: 0, zIndex: 1, bgcolor: 'background.paper' }}>
+                        <Tooltip title="Remove row">
+                          <span>
+                            <IconButton
+                              size="small"
+                              aria-label={`Remove row ${i + 1}`}
+                              onClick={() => removeRow(i)}
+                              disabled={running}
+                            >
+                              <DeleteIcon sx={{ fontSize: 18 }} />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Box>
                     </Box>
                   )
                 })}
@@ -823,11 +868,11 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
             <Tooltip title={syntaxHint} placement="top-start">
               <Typography
                 sx={{
-                  fontSize: 12, color: 'text.disabled', whiteSpace: 'nowrap',
+                  fontSize: 12, color: 'text.secondary', whiteSpace: 'nowrap',
                   minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
                 }}
               >
-                {syntaxHint}
+                {syntaxLine}
               </Typography>
             </Tooltip>
             {/* A long settle looks identical to a hung run, so state the cost up
@@ -849,7 +894,9 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
                   color: settleMs >= LONG_SETTLE_MS ? 'warning.main' : 'text.secondary',
                 }}
               >
-                {settleMs >= LONG_SETTLE_MS && '⚠ '}
+                {settleMs >= LONG_SETTLE_MS && (
+                  <WarningAmberIcon sx={{ fontSize: 14, verticalAlign: '-2px', mr: 0.5 }} />
+                )}
                 ≈ {formatDuration(estimatedRunMs)}
               </Typography>
             )}
@@ -864,50 +911,38 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
         grow
         action={
           <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
-            <Button
-              size="small"
-              variant="text"
-              startIcon={<ShowChartIcon sx={{ fontSize: 15 }} />}
+            <MiniAction
+              startIcon={<ShowChartIcon />}
               onClick={() => setGraphOpen(true)}
               disabled={results.length === 0}
-              sx={resultActionSx}
             >
               Graph
-            </Button>
-            <Button
-              size="small"
-              variant="text"
-              startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
+            </MiniAction>
+            <MiniAction
+              startIcon={<DownloadIcon />}
               onClick={() => downloadCsv(results, bleStatus?.address ?? null)}
               disabled={results.length === 0}
-              sx={resultActionSx}
             >
               Export
-            </Button>
-            <Button
-              size="small"
-              variant="text"
-              startIcon={<UploadIcon sx={{ fontSize: 15 }} />}
+            </MiniAction>
+            <MiniAction
+              startIcon={<UploadIcon />}
               onClick={() => fileInput.current?.click()}
               disabled={running}
-              sx={resultActionSx}
             >
               Import
-            </Button>
+            </MiniAction>
             {/* Clear last and apart: it is the one action here that throws
                 results away, and it used to sit between Import and Graph. */}
             <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.5 }} />
-            <Button
-              size="small"
-              variant="text"
-              color="inherit"
-              startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
+            <MiniAction
+              tone="destructive"
+              startIcon={<DeleteSweepIcon />}
               onClick={() => { resultsRef.current = []; setResults([]) }}
               disabled={results.length === 0 || running}
-              sx={resultActionSx}
             >
               Clear
-            </Button>
+            </MiniAction>
           </Stack>
         }
       >
@@ -936,29 +971,33 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
               na={results.length - t.total}
               measured={results.length}
               planned={running ? totalPoints : undefined}
+              filter={shownVerdict}
+              onFilter={setVerdictFilter}
             />
           )
         })()}
 
-        {results.length === 0 ? (
-          <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-            No data yet. Add a row and press Run, or Import a previous CSV.
-          </Typography>
-        ) : (
+        {/* No "no data yet" line: the table itself, header and an empty
+            body, so the panel looks the same before the first row as after. */}
+        {(
           <Box ref={resultsScrollRef} sx={{ flexGrow: 1, minHeight: 0, overflowY: 'scroll', overflowX: 'auto' }}>
-            <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%' }}>
+            <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%', minWidth: 740 }}>
               <colgroup>
-                <col style={{ width: '4%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '8%' }} />
-                <col style={{ width: '8%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '7%' }} />
-                <col style={{ width: '11%' }} />
-                <col style={{ width: '9%' }} />
-                <col style={{ width: '9%' }} />
-                <col style={{ width: '11%' }} />
-                <col style={{ width: '13%' }} />
+                {/* Shares of a table at least 740 px wide: each column's floor is
+                    its heading or its widest value, so a heading such as
+                    "Measured [dBm]" is never cut. Narrower than that, the table
+                    scrolls sideways instead. */}
+                <col style={{ width: 40 }} />
+                <col style={{ width: '11.35%' }} />
+                <col style={{ width: '10.27%' }} />
+                <col style={{ width: '8.11%' }} />
+                <col style={{ width: '9.19%' }} />
+                <col style={{ width: '5.41%' }} />
+                <col style={{ width: '15.14%' }} />
+                <col style={{ width: '8.11%' }} />
+                <col style={{ width: '9.19%' }} />
+                <col style={{ width: '10.81%' }} />
+                <col style={{ width: '8.11%' }} />
               </colgroup>
               <TableHead>
                 <TableRow>
@@ -976,7 +1015,9 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
                 </TableRow>
               </TableHead>
               <TableBody>
-                {results.map((r, i) => (
+                {/* Filtered by the tally's keys; each row keeps its own
+                    index, so "#7" is still the seventh point. */}
+                {results.map((r, i) => (shownVerdict === 'all' || r.verdict === shownVerdict) && (
                   <ResultTableRow key={i} r={r} i={i} />
                 ))}
               </TableBody>

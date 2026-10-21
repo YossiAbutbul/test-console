@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Box, Button, MenuItem, Select, Stack, Typography } from '@mui/material'
-import RefreshIcon from '@mui/icons-material/Refresh'
-import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew'
+import { Box, Button, MenuItem, Select, Stack, Tooltip, Typography } from '@mui/material'
+import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import {
@@ -18,9 +17,8 @@ import { usePublishLiveOutput } from '../../context/liveOutput'
 import { DASH, fmt } from '../../lib/format'
 import {
   FieldGrid, InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
-  hazardRingSx,
-  InstrumentError,
-  CONTROL_H,
+  InstrumentError, LatchingKey,
+  ACTION_W, actionSx,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import { dcAnalyzerPageSnapshot, persistDcAnalyzerPage } from '../../store/dcAnalyzerPageStore'
@@ -49,11 +47,11 @@ const numOrNull = (s: string): number | null => {
  *
  * One channel — the one it was connected with, which every test also measures
  * on — so what is set here is what the tests see. Everything under
- * "Instrument" is read back from the analyzer rather than remembered from the
- * last write, because it has a front panel and the Settings menu can switch
- * the same output.
+ * "Instrument" and "Readings" is read back from the analyzer rather than
+ * remembered from the last write, because it has a front panel and the
+ * Settings menu can switch the same output.
  *
- * The Output button is the control that changes the world: it powers the DUT.
+ * The Output key is the control that changes the world: it powers the DUT.
  * Switching on carries the typed voltage and limit in the same request, which
  * the backend orders so both land before the output does — pressing it can
  * then never power up at the previous setting.
@@ -68,6 +66,10 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
   const [st, setSt] = useState<DcAnalyzerState | null>(null)
   const [busy, setBusy] = useState(false)
   const [fault, setFault] = useState<string | null>(null)
+  // A failed Scan is reported in the Config dialog, where Scan was pressed:
+  // routed to `fault` it rendered under the Instrument card, behind the
+  // dialog, and grew the card.
+  const [scanError, setScanError] = useState<string | null>(null)
 
   const [voltage, setVoltage] = useState(() => dcAnalyzerPageSnapshot.voltageV ?? '3.6')
   const [limit, setLimit] = useState(() => dcAnalyzerPageSnapshot.currentLimitA ?? '')
@@ -97,10 +99,11 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
 
   const scan = useCallback(async () => {
     setScanning(true)
+    setScanError(null)
     try {
       offer(await discover('dc-analyzer'))
     } catch (e) {
-      setFault((e as Error).message)
+      setScanError((e as Error).message)
     } finally {
       setScanning(false)
     }
@@ -213,6 +216,9 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
 
   const outputOn = st?.output_on === true
   const canSend = connected && !busy
+  // Switching on is refused while a typed value is out of range; switching
+  // off never is.
+  const onBlocked = !outputOn && (vBad || iBad)
 
   // Into the top bar, so a powered DUT is visible from every page. From this
   // page's own read-back, not a poll of its own: the analyzer's VISA session
@@ -225,8 +231,8 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
       `ch ${st?.channel ?? channel}`,
     ].filter(Boolean).join(' · '),
     pageId: 'dc-analyzer',
-    note: 'DC analyzer output, as last read on its page. '
-      + 'It is only re-read while that page is open.',
+    // Said plainly: the reading can be stale, since only the page re-reads it.
+    note: 'As last read on the DC Analyzer page.',
   } : null)
 
   return (
@@ -235,24 +241,34 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
         group={group}
         label="DC Analyzer"
         actions={
-          <Button
-            variant={outputOn ? 'outlined' : 'contained'}
-            color={outputOn ? 'error' : 'primary'}
-            disabled={!canSend || (!outputOn && (vBad || iBad))}
-            startIcon={<PowerSettingsNewIcon sx={{ fontSize: 16 }} />}
-            // Switching on carries the typed settings so they land first; the
-            // backend switches the output on last. Switching off carries
-            // nothing — the only thing wanted then is for the output to stop.
-            onClick={() => void send(
-              outputOn ? { output_on: false } : { ...typed, output_on: true },
-              outputOn ? 'Output off' : 'Output on',
-            )}
-            // Fixed width: On and Off swap in place. The ring only while it
-            // would power the DUT; switching off is the safe way out.
-            sx={[{ width: 148, height: 36 }, hazardRingSx(outputOn ? null : 'power')]}
+          // Disabled says why: a greyed key with no reason reads as broken.
+          <Tooltip
+            title={!connected ? 'Connect the DC analyzer first'
+              : onBlocked ? 'Voltage or limit out of range' : ''}
           >
-            {outputOn ? 'Output Off' : 'Output On'}
-          </Button>
+            <span>
+              {/* State-labelled, as the DC ON pill beside it is: an action
+                  label ("Output Off") next to a state pill read as a
+                  contradiction. Fixed width, so the states swap in place.
+                  Switching on carries the typed settings so they land first;
+                  the backend switches the output on last. Switching off
+                  carries nothing -- the only thing wanted then is for the
+                  output to stop. The key rings only while it would power the
+                  DUT; switching off is the safe way out. */}
+              <LatchingKey
+                value={outputOn}
+                offLabel="Output off"
+                onLabel="Output on"
+                pending={busy}
+                disabled={!connected || onBlocked}
+                width={ACTION_W.wide}
+                onChange={(next) => void send(
+                  next ? { ...typed, output_on: true } : { output_on: false },
+                  next ? 'Output on' : 'Output off',
+                )}
+              />
+            </span>
+          </Tooltip>
         }
       />
 
@@ -270,7 +286,7 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
           config={
             <>
               <Box>
-                <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>VISA resource</Typography>
+                <Typography sx={{ ...TEXT.label, color: 'text.secondary', mb: 0.75 }}>VISA resource</Typography>
                 <Stack direction="row" spacing={1} alignItems="center">
                   <Select
                     size="small"
@@ -280,39 +296,50 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
                     disabled={connected}
                     onChange={(e) => setAddress('dc-analyzer', String(e.target.value))}
                     renderValue={(v) => v || (scanning ? 'Scanning…' : 'Select an analyzer')}
-                    sx={{ '& .MuiSelect-select': { fontFamily: MONO, fontSize: 12 } }}
+                    sx={{ '& .MuiSelect-select': { fontFamily: MONO, fontSize: TEXT.dense.fontSize } }}
                   >
                     {options.map((r) => (
                       <MenuItem key={r.resource} value={r.resource} sx={{ display: 'block' }}>
-                        <Typography sx={{ fontFamily: MONO, fontSize: 12 }}>{r.resource}</Typography>
-                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                        <Typography sx={{ fontFamily: MONO, fontSize: TEXT.dense.fontSize }}>{r.resource}</Typography>
+                        <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
                           {r.idn ?? r.detail ?? 'no IDN response'}
                         </Typography>
                       </MenuItem>
                     ))}
                   </Select>
+                  {/* Default size: a 28 px key beside the 32 px select sat
+                      short of it. */}
                   <Button
-                    size="small"
                     onClick={() => void scan()}
                     disabled={scanning || connected}
-                    startIcon={<RefreshIcon sx={{ fontSize: 15 }} />}
-                    sx={{ minWidth: 0 }}
+                    startIcon={<RefreshRoundedIcon />}
+                    sx={{ minWidth: 0, flexShrink: 0 }}
                   >
                     Scan
                   </Button>
                 </Stack>
+                {/* Reserved whether or not a scan failed, so a failure never
+                    grows the dialog under the operator's pointer. */}
+                <Typography
+                  sx={{
+                    ...TEXT.micro, color: 'error.main', mt: 0.75, minHeight: 18,
+                    visibility: scanError ? 'visible' : 'hidden',
+                  }}
+                >
+                  {scanError ? `Scan failed: ${scanError}` : ' '}
+                </Typography>
               </Box>
               <Box>
-                <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>Channel</Typography>
+                <Typography sx={{ ...TEXT.label, color: 'text.secondary', mb: 0.75 }}>Channel</Typography>
                 <Select
                   size="small"
                   value={channel}
                   disabled={connected}
                   onChange={(e) => setChannel('dc-analyzer', Number(e.target.value))}
-                  sx={{ width: 96, '& .MuiSelect-select': { fontFamily: MONO, fontSize: 12.5 } }}
+                  sx={{ width: 96, '& .MuiSelect-select': { fontFamily: MONO, fontSize: TEXT.dense.fontSize } }}
                 >
                   {CHANNELS.map((c) => (
-                    <MenuItem key={c} value={c} sx={{ fontFamily: MONO, fontSize: 12.5 }}>{c}</MenuItem>
+                    <MenuItem key={c} value={c} sx={{ fontFamily: MONO, fontSize: TEXT.dense.fontSize }}>{c}</MenuItem>
                   ))}
                 </Select>
                 <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 0.75 }}>
@@ -323,112 +350,115 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
           }
         />
 
-        <Box>
-          <Section title="Output" panel>
-            <FieldGrid columns={2}>
-              <LabeledField
-                label="Voltage" hint="V" type="number"
-                value={voltage}
-                onChange={(e) => setVoltage(e.target.value)}
-                error={vBad}
-                helperText={vBad ? `0–${MAX_VOLTAGE_V} V` : undefined}
-                inputProps={{ step: 0.01, min: 0, max: MAX_VOLTAGE_V }}
-                sx={{ '& input': { fontFamily: MONO } }}
-              />
-              <LabeledField
-                label="Current limit" hint="A" type="number"
-                value={limit}
-                placeholder="leave as is"
-                onChange={(e) => setLimit(e.target.value)}
-                error={iBad}
-                helperText={iBad ? `0–${MAX_CURRENT_LIMIT_A} A` : undefined}
-                inputProps={{ step: 0.001, min: 0, max: MAX_CURRENT_LIMIT_A }}
-                sx={{ '& input': { fontFamily: MONO } }}
-              />
-            </FieldGrid>
-            <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mt: 2 }}>
-              <Button
-                variant={pending ? 'contained' : 'outlined'}
-                disabled={!canSend || vBad || iBad
-                  || (typed.voltage_v == null && typed.current_limit_a == null)}
-                onClick={() => void send(typed, 'Applied voltage and current limit')}
-                sx={{ minWidth: 120, height: CONTROL_H.md }}
-              >
-                Apply
-              </Button>
-              {/* Named rather than implied: the fields hold what was typed, and
-                  the analyzer holds what was sent. Without this the two look
-                  like one value that has quietly failed to take. */}
-              {pending && (
-                <Typography sx={{ ...TEXT.micro, color: 'warning.main', fontWeight: 600 }}>
-                  not sent yet
-                </Typography>
-              )}
-            </Stack>
-          </Section>
-        </Box>
-
-
-        <Box sx={{ mt: 2 }}>
-          <Section title="Instrument" panel>
-            <StatRow>
-              <StatTile
-                label="Output"
-                value={st?.output_on == null ? DASH : outputOn ? 'ON' : 'OFF'}
-                tone={outputOn ? 'bad' : undefined}
-                sub={st?.module ? `ch ${st.channel} · ${st.module}` : connected ? undefined : 'not connected'}
-                off={!connected}
-              />
-              <StatTile
-                label="Set voltage"
-                value={fmt(st?.voltage_set_v ?? null, 3)}
-                unit="V"
-                off={!connected}
-              />
-              <StatTile
-                label="Current limit"
-                value={st?.current_limit_a == null ? DASH : fmt(st.current_limit_a * 1000, 1)}
-                unit="mA"
-                off={!connected}
-              />
-            </StatRow>
-            {/* Settings above, measurements below: two rows with a gap, not
-                one grid, so the seam between them reads as a grouping. */}
-            <Box sx={{ mt: 1.5 }} />
-            <StatRow>
-              <StatTile
-                label="Voltage"
-                value={fmt(st?.voltage_v ?? null, 3)}
-                unit="V"
-                // Why the dash: a reading that is missing because nothing is
-                // connected should not be captioned "measured".
-                sub={connected ? 'measured' : 'not connected'}
-                off={!connected}
-              />
-              <StatTile
-                label="Current"
-                value={st?.current_a == null ? DASH : fmt(st.current_a * 1000, 3)}
-                unit="mA"
-                // Why the dash: a reading that is missing because nothing is
-                // connected should not be captioned "measured".
-                sub={connected ? 'measured' : 'not connected'}
-                off={!connected}
-              />
-              <StatTile
-                label="Power"
-                value={st?.power_w == null ? DASH : fmt(st.power_w * 1000, 2)}
-                unit="mW"
-                // Why the dash: a reading that is missing because nothing is
-                // connected should not be captioned "measured".
-                sub={connected ? 'measured' : 'not connected'}
-                off={!connected}
-              />
-            </StatRow>
-            {(st?.error || fault) && (
-              <InstrumentError message={(st?.error ?? fault) as string} raw />
+        <Section title="Output" panel>
+          <FieldGrid columns={2}>
+            {/* The range sits in the hint, not in helperText: a helper line
+                appearing on an out-of-range value pushed every card below
+                it down. The red outline alone marks the bad value. */}
+            <LabeledField
+              label="Voltage" hint={`V · 0–${MAX_VOLTAGE_V}`} type="number"
+              value={voltage}
+              onChange={(e) => setVoltage(e.target.value)}
+              error={vBad}
+              inputProps={{ step: 0.01, min: 0, max: MAX_VOLTAGE_V }}
+              sx={{ '& input': { fontFamily: MONO } }}
+            />
+            <LabeledField
+              label="Current limit" hint={`A · 0–${MAX_CURRENT_LIMIT_A}`} type="number"
+              value={limit}
+              // Blank leaves the limit as it is; the placeholder says what
+              // that is, in the field's own unit.
+              placeholder={st?.current_limit_a == null ? 'leave as is' : fmt(st.current_limit_a, 3)}
+              onChange={(e) => setLimit(e.target.value)}
+              error={iBad}
+              inputProps={{ step: 0.001, min: 0, max: MAX_CURRENT_LIMIT_A }}
+              sx={{ '& input': { fontFamily: MONO } }}
+            />
+          </FieldGrid>
+          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mt: 2 }}>
+            <Button
+              variant={pending ? 'contained' : 'outlined'}
+              disabled={!canSend || vBad || iBad
+                || (typed.voltage_v == null && typed.current_limit_a == null)}
+              onClick={() => void send(typed, 'Applied voltage and current limit')}
+              sx={actionSx(ACTION_W.default)}
+            >
+              Apply
+            </Button>
+            {/* Named rather than implied: the fields hold what was typed, and
+                the analyzer holds what was sent. Without this the two look
+                like one value that has quietly failed to take. */}
+            {pending && (
+              <Typography sx={{ ...TEXT.micro, color: 'warning.main', fontWeight: 600 }}>
+                not sent yet
+              </Typography>
             )}
-          </Section>
-        </Box>
+          </Stack>
+        </Section>
+
+        {/* Settings read back, then measurements: two cards rather than one
+            grid, so the seam between them reads as a grouping. Each strip
+            sits in its card (inCard), as on the Signal Generator page. */}
+        <Section title="Instrument" panel>
+          {(st?.error || fault) && (
+            <InstrumentError message={(st?.error ?? fault) as string} raw />
+          )}
+          <StatRow inCard>
+            <StatTile
+              label="Output"
+              value={st?.output_on == null ? DASH : outputOn ? 'ON' : 'OFF'}
+              tone={outputOn ? 'bad' : undefined}
+              sub={st?.module ? `ch ${st.channel} · ${st.module}` : connected ? undefined : 'not connected'}
+              off={!connected}
+            />
+            <StatTile
+              label="Set voltage"
+              value={fmt(st?.voltage_set_v ?? null, 3)}
+              unit="V"
+              off={!connected}
+            />
+            <StatTile
+              label="Current limit"
+              // In A, the unit the limit is typed in: typed in A and read
+              // back in mA, the two never looked like the same number.
+              value={fmt(st?.current_limit_a ?? null, 3)}
+              unit="A"
+              off={!connected}
+            />
+          </StatRow>
+        </Section>
+
+        <Section title="Readings" panel>
+          <StatRow inCard>
+            <StatTile
+              label="Voltage"
+              value={fmt(st?.voltage_v ?? null, 3)}
+              unit="V"
+              // Why the dash: a reading that is missing because nothing is
+              // connected should not be captioned "measured".
+              sub={connected ? 'measured' : 'not connected'}
+              off={!connected}
+            />
+            <StatTile
+              label="Current"
+              value={st?.current_a == null ? DASH : fmt(st.current_a * 1000, 3)}
+              unit="mA"
+              // Why the dash: a reading that is missing because nothing is
+              // connected should not be captioned "measured".
+              sub={connected ? 'measured' : 'not connected'}
+              off={!connected}
+            />
+            <StatTile
+              label="Power"
+              value={st?.power_w == null ? DASH : fmt(st.power_w * 1000, 2)}
+              unit="mW"
+              // Why the dash: a reading that is missing because nothing is
+              // connected should not be captioned "measured".
+              sub={connected ? 'measured' : 'not connected'}
+              off={!connected}
+            />
+          </StatRow>
+        </Section>
       </PageBody>
     </Box>
   )

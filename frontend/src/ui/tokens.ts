@@ -12,8 +12,8 @@ export const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 
 /** App chrome dimensions. Anything positioned against the shell reads these
  *  rather than re-deriving the number. */
-export const TOP_BAR_H = 56
-export const SIDEBAR_W = 300
+export const TOP_BAR_H = 52
+export const SIDEBAR_W = 240
 
 /**
  * Below this window width the shell stops being three docked columns.
@@ -29,12 +29,16 @@ export const SIDEBAR_W = 300
 export const SHELL_NARROW_W = 1200
 
 /** Sidebar width once past `SHELL_NARROW_W`. Still fits the longest page label
- *  ("Network Analyzer") at one line. */
-export const SIDEBAR_W_NARROW = 232
+ *  ("Spectrum Analyzer", with its glyph) at one line. */
+export const SIDEBAR_W_NARROW = 224
 
-/** Control heights. `md` matches MuiOutlinedInput sizeSmall so inputs and
- *  buttons on the same row line up; `lg` is for standalone action rows. */
-export const CONTROL_H = { md: 36, lg: 40 } as const
+/** Control heights. One height, `md`, for every field, key, icon key and
+ *  segmented control in a row, so nothing on a line is a few pixels off its
+ *  neighbour: the theme sizes MUI's inputs, buttons and icon buttons to it.
+ *  `sm` is for controls inside a table row; `lg` for a standalone action row.
+ *  32, not MUI's 36-40: the macOS regular-size control is 28 and a bench is
+ *  driven with a mouse, but 32 keeps a comfortable target. */
+export const CONTROL_H = { sm: 28, md: 32, lg: 36 } as const
 
 /**
  * Widths for header actions. Fixed, not minimum: a button must not change
@@ -69,30 +73,33 @@ export const FIELD_MAX_W = 780
  * from a step away is not text but texture -- and those were often the
  * labels saying what a number meant. Steps above the floor are 12 (labels,
  * metadata), 12.5 (summaries, table headings), 13 (field labels), 14.5
- * (body), 17 (section / dialog headings), 26 (page title); readouts sit at
- * 24 in the mono face.
+ * (body), 15 (card titles and the toolbar's page title), 17 (dialog
+ * headings); readouts sit at 24 in the mono face. (The page title was 26 in
+ * the page until it moved into the window toolbar.)
  */
 export const TEXT = {
-  /** Page title, in PageHeader. */
-  title: { fontSize: 26, fontWeight: 700, lineHeight: 1.15 },
+  /** Page title, in the window toolbar (PageHeader). */
+  title: { fontSize: 15, fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.01em' },
+  /** The sidebar section under the toolbar title. */
+  crumb: { fontSize: 12, lineHeight: 1.25 },
   /** Section heading inside a page. */
   section: { fontSize: 17, fontWeight: 700 },
   /** Dialog title. */
   dialog: { fontSize: 17, fontWeight: 700 },
-  /** The uppercase title Section draws over a panel. For a slim stand-in row
-   *  that has to read as the same panel (e.g. a folded-away table). */
+  /** The title Section draws over a panel. For a slim stand-in row that has
+   *  to read as the same panel (e.g. a folded-away table). Sentence case at
+   *  15 px rather than a 12 px uppercase eyebrow: a card's name is a heading,
+   *  and spaced capitals at that size read as texture. Slight negative
+   *  tracking, as headings get at this size. */
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: 700,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase' as const,
+    fontSize: 15,
+    fontWeight: 600,
+    letterSpacing: '-0.01em',
   },
-  /** Uppercase micro-label above a value. */
+  /** Micro-label above a value. Weight and colour set it apart, not capitals. */
   eyebrow: {
     fontSize: 12,
-    fontWeight: 700,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase' as const,
+    fontWeight: 600,
   },
   /** Large monospace measurement value. */
   readout: { fontSize: 24, fontWeight: 600, fontFamily: MONO, fontVariantNumeric: 'tabular-nums' },
@@ -106,10 +113,14 @@ export const TEXT = {
   micro: { fontSize: 12 },
 } as const
 
+/** Corner radius of a card. Controls inside one use the theme's 8 px, so the
+ *  inner radius stays smaller than the outer one, as nested corners should. */
+export const CARD_RADIUS = '12px'
+
 /** Bordered container used for status blocks and result panels. */
 export const CARD_SX = {
   p: 2,
-  borderRadius: 1,
+  borderRadius: CARD_RADIUS,
   border: 1,
   borderColor: 'divider',
 } as const
@@ -118,21 +129,22 @@ export const CARD_SX = {
  * Density constants for the data-dense instrument layout.
  *
  * The whole point of this app is reading numbers off hardware, so the layout
- * is tuned for information per screen, not for breathing room: 12px inside a
- * panel, 8px between them. Anything looser and a sweep result stops fitting
- * without scrolling.
+ * is tuned for information per screen: 16px inside a card, 12px between
+ * cards. That is the least that lets cards read as separate objects on the
+ * grouped-background grey; the density is kept inside them instead, in 30 px
+ * table rows, so a sweep result still fits without scrolling.
  */
-export const GRID_GAP = 8
-export const CARD_PAD = 12
+export const GRID_GAP = 12
+export const CARD_PAD = 16
 export const TILE_PAD = 12
 
-/** Panel surface — a plain hairline container. No shadow and no radius beyond
- *  the app's 6px: depth is reserved for things that actually float (menus,
- *  dialogs), so panels sitting in the page stay flat. */
+/** Panel surface — a card: 12 px corners and a hairline, no shadow. Depth is
+ *  reserved for things that actually float (menus, dialogs), so cards sitting
+ *  in the page stay flat; tone against the ground does the separating. */
 export const PANEL_SX = {
   border: 1,
   borderColor: 'divider',
-  borderRadius: 1,
+  borderRadius: CARD_RADIUS,
   bgcolor: 'background.paper',
 } as const
 

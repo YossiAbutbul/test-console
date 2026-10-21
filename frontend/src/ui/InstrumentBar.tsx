@@ -3,8 +3,8 @@ import {
   Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton,
   Stack, Tooltip, Typography,
 } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
-import TuneIcon from '@mui/icons-material/Tune'
+import CloseIcon from '@mui/icons-material/CloseRounded'
+import SettingsIcon from '@mui/icons-material/SettingsRounded'
 import { ConnectButton } from './controls'
 import { StatusChip } from './Readout'
 import { ACTION_W, CONTROL_H, MONO, PANEL_SX, TEXT } from './tokens'
@@ -79,11 +79,19 @@ export function InstrumentBar({
   const line = connected ? detail : status === 'error' && failure ? failure.hint : summary
 
   return (
-    <Box sx={{ ...PANEL_SX, px: 2, py: 1.25, mb: 2 }}>
+    <Box sx={{ ...PANEL_SX, px: 2, py: 1.25 }}>
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minWidth: 0 }}>
         {/* One width for every state ("Disconnected", "Connected", a failure
             title): the chip changing size slid the name beside it about. */}
-        <Box sx={{ width: 132, flexShrink: 0, display: 'flex', '& .MuiChip-root': { maxWidth: '100%' } }} title={chip.label}>
+        {/* The chip fills the slot, so the slot reads as a badge column
+            rather than a short chip followed by dead space. */}
+        <Box
+          sx={{
+            width: 132, flexShrink: 0, display: 'flex',
+            '& .MuiChip-root': { maxWidth: '100%', width: '100%', justifyContent: 'flex-start' },
+          }}
+          title={chip.label}
+        >
         <StatusChip
           label={chip.label}
           tone={chip.tone}
@@ -105,10 +113,12 @@ export function InstrumentBar({
               color: status === 'error' && failure
                 ? 'error.main'
                 : !connected && !configReady ? 'warning.main' : 'text.secondary',
-              fontFamily: status === 'error' && failure ? 'inherit' : MONO,
+              // Mono only for what the instrument said (IDN, address); a sentence
+              // of ours in a code face read like another IDN string.
+              fontFamily: (status === 'error' && failure) || !line ? 'inherit' : MONO,
             }}
           >
-            {line || (connected ? '' : 'not configured — open Config')}
+            {line || (connected ? '' : 'Not configured — open Config')}
           </Typography>
         </Box>
         {config && (
@@ -118,11 +128,10 @@ export function InstrumentBar({
                 // Always the same grey button: the line beside it already says
                 // "not configured", and Connect is disabled until it is.
                 variant="outlined"
-                color="inherit"
-                startIcon={<TuneIcon sx={{ fontSize: 16 }} />}
+                startIcon={<SettingsIcon />}
                 onClick={() => setOpen(true)}
                 disabled={disabled}
-                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md, borderColor: 'divider' }}
+                sx={{ width: ACTION_W.compact, minWidth: ACTION_W.compact, height: CONTROL_H.md }}
               >
                 Config
               </Button>
@@ -144,11 +153,11 @@ export function InstrumentBar({
           onClose={() => setOpen(false)}
           maxWidth="xs"
           fullWidth
-          slotProps={{ paper: { sx: { borderRadius: 2 } } }}
+          
         >
           <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1.5 }}>
             <Box>
-              <Typography sx={{ fontSize: 16, fontWeight: 700 }}>{name}</Typography>
+              <Typography sx={TEXT.dialog}>{name}</Typography>
               <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>{model}</Typography>
             </Box>
             <IconButton size="small" onClick={() => setOpen(false)} aria-label="Close">

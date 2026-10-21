@@ -1,6 +1,8 @@
 import { Stack, Typography, Box } from '@mui/material'
+import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
-import { CONTROL_H } from '../ui'
+import { usePageActive, useToolbarSlot } from '../ui/toolbarSlot'
+import { TEXT } from '../ui/tokens'
 
 interface Props {
   protocol?: string
@@ -9,49 +11,45 @@ interface Props {
   actions?: ReactNode
 }
 
+/**
+ * The page's title and header keys, drawn into the window toolbar.
+ *
+ * The title is the toolbar's, as in a macOS window: one line, 15 px, with the
+ * section under it in the caption size. It used to be a 26 px heading in the
+ * page with the keys beside it, which spent a 60 px band of every page on a
+ * name the sidebar already highlights. In the toolbar the keys stay put
+ * whatever the page scrolls to -- and, in their own slot, whatever the
+ * live-output pills beside them do (see ToolbarSlots).
+ *
+ * The crumb names the sidebar section the page sits in and nothing more:
+ * "LoRa", or "Components" for a rig page. "LoRa · TX" named a TX level the
+ * sidebar no longer shows.
+ */
 export function PageHeader({ protocol, group, label, actions }: Props) {
-  const crumbs = [protocol, group].filter(Boolean) as string[]
+  const slots = useToolbarSlot()
+  const active = usePageActive()
+  if (!active) return null
+  const crumb = group === 'Components' ? group : protocol
   return (
-    <Stack
-      direction="row"
-      alignItems="center"
-      // As tall as a header key even with no actions, so a page without
-      // them (Switch) starts its content where every other page does.
-      // Keys drop to their own line, right-aligned, only when the title and
-      // keys cannot share one (laptop width with the log docked). Header keys
-      // are fixed-width, so a state change never flips this wrap.
-      sx={{ mb: '12px', columnGap: 2, rowGap: 1, flexWrap: 'wrap', flexShrink: 0, minHeight: CONTROL_H.md }}
-    >
-      {/* The section path rides on the title's baseline, after it, rather
-          than as an uppercase kicker above it. Above, it was the first thing
-          read on every page -- "LORA / TX" before "CW" -- and pushed the title
-          down a line for a fact the sidebar already shows. */}
-      <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
-        {/* One line, always. Wrapping at laptop width with the log docked
-            stacked "Load Pull Test" three lines deep under its own crumbs. */}
-        <Typography
-          component="h1"
-          noWrap
-          sx={{
-            // Tighter tracking at display size: at 26 px the system face's
-            // default spacing reads loose.
-            fontWeight: 700, fontSize: 26, lineHeight: 1.15, letterSpacing: '-0.02em', color: 'text.primary',
-            flexShrink: 0,
-          }}
-        >
-          {label}
-        </Typography>
-        {crumbs.length > 0 && (
-          <Typography noWrap sx={{ fontSize: 14, fontWeight: 500, color: 'text.secondary', flexShrink: 100, minWidth: 0 }}>
-            {crumbs.join(' · ')}
+    <>
+      {slots.title && createPortal(
+        <Box sx={{ minWidth: 0 }}>
+          <Typography component="h1" noWrap sx={{ ...TEXT.title, color: 'text.primary' }}>
+            {label}
           </Typography>
-        )}
-      </Box>
-      {actions && (
-        <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, ml: 'auto' }}>
-          {actions}
-        </Box>
+          {crumb && (
+            <Typography noWrap sx={{ ...TEXT.crumb, color: 'text.secondary' }}>
+              {crumb}
+            </Typography>
+          )}
+        </Box>,
+        slots.title,
       )}
-    </Stack>
+      {actions && slots.actions && createPortal(
+        // Header keys are fixed-width, so a state change never moves them.
+        <Stack direction="row" alignItems="center">{actions}</Stack>,
+        slots.actions,
+      )}
+    </>
   )
 }

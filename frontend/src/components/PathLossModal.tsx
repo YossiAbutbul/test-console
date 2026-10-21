@@ -1,15 +1,14 @@
 import { useState } from 'react'
 import {
-  Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
-  IconButton, Stack, Table, TableBody, TableCell, TableHead, TableRow,
-  TextField, Tooltip, Typography,
+  Alert, Box, Button, IconButton, Stack, Table, TableBody, TableCell,
+  TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
-import AddIcon from '@mui/icons-material/Add'
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import CloseIcon from '@mui/icons-material/Close'
+import AddIcon from '@mui/icons-material/AddRounded'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineRounded'
 import { usePathLoss } from '../context/PathLossContext'
 import type { PathLossPoint } from '../lib/pathLoss'
-import { MONO, TEXT } from '../ui'
+import { ModalShell, MONO, TEXT } from '../ui'
+import { selectOnFocus } from '../lib/selectOnFocus'
 
 interface Props {
   open: boolean
@@ -92,16 +91,17 @@ export function PathLossModal({ open, onClose }: Props) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1.5 }}>
-        <Stack direction="row" alignItems="baseline" spacing={1.5}>
-          <Typography sx={{ fontSize: 17, fontWeight: 700 }}>Path loss</Typography>
-          
-        </Stack>
-        <IconButton size="small" onClick={onClose}><CloseIcon fontSize="small" /></IconButton>
-      </DialogTitle>
-
-      <DialogContent dividers>
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      title="Path loss"
+      maxWidth="sm"
+      dividers
+      footer={{
+        secondary: <Button onClick={onClose} variant="outlined" color="inherit">Cancel</Button>,
+        primary: <Button onClick={save} variant="contained" disabled={!canSave}>Save</Button>,
+      }}
+    >
         <Stack spacing={2}>
           <Box>
             <Typography sx={{ ...TEXT.label, mb: 0.5 }}>Default</Typography>
@@ -111,7 +111,7 @@ export function PathLossModal({ open, onClose }: Props) {
                 type="number"
                 value={draftDefault}
                 onChange={(e) => setDraftDefault(e.target.value)}
-                onFocus={(e) => (e.target as HTMLInputElement).select()}
+                onFocus={selectOnFocus}
                 error={!defaultOk}
                 inputProps={{ step: 0.1 }}
                 sx={{ width: 120 }}
@@ -155,7 +155,7 @@ export function PathLossModal({ open, onClose }: Props) {
                         <TextField
                           size="small" type="number" fullWidth value={r.freq}
                           onChange={(e) => update(i, { freq: e.target.value })}
-                          onFocus={(e) => (e.target as HTMLInputElement).select()}
+                          onFocus={selectOnFocus}
                           error={!isBlank(r) && (!parsed[i].freqOk || duplicates.has(parsed[i].freq))}
                           placeholder="902.3"
                           inputProps={{ step: 0.1, style: { fontFamily: MONO } }}
@@ -165,7 +165,7 @@ export function PathLossModal({ open, onClose }: Props) {
                         <TextField
                           size="small" type="number" fullWidth value={r.db}
                           onChange={(e) => update(i, { db: e.target.value })}
-                          onFocus={(e) => (e.target as HTMLInputElement).select()}
+                          onFocus={selectOnFocus}
                           error={!isBlank(r) && !parsed[i].dbOk}
                           placeholder="20.5"
                           inputProps={{ step: 0.1, style: { fontFamily: MONO } }}
@@ -175,6 +175,7 @@ export function PathLossModal({ open, onClose }: Props) {
                         <Tooltip title="Remove">
                           <IconButton
                             size="small"
+                            aria-label="Remove row"
                             onClick={() => setRows((prev) => prev.filter((_, n) => n !== i))}
                             sx={{ color: 'text.disabled', '&:hover': { color: 'error.main' } }}
                           >
@@ -201,12 +202,6 @@ export function PathLossModal({ open, onClose }: Props) {
             </Alert>
           )}
         </Stack>
-      </DialogContent>
-
-      <DialogActions>
-        <Button onClick={onClose} color="inherit">Cancel</Button>
-        <Button onClick={save} variant="contained" disabled={!canSave}>Save</Button>
-      </DialogActions>
-    </Dialog>
+    </ModalShell>
   )
 }

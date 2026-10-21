@@ -57,6 +57,11 @@ interface StatusChipProps {
   detail?: string
   /** Show a spinner instead of a static dot. */
   spinning?: boolean
+  /**
+   * No outline: just the dot and the word. For a card header that already
+   * carries a reading, where a second bordered shape crowds it.
+   */
+  plain?: boolean
 }
 
 const TONE_COLOR: Record<StatusChipProps['tone'], string> = {
@@ -67,7 +72,7 @@ const TONE_COLOR: Record<StatusChipProps['tone'], string> = {
 }
 
 /** Dot + label chip. Used for every instrument/connection state in the app. */
-export function StatusChip({ label, tone, detail, spinning }: StatusChipProps) {
+export function StatusChip({ label, tone, detail, spinning, plain }: StatusChipProps) {
   const color = TONE_COLOR[tone]
   return (
     <Chip
@@ -81,7 +86,12 @@ export function StatusChip({ label, tone, detail, spinning }: StatusChipProps) {
           : <StatusDot color={color} />
       }
       label={detail ? `${label} · ${detail}` : label}
-      sx={{ ...TEXT.dense, color, borderColor: 'divider' }}
+      sx={{
+        ...TEXT.dense, color, borderColor: 'divider',
+        // Border kept but transparent, so plain and outlined chips are one
+        // height and the header row never changes size between them.
+        ...(plain ? { borderColor: 'transparent', '& .MuiChip-label': { pr: 0 } } : null),
+      }}
     />
   )
 }

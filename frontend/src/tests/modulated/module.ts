@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import GraphicEqIcon from '@mui/icons-material/GraphicEq'
+import GraphicEqIcon from '@mui/icons-material/GraphicEqRounded'
 import type { TestModule } from '../types'
 import { ModulatedPage } from './ModulatedPage'
 

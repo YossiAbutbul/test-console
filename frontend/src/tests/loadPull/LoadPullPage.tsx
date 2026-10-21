@@ -1,21 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Box, Button, CircularProgress, Divider, IconButton, MenuItem, Stack, Table, TableBody,
-  TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
+  Box, Button, Divider, IconButton, MenuItem, Stack, Table, TableBody,
+  TableCell, TableHead, TableRow, TextField,
   Tooltip, Typography,
 } from '@mui/material'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
-import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
-import FirstPageIcon from '@mui/icons-material/FirstPage'
-import LastPageIcon from '@mui/icons-material/LastPage'
-import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import DownloadIcon from '@mui/icons-material/Download'
-import UploadFileIcon from '@mui/icons-material/UploadFile'
-import ScatterPlotIcon from '@mui/icons-material/ScatterPlot'
-import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined'
-import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
-import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
+import FirstPageIcon from '@mui/icons-material/FirstPageRounded'
+import LastPageIcon from '@mui/icons-material/LastPageRounded'
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweepRounded'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineRounded'
+import DownloadIcon from '@mui/icons-material/DownloadRounded'
+import UploadFileIcon from '@mui/icons-material/UploadFileRounded'
+import ScatterPlotIcon from '@mui/icons-material/ScatterPlotRounded'
+// A block-and-wire diagram, which is what the setup picture is.
+import SchemaIcon from '@mui/icons-material/SchemaRounded'
 import { useMutation } from '@tanstack/react-query'
 import { alpha } from '@mui/material/styles'
 import { PageHeader } from '../../components/PageHeader'
@@ -40,13 +37,15 @@ import { formatRunTiming, useRunEta } from '../../ui/useRunEta'
 import { parseRangeSpec } from '../../lib/numericList'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import { saveBlob } from '../../lib/download'
-import { DASH, fmt } from '../../lib/format'
+import { fmt } from '../../lib/format'
 import { vswr, vswrLabel } from './smith'
 import {
+  scrollBehavior,
   ACTION_W, CONTROL_H, EmergencyStop, FieldGrid, MONO, PageBody,
-  RunControls, Section, StatRow, StatTile, StatusChip, TEXT, TwoCol,
+  RunControls, Section, StatusChip, TEXT, TwoCol,
   HeadCell, NUM_CELL_SX,
   HazardGlyph, hazardRingSx,
+  GRID_GAP, JogPad, CheckMark, KeySpinner, MiniAction, SegmentedChoice, type CheckState,
 } from '../../ui'
 import { useAppPalette } from '../../context/ThemeModeContext'
 import type { TestPageProps } from '../types'
@@ -68,7 +67,8 @@ import { parseLoadPullCsv } from './importCsv'
 import { SetupDiagramModal } from './SetupDiagramModal'
 import { confidenceColor, powerConfidence } from './powerConfidence'
 // Shared with the Trombone page so both agree on what a mm is.
-import { PULSES_PER_MM } from '../../lib/trombone'
+import { JOG_SPEEDS, PULSES_PER_MM } from '../../lib/trombone'
+import { selectOnFocus } from '../../lib/selectOnFocus'
 
 /** Every stage of a point touches one of these. */
 const REQUIRED_INSTRUMENTS: InstrumentId[] = [
@@ -119,8 +119,6 @@ interface PlanPoint {
 const ATT_STEP_DB = 1
 const ATT_MAX_LIMIT_DB = 20
 
-const RESULT_ACTION_SX = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
-
 /** Fixed height for the results area, so the panel is the same size empty,
  *  mid-run and full. */
 const RESULTS_H = 240
@@ -129,9 +127,10 @@ const RESULTS_H = 240
  *  buttons, a jog pad, a toggle group — at three different sizes read as
  *  unrelated widgets rather than one panel for one motor. */
 const DRIVE_H = 32
-const DRIVE_BTN_SX = {
-  minWidth: 66, height: DRIVE_H, fontSize: 12.5, textTransform: 'none' as const,
-}
+
+/** What the Frequency and DUT power fields accept (see lib/numericList). */
+const SPEC_SYNTAX = 'One value "915", a range "900-930", a stepped range "900-930:5", or a list "902.3,915,927.5".'
+
 
 /** Row label in the drive column, matching the bounds grid opposite it. */
 function DriveLabel({ children }: { children: React.ReactNode }) {
@@ -145,8 +144,6 @@ function DriveLabel({ children }: { children: React.ReactNode }) {
 interface RigRowProps {
   name: string
   connected: boolean
-  /** Shown instead of the state once connected — the DUT's address, say. */
-  detail?: string
 }
 
 /**
@@ -161,65 +158,40 @@ interface RigRowProps {
  * not worth saying here — a load pull with no trombone or no VNA has nothing
  * to measure, so "connects on run" promised a recovery that does not exist.
  */
-function RigRow({ name, connected, detail }: RigRowProps) {
+function RigRow({ name, connected }: RigRowProps) {
   const p = useAppPalette()
+  // One step of the connection checklist: a mark and the name, in a pill.
+  // Ready is quiet (a grey pill with a tick); missing is the one thing in the
+  // card with colour, so the eye lands on what is left to do. No "ready" /
+  // "not connected" words: the mark and the tint say it, and the card stays
+  // two short rows instead of a column of label-and-status lines.
   return (
-    <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, py: 0.3 }}>
-      <Box
-        sx={{
-          width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-          bgcolor: connected ? p.data.ok : p.data.warn,
-        }}
-      />
-      <Typography
-        sx={{
-          fontSize: 12.5,
-          fontWeight: connected ? 600 : 400,
-          color: connected ? 'text.primary' : 'text.secondary',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {name}
-      </Typography>
-      <Box sx={{ flexGrow: 1, minWidth: 8 }} />
-      <Typography
-        sx={{
-          fontSize: 12,
-          fontFamily: connected && detail ? MONO : undefined,
-          color: connected ? 'text.disabled' : p.data.warn,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}
-      >
-        {connected ? (detail ?? 'ready') : 'not connected'}
-      </Typography>
-    </Stack>
-  )
-}
-
-/** Quiet divider label inside a step, one level below its heading. */
-function SubHead({ children }: { children: React.ReactNode }) {
-  return (
-    <Typography
+    <Box
+      role="listitem"
+      aria-label={`${name}: ${connected ? 'connected' : 'not connected'}`}
       sx={{
-        fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
-        textTransform: 'uppercase', color: 'text.disabled', mb: 1,
+        display: 'inline-flex', alignItems: 'center', gap: 0.75,
+        height: CONTROL_H.sm, pl: 0.75, pr: 1.25, borderRadius: '7px',
+        bgcolor: connected ? alpha(p.sidebar.textDim, 0.1) : alpha(p.data.warn, 0.12),
+        color: connected ? 'text.primary' : p.data.warn,
+        fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap',
       }}
     >
-      {children}
-    </Typography>
+      <CheckMark state={connected ? 'ok' : 'block'} size={16} />
+      {name}
+    </Box>
   )
 }
 
-/** Done / not-done marker for a step heading. */
-function StepMark({ done, label }: { done: boolean; label: string }) {
+/** Step state for a section heading: the course's own mark, with the word
+ *  beside it so the shape is never the only carrier. */
+function StepMark({ state, label }: { state: CheckState; label: string }) {
   const p = useAppPalette()
   return (
-    <Stack direction="row" alignItems="center" spacing={0.5}>
-      {done
-        ? <CheckCircleRoundedIcon sx={{ fontSize: 15, color: p.data.ok }} />
-        : <RadioButtonUncheckedIcon sx={{ fontSize: 15, color: 'text.disabled' }} />}
+    <Stack direction="row" alignItems="center" spacing={0.75}>
+      <CheckMark state={state} size={16} />
       <Typography
-        sx={{ fontSize: 12, fontWeight: 600, color: done ? p.data.ok : 'text.disabled' }}
+        sx={{ ...TEXT.dense, color: state === 'ok' ? p.data.ok : 'text.secondary', whiteSpace: 'nowrap' }}
       >
         {label}
       </Typography>
@@ -227,9 +199,54 @@ function StepMark({ done, label }: { done: boolean; label: string }) {
   )
 }
 
+/** Widest a control in the trombone cards' control column gets. Every control
+ *  fills the column up to this, so the pad, the speed choice, the key pairs
+ *  and the Delta X field end on one edge in each card. */
+const FORM_CONTROL_W = 232
+const CONTROL_COL_SX = { width: '100%', maxWidth: FORM_CONTROL_W } as const
+
+/** Narrowest a trombone card gets before the three stack into one column. */
+const TROMBONE_CARD_MIN = 280
+
+/**
+ * The three trombone cards side by side, matched in height, stacking once the
+ * *container* (not the window) is too narrow for three -- the same rule
+ * TwoCol uses, so opening the inspector behaves like a narrower window.
+ */
+const TROMBONE_ROW_SX = {
+  display: 'grid',
+  gap: `${GRID_GAP}px`,
+  gridTemplateColumns: '1fr',
+  [`@container (min-width:${TROMBONE_CARD_MIN * 3 + GRID_GAP * 2}px)`]: {
+    gridTemplateColumns: `repeat(3, minmax(${TROMBONE_CARD_MIN}px, 1fr))`,
+  },
+  alignItems: 'stretch',
+} as const
+
+/**
+ * The trombone cards' form: a fixed label column, then a control column,
+ * every row the control height. Labels and controls line up row to row and
+ * card to card.
+ */
+const FORM_SX = {
+  display: 'grid',
+  gridTemplateColumns: '72px minmax(0, 1fr)',
+  gridAutoRows: `${DRIVE_H}px`,
+  columnGap: 1.5,
+  rowGap: 1,
+  alignItems: 'center',
+} as const
+
+/** Two keys sharing the control column's width in equal halves. */
+const PAIR_SX = {
+  ...CONTROL_COL_SX,
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: 1,
+} as const
+
 interface BoundRowProps {
   label: string
-  caption: string
   value: number | null
   onCapture: () => void
   onClear: () => void
@@ -238,69 +255,57 @@ interface BoundRowProps {
 }
 
 /**
- * One end of the sweep, as three cells of the enclosing grid — label, button,
- * captured value — so it lines up with the other bounds and with Delta X
- * instead of being its own little block with its own spacing.
+ * One end of the sweep, as two cells of the bounds form: its label, then its
+ * captured position, the Capture key and a clear icon -- all in the control
+ * column, so Zero and End line up and end where Delta X does.
  */
 function BoundRow({
-  label, caption, value, onCapture, onClear, captureDisabled, clearDisabled,
+  label, value, onCapture, onClear, captureDisabled, clearDisabled,
 }: BoundRowProps) {
   return (
     <>
-      <Box>
-        <Typography sx={{ ...TEXT.label, color: 'text.primary', whiteSpace: 'nowrap' }}>
-          {label}
-        </Typography>
-        <Typography sx={{ ...TEXT.micro, color: 'text.disabled', whiteSpace: 'nowrap' }}>
-          {caption}
-        </Typography>
-      </Box>
-      <Button
-        size="small"
-        variant={value == null ? 'contained' : 'outlined'}
-        color={value == null ? 'primary' : 'inherit'}
-        onClick={onCapture}
-        disabled={captureDisabled}
-        // Fixed: "Capture" and "Recapture" share one width.
-        sx={{ width: 112, minWidth: 112, height: CONTROL_H.md }}
-      >
-        {value == null ? 'Capture' : 'Recapture'}
-      </Button>
-      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
-        <Typography
-          sx={{
-            fontFamily: MONO, fontSize: 12.5,
-            color: value == null ? 'text.disabled' : 'text.primary',
-            fontWeight: value == null ? 400 : 600,
-          }}
-        >
-          {value == null ? 'not set' : `${(value / PULSES_PER_MM).toFixed(2)} mm`}
-        </Typography>
-        {value != null && (
-          // Icon only — the row is already three columns wide and the word
-          // "clear" competed with the captured value beside it. `span` wrapper
-          // so the tooltip still fires while the button is disabled mid-run.
+      <DriveLabel>{label}</DriveLabel>
+      <Box sx={{ ...CONTROL_COL_SX, display: 'grid', gridTemplateColumns: '1fr 112px', columnGap: 1, alignItems: 'center' }}>
+        <Stack direction="row" alignItems="center" sx={{ minWidth: 0 }}>
+          <Typography
+            sx={{
+              fontFamily: MONO, fontSize: 13, fontVariantNumeric: 'tabular-nums',
+              color: value == null ? 'text.secondary' : 'text.primary',
+              fontWeight: value == null ? 400 : 600, whiteSpace: 'nowrap', flexGrow: 1,
+            }}
+          >
+            {value == null ? 'not set' : `${(value / PULSES_PER_MM).toFixed(2)} mm`}
+          </Typography>
+          {/* Icon only, and only once there is something to clear; held in
+              its slot with `visibility` so the value never shifts. `span` so
+              the tooltip still fires while the key is disabled mid-run. */}
           <Tooltip title={`Clear ${label.toLowerCase()}`}>
-            <span>
+            <span style={{ visibility: value == null ? 'hidden' : 'visible' }}>
               <IconButton
                 size="small"
                 onClick={onClear}
-                disabled={clearDisabled}
+                disabled={clearDisabled || value == null}
                 aria-label={`Clear ${label.toLowerCase()}`}
-                sx={{
-                  // 28 px: the 20 px it was is under the 24 px minimum target
-                  // (WCAG 2.5.8), on a key that throws a capture away.
-                  width: 28, height: 28, p: 0,
-                  color: 'text.disabled',
-                  '&:hover': { color: 'error.main', bgcolor: 'transparent' },
-                }}
+                sx={{ color: 'text.secondary', '&:hover': { color: 'error.main', bgcolor: 'transparent' } }}
               >
-                <DeleteOutlineIcon sx={{ fontSize: 16, display: 'block' }} />
+                <DeleteOutlineIcon sx={{ fontSize: 16 }} />
               </IconButton>
             </span>
           </Tooltip>
-        )}
-      </Stack>
+        </Stack>
+        <Button
+          size="small"
+          // Grey in both states: filled blue is kept for Run.
+          variant="outlined"
+          color="inherit"
+          onClick={onCapture}
+          disabled={captureDisabled}
+          // Fixed: "Capture" and "Recapture" share one width.
+          sx={{ width: 112, minWidth: 112, height: DRIVE_H }}
+        >
+          {value == null ? 'Capture' : 'Recapture'}
+        </Button>
+      </Box>
     </>
   )
 }
@@ -490,7 +495,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   useEffect(() => {
     const el = resultsScrollRef.current
     if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    el.scrollTo({ top: el.scrollHeight, behavior: scrollBehavior() })
   }, [results.length])
 
   // Trombone status + jog + soft-limit sync + wait-for-idle, all in one hook.
@@ -910,99 +915,56 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           order={['rig', 'rf-path', 'path-loss', 'test-point', 'trombone']}
         />
 
-        {/* Calibration state, which is what the run plan is built from. */}
-        <StatRow>
-          <StatTile
-            label="Live position"
-            value={motorPos == null ? DASH : mm(motorPos).toFixed(2)}
-            unit={motorPos == null ? undefined : 'mm'}
-            sub={motorPos == null
-              ? (motorConnected ? 'waiting' : 'trombone offline')
-              : `${motorPos.toLocaleString()} pulses`}
-            off={!motorConnected}
-          />
-          <StatTile
-            label="Zero"
-            value={zeroPulses == null ? DASH : mm(zeroPulses).toFixed(2)}
-            unit={zeroPulses == null ? undefined : 'mm'}
-            sub={zeroPulses == null ? 'not captured' : 'sweep start'}
-            off={zeroPulses == null}
-          />
-          <StatTile
-            label="End"
-            value={endPulses == null ? DASH : mm(endPulses).toFixed(2)}
-            unit={endPulses == null ? undefined : 'mm'}
-            sub={endPulses == null ? 'not captured' : 'sweep end'}
-            off={endPulses == null}
-          />
-          <StatTile
-            label="Plan"
-            value={totalPoints === 0 ? DASH : String(totalPoints)}
-            unit={totalPoints === 0 ? undefined : 'points'}
-            // The cost of the plan before Run, and how far through it during.
-            sub={totalPoints === 0
-              ? 'incomplete'
-              : runEta
-                ? formatRunTiming(runEta)
-                : `every ${deltaXmm} mm · ≈ ${formatDuration(estimatedRunMs)}`}
-            off={totalPoints === 0}
-          />
-        </StatRow>
+        {/* No Zero / End / Plan strip here: Zero and End are in the trombone
+            card's "Mark the sweep" grid beside their Capture keys, the point
+            count is on the course and under Delta X, and the run's time is in
+            that same Delta X line. The strip said each of those a second
+            time, a card's height above the controls that set them. */}
 
         <TwoCol stretch>
           <Section
-            title="Instruments"
+            title="Connections"
             anchorId="lp-instruments"
             panel
-            hint="Every stage of a point uses one of these."
             action={
               <StepMark
-                done={allReady}
-                label={allReady ? 'all ready' : `${missingCount} not connected`}
+                state={allReady ? 'ok' : 'block'}
+                label={allReady ? 'all connected' : `${6 - missingCount} of 6 connected`}
               />
             }
           >
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
-                columnGap: 2.5,
-              }}
-            >
+            {/* What must be up before Run, as a checklist of pills that wraps
+                to the card's width -- the DUT with the rest, since a missing
+                DUT blocks a point the same way a missing instrument does. Its
+                address is in the Bench inspector, not repeated here. */}
+            <Box role="list" aria-label="Connections" sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
               <RigRow name="Power sensor" connected={ps.status === 'connected'} />
               <RigRow name="DC analyzer" connected={dc.status === 'connected'} />
               <RigRow name="VNA" connected={na.status === 'connected'} />
               <RigRow name="Switch" connected={sw.status === 'connected'} />
               <RigRow name="Trombone" connected={tr.status === 'connected'} />
+              <RigRow name="DUT" connected={dutConnected} />
             </Box>
-
-            {/* Apart from the rest because it is connected from the DUT check
-                at the top of the page rather than the Instruments panel, so a
-                missing one is fixed somewhere else. */}
-            <Divider sx={{ my: 1 }} />
-            <RigRow
-              name="BLE DUT"
-              connected={dutConnected}
-              detail={bleStatus?.address ?? 'connected'}
-            />
           </Section>
 
           <Section
             title="RF path"
             anchorId="lp-rf-path"
             panel
-            hint="Re-confirmed each session — this is the one thing the app cannot check."
-            action={<StepMark done={pathAck} label={pathAck ? 'verified' : 'not verified'} />}
+            action={
+              <StepMark state={pathAck ? 'ok' : 'block'} label={pathAck ? 'confirmed' : 'not confirmed'} />
+            }
           >
             <Stack spacing={1.25}>
               <Typography sx={{ ...TEXT.hint, color: pathAck ? 'text.secondary' : 'warning.main' }}>
                 Check the cabling: <b>DUT to switch to coupler to power sensor</b>.
               </Typography>
               <Stack direction="row" spacing={1.25} alignItems="center" flexWrap="wrap" useFlexGap>
+                {/* Grey in both states: filled blue is kept for Run. */}
                 <Button
                   size="small"
-                  variant={pathAck ? 'outlined' : 'contained'}
-                  color={pathAck ? 'inherit' : 'primary'}
+                  variant="outlined"
+                  color="inherit"
                   onClick={() => setPathAck(!pathAck)}
                   disabled={running}
                   sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
@@ -1015,7 +977,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                 <Button
                   size="small"
                   variant="text"
-                  startIcon={<AccountTreeOutlinedIcon sx={{ fontSize: 16 }} />}
+                  startIcon={<SchemaIcon sx={{ fontSize: 16 }} />}
                   onClick={() => setSetupOpen(true)}
                   sx={{ height: CONTROL_H.md }}
                 >
@@ -1028,22 +990,33 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
 
         <Section title="Test point" anchorId="lp-test-point" panel>
           <FieldGrid columns={4}>
+            {/* The list syntax lives on the two fields that take it, rather
+                than as a line of its own under the grid. A wrapper because
+                LabeledField does not forward a ref for the tooltip. */}
+            <Tooltip title={SPEC_SYNTAX} placement="top-start">
+              <Box>
+                <LabeledField
+                  label="Frequency" hint="MHz" value={freqSpec}
+                  onChange={(e) => setFreqSpec(e.target.value)}
+                  disabled={running}
+                  error={freqSpec.trim() !== '' && freqs.length === 0}
+                  placeholder="915, 900-930:5 or 902.3,915"
+                />
+              </Box>
+            </Tooltip>
+            <Tooltip title={SPEC_SYNTAX} placement="top-start">
+              <Box>
+                <LabeledField
+                  label="DUT power" hint="dBm" value={powerSpec}
+                  onChange={(e) => setPowerSpec(e.target.value)}
+                  disabled={running}
+                  error={powerSpec.trim() !== '' && powers.length === 0}
+                  placeholder="14 or 10-20:2"
+                />
+              </Box>
+            </Tooltip>
             <LabeledField
-              label="Frequency" hint="MHz" value={freqSpec}
-              onChange={(e) => setFreqSpec(e.target.value)}
-              disabled={running}
-              error={freqSpec.trim() !== '' && freqs.length === 0}
-              placeholder="e.g. 915 or 900-930"
-            />
-            <LabeledField
-              label="DUT Power" hint="dBm" value={powerSpec}
-              onChange={(e) => setPowerSpec(e.target.value)}
-              disabled={running}
-              error={powerSpec.trim() !== '' && powers.length === 0}
-              placeholder="14"
-            />
-            <LabeledField
-              label="PA Mode" select value={paMode}
+              label="PA mode" select value={paMode}
               onChange={(e) => setPaMode(Number(e.target.value))}
               disabled={running}
             >
@@ -1087,160 +1060,142 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
             />
           </FieldGrid>
           {/* The plan multiplies out fast — three positions of a 30-point
-              trombone sweep across four powers is 360 points — so state the
-              total next to the fields that decide it. */}
-          <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 1 }}>
-            Freq / Power: "915" · "900-930" · "900-930:5" · "902.3,915,927.5"
-            {positions.length > 0 && freqs.length > 0 && powers.length > 0 && (
+              trombone sweep across four powers is 360 points — so say what it
+              is a product of next to the fields that decide it. The total is
+              on the Plan tile and beside Delta X; this line is only the
+              factors. Always one line tall, so the card does not grow when
+              the plan becomes complete. */}
+          <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 1, minHeight: 18 }}>
+            {positions.length > 0 && freqs.length > 0 && powers.length > 0 ? (
               <>
-                {' — '}
                 {positions.length} {positions.length === 1 ? 'position' : 'positions'}
                 {' × '}{freqs.length} {freqs.length === 1 ? 'freq' : 'freqs'}
                 {' × '}{powers.length} {powers.length === 1 ? 'power' : 'powers'}
                 {attEnabled && attMaxDb != null && (
                   <>{' × '}{attSteps.length} att ({ATT_STEP_DB} dB steps)</>
                 )}
-                {' = '}<b>{totalPoints}</b> points
               </>
-            )}
+            ) : ' '}
           </Typography>
         </Section>
 
-        <Section
-          title="Trombone calibration"
-          anchorId="lp-trombone"
-          panel
-          hint={`Jog to each end of the Smith chart cycle and capture it. ${PULSES_PER_MM} pulses/mm.`}
-          action={
-            <Stack direction="row" alignItems="center" spacing={1}>
-              <StatusChip
-                label={motorConnected ? (motorMoving ? 'Moving' : 'Idle') : 'Trombone offline'}
-                tone={motorConnected ? (motorMoving ? 'busy' : 'ok') : 'off'}
-                spinning={motorConnected && motorMoving}
+        {/* The trombone step as three short cards in a row: moving the
+            carriage, the one-press commands, and marking where the sweep
+            starts and ends. Each is a form -- a fixed
+            label column, then controls of fixed widths -- so its rows line up
+            on both edges. One card holding both, in columns, had keys that
+            never quite met across them. */}
+        <Box sx={TROMBONE_ROW_SX}>
+          <Section
+            title="Move trombone"
+            anchorId="lp-trombone"
+            panel
+            action={
+              <Stack direction="row" alignItems="center" spacing={1.5}>
+                {/* Always rendered, blank while unknown (a lone dash read as
+                    noise), in tabular figures, so the digits ticking over
+                    mid-jog never move anything. */}
+                <Typography
+                  title={motorPos == null
+                    ? `${PULSES_PER_MM} pulses/mm`
+                    : `${motorPos.toLocaleString()} pulses · ${PULSES_PER_MM} pulses/mm`}
+                  sx={{
+                    fontFamily: MONO, fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+                    color: motorPos == null ? 'text.disabled' : 'text.primary', whiteSpace: 'nowrap',
+                    // Room for "000.00 mm", so the status beside it never moves.
+                    minWidth: 80, textAlign: 'right',
+                  }}
+                >
+                  {motorPos != null && (
+                    <>
+                      {mm(motorPos).toFixed(2)}
+                      <Box component="span" sx={{ ...TEXT.hint, fontFamily: 'inherit', fontWeight: 400, color: 'text.secondary', ml: 0.5 }}>mm</Box>
+                    </>
+                  )}
+                </Typography>
+                {/* Plain: a dot and a word beside the reading, not a second
+                    boxed thing competing with it. */}
+                <StatusChip
+                  plain
+                  label={motorConnected ? (motorMoving ? 'Moving' : 'Idle') : 'Offline'}
+                  tone={motorConnected ? (motorMoving ? 'busy' : 'ok') : 'off'}
+                  spinning={motorConnected && motorMoving}
+                />
+              </Stack>
+            }
+          >
+            <Box sx={FORM_SX}>
+              <DriveLabel>Jog</DriveLabel>
+              {/* Press-and-hold — focus it, then hold the arrow keys to run
+                  the motor; release to stop. Mouse press-hold works too. */}
+              <JogPad
+                width={CONTROL_COL_SX.maxWidth}
+                dir={jogDir}
+                focused={jogFocused}
+                disabled={!motorConnected || running}
+                onStart={startJog}
+                onStop={stopJog}
+                onKeyDown={onJogKeyDown}
+                onKeyUp={onJogKeyUp}
+                onFocusChange={setJogFocused}
               />
-              <StepMark
-                done={totalPoints > 0}
-                label={totalPoints > 0 ? `${totalPoints} points planned` : 'no plan yet'}
-              />
-            </Stack>
-          }
-        >
-          {/* The step does two separable things — drive the carriage, then mark
-              where the sweep starts and ends — so they sit side by side instead
-              of as three rows that read as one undifferentiated pile. */}
-          <TwoCol stretch minCol={280}>
-            <Box>
-              <SubHead>
-                Drive the trombone
-                {/* The keys under this heading move the motor or the RF
-                    switch, and say so here as well as in their red rings. */}
-                <Box component="span" sx={{ ml: 1, color: 'error.main', display: 'inline-flex', alignItems: 'center', gap: 0.4, textTransform: 'none', letterSpacing: 0 }}>
-                  <HazardGlyph kind="move" sx={{ fontSize: 15 }} />moves hardware
-                </Box>
-              </SubHead>
-              {/* Same label-and-control grid as the bounds on the right, so
-                  the two halves of the step read alike. Loose rows of mixed
-                  button sizes made four unrelated widgets out of what is one
-                  set of controls for one motor. */}
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'auto minmax(0, 1fr)',
-                  columnGap: 1.25,
-                  rowGap: 1,
-                  alignItems: 'center',
-                }}
-              >
+
+              {/* Under Jog and named for it: the speed applies to the jog
+                  only, not to Go to or to the run's moves. */}
+              <DriveLabel>Speed</DriveLabel>
+              <Box sx={CONTROL_COL_SX}>
+                <SegmentedChoice
+                  text
+                  fullWidth
+                  size="md"
+                  aria-label="Jog speed"
+                  value={String(jogSpeed)}
+                  options={JOG_SPEEDS}
+                  onChange={(v) => setJogSpeed(Number(v))}
+                  disabled={!motorConnected || running}
+                />
+              </Box>
+            </Box>
+          </Section>
+
+          {/* One-press commands, kept apart from the jog: they drive the RF
+              switch or send the carriage to a captured end on their own. */}
+          <Section title="Controls" panel>
+            <Box sx={FORM_SX}>
                 <DriveLabel>RF path</DriveLabel>
-                <Stack direction="row" spacing={0.75} alignItems="center" useFlexGap flexWrap="wrap">
-                  {/* Parking on VNA is how the Smith chart is watched while
-                      jogging, which is why it lives in this step. */}
+                {/* The RF switch, not the trombone -- but parking on VNA is
+                    how the Smith chart is watched while jogging, which is why
+                    it sits beside the jog. The glyphs are one glyph mirrored left
+                    to right, one per side of the switch. */}
+                <Box sx={PAIR_SX}>
                   <Button
                     size="small" variant="outlined"
+                    startIcon={<HazardGlyph kind="path" sx={{ fontSize: 16 }} />}
                     onClick={() => switchM.mutate('VNA')}
                     disabled={!swConnected || switchM.isPending || running}
-                    sx={[DRIVE_BTN_SX, hazardRingSx('path')]}
+                    sx={[{ height: DRIVE_H }, hazardRingSx('path')]}
                   >
                     VNA
                   </Button>
                   <Button
                     size="small" variant="outlined"
+                    startIcon={<HazardGlyph kind="path" sx={{ fontSize: 16, transform: 'scaleX(-1)' }} />}
                     onClick={() => switchM.mutate('PCB')}
                     disabled={!swConnected || switchM.isPending || running}
-                    sx={[DRIVE_BTN_SX, hazardRingSx('path')]}
+                    sx={[{ height: DRIVE_H }, hazardRingSx('path')]}
                   >
                     PCB
                   </Button>
-                  {!swConnected && (
-                    <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>
-                      switch offline
-                    </Typography>
-                  )}
-                </Stack>
-
-                <DriveLabel>Jog</DriveLabel>
-                {/* Press-and-hold — focus it, then hold the arrow keys to run
-                    the motor; release to stop. Mouse press-hold works too. */}
-                <Box
-                  tabIndex={motorConnected && !running ? 0 : -1}
-                  onKeyDown={onJogKeyDown}
-                  onKeyUp={onJogKeyUp}
-                  onFocus={() => setJogFocused(true)}
-                  onBlur={() => { setJogFocused(false); stopJog() }}
-                  sx={{
-                    height: DRIVE_H, px: 0.5, width: 'fit-content',
-                    display: 'flex', alignItems: 'center', gap: 0.25,
-                    border: 1, borderColor: jogFocused ? 'primary.main' : 'divider',
-                    borderRadius: 1,
-                    outline: 'none',
-                    bgcolor: jogFocused ? 'action.hover' : 'transparent',
-                    opacity: motorConnected && !running ? 1 : 0.5,
-                    // The hazard ring of the other keys that move the motor.
-                    boxShadow: (t) => (motorConnected && !running
-                      ? `inset 0 0 0 1px ${alpha(t.palette.error.main, 0.55)}` : 'none'),
-                    userSelect: 'none',
-                    transition: 'border-color 0.15s, background-color 0.15s',
-                  }}
-                >
-                  <IconButton
-                    size="small"
-                    disabled={!motorConnected || running}
-                    onMouseDown={() => startJog(false)}
-                    onMouseUp={stopJog}
-                    onMouseLeave={stopJog}
-                    sx={{ p: 0.25, color: jogDir < 0 ? 'primary.main' : 'text.secondary' }}
-                  >
-                    <ArrowBackIcon sx={{ fontSize: 17 }} />
-                  </IconButton>
-                  <Typography
-                    sx={{
-                      fontSize: 12, fontWeight: 600,
-                      color: jogDir !== 0 ? 'warning.main' : (jogFocused ? 'primary.main' : 'text.secondary'),
-                      whiteSpace: 'nowrap', minWidth: 78, textAlign: 'center',
-                    }}
-                  >
-                    {jogDir !== 0 ? 'jogging' : jogFocused ? 'hold arrows' : 'click + hold'}
-                  </Typography>
-                  <IconButton
-                    size="small"
-                    disabled={!motorConnected || running}
-                    onMouseDown={() => startJog(true)}
-                    onMouseUp={stopJog}
-                    onMouseLeave={stopJog}
-                    sx={{ p: 0.25, color: jogDir > 0 ? 'primary.main' : 'text.secondary' }}
-                  >
-                    <ArrowForwardIcon sx={{ fontSize: 17 }} />
-                  </IconButton>
                 </Box>
 
                 <DriveLabel>Go to</DriveLabel>
-                <Stack direction="row" spacing={0.75} alignItems="center">
+                <Box sx={PAIR_SX}>
                   <Button
                     variant="outlined" size="small" startIcon={<FirstPageIcon sx={{ fontSize: 16 }} />}
                     onClick={() => goMinM.mutate()}
                     disabled={!motorConnected || motorJogBusy || running || travelMin == null}
                     title={travelMin == null ? 'Capture zero first' : undefined}
-                    sx={[DRIVE_BTN_SX, hazardRingSx('move')]}
+                    sx={[{ height: DRIVE_H }, hazardRingSx('move')]}
                   >
                     Zero
                   </Button>
@@ -1249,91 +1204,62 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     onClick={() => goMaxM.mutate()}
                     disabled={!motorConnected || motorJogBusy || running || travelMax == null}
                     title={travelMax == null ? 'Capture end first' : undefined}
-                    sx={[DRIVE_BTN_SX, hazardRingSx('move')]}
+                    sx={[{ height: DRIVE_H }, hazardRingSx('move')]}
                   >
                     End
                   </Button>
-                </Stack>
-
-                <DriveLabel>Speed</DriveLabel>
-                <ToggleButtonGroup
-                  size="small"
-                  exclusive
-                  value={jogSpeed}
-                  onChange={(_e, v) => { if (v != null) setJogSpeed(Number(v)) }}
-                  disabled={!motorConnected || running}
-                  sx={{
-                    height: DRIVE_H, width: 'fit-content',
-                    '& .MuiToggleButton-root': {
-                      px: 1.5, fontSize: 12, textTransform: 'none', fontWeight: 500,
-                    },
-                  }}
-                >
-                  <ToggleButton value={400}>Slow</ToggleButton>
-                  <ToggleButton value={800}>Medium</ToggleButton>
-                  <ToggleButton value={1500}>Fast</ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
+                </Box>
             </Box>
+          </Section>
 
-            <Box>
-              <SubHead>Mark the sweep</SubHead>
-              {/* Three inputs of the same kind, so one aligned grid — label,
-                  control, result — rather than two rows with their own rhythms
-                  and a value hanging off the side of the last one. */}
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'auto auto minmax(0, 1fr)',
-                  columnGap: 1.25,
-                  rowGap: 1,
-                  alignItems: 'center',
-                }}
-              >
-                <BoundRow
-                  label="Zero"
-                  caption="sweep start"
-                  value={zeroPulses}
-                  onCapture={() => setZeroPulses(motorPos)}
-                  onClear={() => setZeroPulses(null)}
-                  captureDisabled={motorPos == null || running}
-                  clearDisabled={running}
-                />
-                <BoundRow
-                  label="End"
-                  caption="sweep finish"
-                  value={endPulses}
-                  onCapture={() => setEndPulses(motorPos)}
-                  onClear={() => setEndPulses(null)}
-                  captureDisabled={motorPos == null || running}
-                  clearDisabled={running}
-                />
+          {/* The plan these produce, with what it costs -- the estimate
+              before Run, the run's own timing during it -- in the header, so
+              it costs the cards no row. Empty until both ends are captured;
+              the header's height is the title's either way. */}
+          <Section
+            title="Sweep bounds"
+            panel
+            action={totalPoints > 0 && (
+              <Typography sx={{ ...TEXT.hint, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                <Box component="b" sx={{ color: 'text.primary' }}>{totalPoints}</Box> points over {fmt(Math.abs(mm((endPulses ?? 0) - (zeroPulses ?? 0))), 2)} mm
+                {' · '}
+                {runEta ? formatRunTiming(runEta) : `≈ ${formatDuration(estimatedRunMs)}`}
+              </Typography>
+            )}
+          >
+            <Box sx={FORM_SX}>
+              <BoundRow
+                label="Zero"
+                value={zeroPulses}
+                onCapture={() => setZeroPulses(motorPos)}
+                onClear={() => setZeroPulses(null)}
+                captureDisabled={motorPos == null || running}
+                clearDisabled={running}
+              />
+              <BoundRow
+                label="End"
+                value={endPulses}
+                onCapture={() => setEndPulses(motorPos)}
+                onClear={() => setEndPulses(null)}
+                captureDisabled={motorPos == null || running}
+                clearDisabled={running}
+              />
 
-                <Typography sx={{ ...TEXT.label, color: 'text.primary', whiteSpace: 'nowrap' }}>
-                  Delta X
-                </Typography>
-                <TextField
-                  size="small"
-                  type="number"
-                  value={deltaXmm}
-                  onChange={(e) => setDeltaXmm(Math.max(0, Number(e.target.value) || 0))}
-                  onFocus={(e) => (e.target as HTMLInputElement).select()}
-                  inputProps={{ step: 0.1, min: 0 }}
-                  disabled={running}
-                  sx={{ width: 104, '& input': { fontFamily: MONO } }}
-                />
-                {/* The plan is what these three produce, so the effect of
-                    changing one shows next to it and not only in the strip at
-                    the top of the page. */}
-                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                  {totalPoints > 0
-                    ? <>mm = <b>{totalPoints}</b> points over {fmt(Math.abs(mm((endPulses ?? 0) - (zeroPulses ?? 0))), 2)} mm</>
-                    : 'mm - capture both ends to build the plan'}
-                </Typography>
-              </Box>
+              <DriveLabel>Delta X</DriveLabel>
+              <TextField
+                size="small"
+                type="number"
+                value={deltaXmm}
+                onChange={(e) => setDeltaXmm(Math.max(0, Number(e.target.value) || 0))}
+                onFocus={selectOnFocus}
+                inputProps={{ step: 0.1, min: 0, 'aria-label': 'Delta X in mm' }}
+                InputProps={{ endAdornment: <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>mm</Typography> }}
+                disabled={running}
+                sx={{ ...CONTROL_COL_SX, '& input': { fontFamily: MONO } }}
+              />
             </Box>
-          </TwoCol>
-        </Section>
+          </Section>
+        </Box>
 
         <Section
           title="Results"
@@ -1341,49 +1267,40 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           panel
           action={
             <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
-              <Button
-                size="small" variant="text"
-                startIcon={<ScatterPlotIcon sx={{ fontSize: 15 }} />}
+              <MiniAction
+                startIcon={<ScatterPlotIcon />}
                 onClick={() => setSmithOpen(true)}
                 disabled={results.length === 0}
-                sx={RESULT_ACTION_SX}
               >
                 Smith chart
-              </Button>
-              <Button
-                size="small" variant="text"
+              </MiniAction>
+              <MiniAction
                 // The label stays "Export" while the workbook builds and the
                 // icon turns into a spinner, so the action row does not shift.
-                startIcon={exportXlsx.isPending
-                  ? <CircularProgress size={13} color="inherit" />
-                  : <DownloadIcon sx={{ fontSize: 15 }} />}
+                startIcon={exportXlsx.isPending ? <KeySpinner /> : <DownloadIcon />}
                 onClick={() => exportXlsx.mutate()}
                 disabled={results.length === 0 || exportXlsx.isPending}
-                sx={RESULT_ACTION_SX}
               >
                 Export
-              </Button>
-              <Button
-                size="small" variant="text"
-                startIcon={<UploadFileIcon sx={{ fontSize: 15 }} />}
+              </MiniAction>
+              <MiniAction
+                startIcon={<UploadFileIcon />}
                 onClick={() => csvInput.current?.click()}
                 disabled={running}
-                sx={RESULT_ACTION_SX}
               >
                 Import
-              </Button>
+              </MiniAction>
               {/* Clear last and apart, in the same order as every results
                   panel: it is the one action here that throws results away. */}
               <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.5 }} />
-              <Button
-                size="small" variant="text" color="inherit"
-                startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
+              <MiniAction
+                tone="destructive"
+                startIcon={<DeleteSweepIcon />}
                 onClick={() => { setResults([]); setImportedName(null); runTimesRef.current = null }}
                 disabled={results.length === 0 || running}
-                sx={RESULT_ACTION_SX}
               >
                 Clear
-              </Button>
+              </MiniAction>
             </Stack>
           }
         >
@@ -1404,20 +1321,9 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           {/* One height, whatever is in it. `maxHeight` let the panel grow with
               the first rows and collapse again on Clear, so everything below —
               and the page's scroll position — moved on its own. */}
-          {results.length === 0 ? (
-            <Box
-              sx={{
-                height: RESULTS_H,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-                No data yet. Press Run, or Import a previous run (.xlsx or .csv).
-              </Typography>
-            </Box>
-          ) : (
+          {/* No "no data yet" line: the table itself, header and an empty
+              body, so the panel looks the same before the first row as after. */}
+          {(
             <Box
               ref={resultsScrollRef}
               sx={{
@@ -1440,18 +1346,21 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     Freq and Set were added, and under `table-layout: fixed` the
                     two with no width ran off the right-hand edge. */}
                 <colgroup>
-                  <col style={{ width: '5%' }} />
+                  {/* Set and Att wide enough for "Set [dBm]", "Att [dB]" and
+                      "Power [dBm]" whole;
+                      the room comes from Status, which holds "ok". */}
+                  <col style={{ width: 40 }} />
                   <col style={{ width: '8%' }} />
                   <col style={{ width: '10%' }} />
-                  <col style={{ width: '7%' }} />
-                  <col style={{ width: '7%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: '8%' }} />
                   <col style={{ width: '9%' }} />
-                  <col style={{ width: '9%' }} />
+                  <col style={{ width: '8%' }} />
                   <col style={{ width: '11%' }} />
+                  <col style={{ width: '8%' }} />
+                  <col style={{ width: '8%' }} />
+                  <col style={{ width: '8%' }} />
+                  <col style={{ width: '9%' }} />
+                  <col style={{ width: '8%' }} />
+                  <col style={{ width: '8%' }} />
                 </colgroup>
                 <TableHead>
                   <TableRow>
@@ -1504,7 +1413,17 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                           an imported file shows one whether or not it was
                           exported with the column. */}
                       <TableCell sx={NUM_CELL_SX}>{vswrLabel(r)}</TableCell>
-                      <TableCell sx={{ fontSize: 12 }}>
+                      {/* The numeric cells' type and baseline, left-aligned,
+                          so "ok" sits on the same line as the figures beside
+                          it. One line like them: a long error is cut with an
+                          ellipsis and given in full on hover. */}
+                      <TableCell
+                        title={r.error ?? undefined}
+                        sx={{
+                          ...NUM_CELL_SX, textAlign: 'left', verticalAlign: 'middle',
+                          overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}
+                      >
                         {r.error
                           ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
                           : <Box component="span" sx={{ color: 'text.secondary' }}>ok</Box>}

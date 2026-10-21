@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
 import { Box, Typography } from '@mui/material'
 import { useAppPalette } from '../context/ThemeModeContext'
-import { GRID_GAP, MONO, TEXT, TILE_PAD } from './tokens'
+import { CARD_PAD, CARD_RADIUS, GRID_GAP, MONO, TEXT, TILE_PAD } from './tokens'
+
+const DASH = '—'
 
 /** How a reading compares to what was expected. Drives the only colour on the
  *  strip, so a value that needs attention is the one thing that stands out. */
@@ -58,7 +60,9 @@ export function StatTile({ label, value, unit, sub, off, tone }: StatTileProps) 
         }}
       >
         {value}
-        {unit && (
+        {/* No unit after a dash: "— dBm" reads as a reading of nothing in
+            dBm, and the bare dash beside it ("RF output —") disagreed. */}
+        {unit && value !== DASH && (
           <Typography
             component="span"
             sx={{ fontSize: 13, fontWeight: 500, color: 'text.secondary', ml: 0.5, fontFamily: 'inherit' }}
@@ -67,10 +71,13 @@ export function StatTile({ label, value, unit, sub, off, tone }: StatTileProps) 
           </Typography>
         )}
       </Typography>
+      {/* A fixed line box, not a minimum: 12 px text at the inherited
+          line-height is 18 px, so an empty caption (16) and a filled one (18)
+          made every strip 2 px taller on connect. Secondary ink: this line is
+          read ("25.2 mW", "not read yet"), and disabled grey said it was not. */}
       <Typography
         sx={{
-          fontSize: 12, color: 'text.disabled', mt: 0.4,
-          minHeight: 16,
+          fontSize: 12, lineHeight: '16px', height: 16, color: 'text.secondary', mt: 0.4,
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}
       >
@@ -85,16 +92,33 @@ export function StatTile({ label, value, unit, sub, off, tone }: StatTileProps) 
  * hairlines rather than each floating in its own card. Reads as a single
  * instrument panel — and costs one border instead of N.
  */
-export function StatRow({ children, minTile = 132 }: { children: ReactNode; minTile?: number }) {
+export function StatRow({ children, minTile = 132, inCard }: {
+  children: ReactNode
+  minTile?: number
+  /** Inside a Section card: no frame of its own, the hairline strip running
+   *  to the card's edges under the heading, so tiles never sit in a box in a
+   *  box with two radii. */
+  inCard?: boolean
+}) {
   return (
     <Box
-      sx={{
-        border: 1,
-        borderColor: 'divider',
-        borderRadius: 1,
-        bgcolor: 'background.paper',
-        overflow: 'hidden',
-      }}
+      sx={inCard
+        ? {
+            borderTop: 1,
+            borderColor: 'divider',
+            mx: `-${CARD_PAD}px`,
+            mb: `-${CARD_PAD}px`,
+            overflow: 'hidden',
+          }
+        : {
+            border: 1,
+            borderColor: 'divider',
+            // A card's radius: the strip sits between cards, and the control
+            // radius it had read as a tighter, different kind of box.
+            borderRadius: CARD_RADIUS,
+            bgcolor: 'background.paper',
+            overflow: 'hidden',
+          }}
     >
       {/* Every cell carries a top and left hairline; the grid is then offset by
           one pixel so the first row's and first column's hairlines land outside

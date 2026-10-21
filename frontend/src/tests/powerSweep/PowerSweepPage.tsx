@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import {
-  Box, Button, CircularProgress, Divider, FormControlLabel, MenuItem, Stack, Switch, Tooltip, Typography,
+  Box, ButtonBase, Divider, FormControlLabel, MenuItem, Stack, Switch, Tooltip, Typography,
 } from '@mui/material'
-import AddIcon from '@mui/icons-material/Add'
-import DownloadIcon from '@mui/icons-material/Download'
-import ShowChartIcon from '@mui/icons-material/ShowChart'
-import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
-import UploadFileIcon from '@mui/icons-material/UploadFile'
+import AddIcon from '@mui/icons-material/AddRounded'
+import DownloadIcon from '@mui/icons-material/DownloadRounded'
+import ShowChartIcon from '@mui/icons-material/ShowChartRounded'
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweepRounded'
+import UploadFileIcon from '@mui/icons-material/UploadFileRounded'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tests } from '../../api/tests'
 import { PageHeader } from '../../components/PageHeader'
-import { BenchCourse } from '../../components/BenchCourse'
 import { LabeledField } from '../../components/LabeledField'
 import { TopProgress } from '../../components/TopProgress'
 import { usePublishLiveOutput } from '../../context/liveOutput'
@@ -26,8 +25,8 @@ import { useNotify } from '../../context/NotifyContext'
 import { saveBlob } from '../../lib/download'
 import { range } from '../../lib/numericList'
 import {
-  FieldGrid, GRID_GAP, MONO, PageBody, RunControls, Section,
-  TEXT, TwoCol,
+  CONTROL_H, FieldGrid, GRID_GAP, KeySpinner, MONO, MiniAction, PageBody, RunControls,
+  Section, TEXT, TwoCol, focusRingOf,
 } from '../../ui'
 import type { ResultRow, StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
@@ -39,7 +38,7 @@ import { SweepResultsTable } from './SweepResultsTable'
 import { useBackendRun } from '../engine/useBackendRun'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'
-import { RangeRow } from './RangeRow'
+import { RANGE_ROW_HEIGHT, RangeRow } from './RangeRow'
 import { RangeEditorModal } from './RangeEditorModal'
 import {
   blockSteps, newBlock, spanLabel, toWire, totalSteps as blocksTotalSteps,
@@ -47,10 +46,6 @@ import {
 } from './blocks'
 
 const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
-
-/** Result actions are secondary to the run — quiet text buttons on the panel
- *  heading, matching the automation tab. */
-const resultActionSx = { minWidth: 0, height: 24, fontSize: 12, px: 1 } as const
 
 /**
  * Per-step cost on top of the settle, for the pre-run estimate: the CW command
@@ -80,6 +75,16 @@ const RANGES = {
 const RANGE_ROW_H = 52
 const RANGE_ROW_GAP = 8
 const RANGE_ROWS_VISIBLE = 3
+const RANGE_LIST_H = RANGE_ROWS_VISIBLE * RANGE_ROW_H + (RANGE_ROWS_VISIBLE - 1) * RANGE_ROW_GAP
+
+/** The ranges card body: one height for both modes, the taller of the three
+ *  sliders and the advanced list plus its Add key. Left to the content,
+ *  switching Advanced on or adding a range changed the card's height and,
+ *  through the stretched row it shares, moved the results under it. */
+const RANGES_BODY_H = Math.max(
+  3 * RANGE_ROW_HEIGHT + 2 * GRID_GAP,
+  RANGE_LIST_H + RANGE_ROW_GAP + CONTROL_H.sm,
+)
 
 /**
  * A stored span endpoint, or the default when it no longer fits.
@@ -428,12 +433,6 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
         }
       />
 
-      <BenchCourse
-        instruments={REQUIRED_INSTRUMENTS}
-        connectsOn="Run"
-        freqsMhz={[Number(freqMhz)]}
-      />
-
       <PageBody width="fluid" grow>
         <TwoCol stretch>
           <Section
@@ -444,12 +443,17 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
             // fields that decide it and easy to miss before starting a run of
             // several hundred steps.
             action={
-              <Stack direction="row" alignItems="center" spacing={0.75}>
+              // The summary, a divider, then the mode switch with its label
+              // before it, as a macOS settings row puts a switch's name: the
+              // label used to butt against the switch and the switch against
+              // the summary, three things with no space between them.
+              <Stack direction="row" alignItems="center" spacing={1.5}>
                 <Typography
                   sx={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: totalSteps === 0 ? 'error.main' : 'text.disabled',
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    color: totalSteps === 0 ? 'error.main' : 'text.secondary',
+                    fontVariantNumeric: 'tabular-nums',
                   }}
                 >
                   {totalSteps} step{totalSteps === 1 ? '' : 's'}
@@ -465,7 +469,8 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                     : 'Sweep several ranges, one after another'
                 }>
                   <FormControlLabel
-                    sx={{ mr: 0, ml: 0.5 }}
+                    labelPlacement="start"
+                    sx={{ m: 0, gap: 1, pl: 1.5, borderLeft: 1, borderColor: 'divider', height: 20 }}
                     disabled={running}
                     control={
                       <Switch
@@ -476,7 +481,7 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                       />
                     }
                     label={
-                      <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary' }}>
+                      <Typography sx={{ fontSize: 13, fontWeight: 500, color: 'text.primary' }}>
                         Advanced
                       </Typography>
                     }
@@ -485,11 +490,12 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
               </Stack>
             }
           >
+            <Box sx={{ height: RANGES_BODY_H, display: 'flex', flexDirection: 'column' }}>
             {advanced ? (
               // The sliders are not shown at all rather than disabled: they
               // describe one range, and leaving them on screen under a
               // multi-range plan invites reading them as the plan.
-              <Stack spacing={1}>
+              <>
                 {/* Capped and scrolled. The list shares a stretched row with
                     the settings panel and sits above the results, so an
                     unbounded one pushed the results table down to nothing --
@@ -498,22 +504,28 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                   sx={{
                     display: 'flex', flexDirection: 'column',
                     gap: `${RANGE_ROW_GAP}px`,
-                    maxHeight:
-                      RANGE_ROWS_VISIBLE * RANGE_ROW_H
-                      + (RANGE_ROWS_VISIBLE - 1) * RANGE_ROW_GAP,
+                    minHeight: 0,
+                    maxHeight: RANGE_LIST_H,
                     overflowY: 'auto',
                     // Room for the scrollbar so it does not sit on the cards.
                     pr: advBlocks.length > 3 ? 0.75 : 0,
                   }}
                 >
                 {advBlocks.map((b, i) => (
-                  <Box
+                  // ButtonBase rather than a Box with an onClick: a row that
+                  // edits itself has to be reachable from the keyboard and
+                  // show the focus ring when it gets there.
+                  <ButtonBase
                     key={b.id}
+                    component="div"
+                    disableRipple
+                    disabled={running}
                     onClick={() => !running && setEditing(b)}
-                    role="button"
-                    title={running ? undefined : `Edit range ${i + 1}`}
+                    aria-label={`Edit range ${i + 1}`}
                     sx={{
                       display: 'flex', alignItems: 'center', gap: 1.5,
+                      justifyContent: 'flex-start', textAlign: 'left',
+                      width: '100%',
                       height: RANGE_ROW_H,
                       flexShrink: 0,
                       // More room on the right than the left: the step count
@@ -527,14 +539,15 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                         borderColor: 'text.disabled',
                         bgcolor: 'action.hover',
                       },
+                      '&.Mui-focusVisible': { outline: 'none', boxShadow: focusRingOf },
                     }}
                   >
                     <Box sx={{
-                      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                      width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       bgcolor: 'action.selected',
                     }}>
-                      <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>
+                      <Typography sx={{ ...TEXT.dense, color: 'text.secondary' }}>
                         {i + 1}
                       </Typography>
                     </Box>
@@ -555,10 +568,10 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                           <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
                             {label}
                           </Typography>
-                          <Typography sx={{ fontSize: 13.5, fontFamily: MONO, fontWeight: 600 }}>
+                          <Typography sx={{ ...TEXT.dense, fontFamily: MONO }}>
                             {value}
                             {unit && (
-                              <Box component="span" sx={{ ...TEXT.micro, color: 'text.disabled', ml: 0.5 }}>
+                              <Box component="span" sx={{ ...TEXT.micro, color: 'text.secondary', ml: 0.5 }}>
                                 {unit}
                               </Box>
                             )}
@@ -568,37 +581,40 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                     </Box>
 
                     <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-                      <Typography sx={{ fontSize: 13.5, fontFamily: MONO, fontWeight: 600 }}>
+                      <Typography sx={{ ...TEXT.dense, fontFamily: MONO }}>
                         {blockSteps(b)}
                       </Typography>
                       <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>steps</Typography>
                     </Box>
-                  </Box>
+                  </ButtonBase>
                 ))}
                 </Box>
                 {/* Rows edit themselves; this is the only other action. Kept
-                    outside the scroll area so it stays reachable. */}
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+                    outside the scroll area and pinned to the foot of the
+                    fixed-height body, so it stays reachable and never moves
+                    as rows come and go. */}
+                <MiniAction
+                  startIcon={<AddIcon />}
                   onClick={() => setEditing(null)}
                   disabled={running}
-                  sx={{ alignSelf: 'flex-start', mt: 0.5 }}
+                  sx={{ alignSelf: 'flex-start', mt: 'auto', flexShrink: 0 }}
                 >
                   Add range
-                </Button>
-              </Stack>
+                </MiniAction>
+              </>
             ) : (
-              <Stack spacing={`${GRID_GAP}px`}>
+              // Rows on the card itself, hairlines between them: no tinted
+              // inset behind them, which put a box inside the card.
+              <Box sx={{ mx: -1.5, '& > * + *': { borderTop: 1, borderColor: 'divider' } }}>
                 <RangeRow label="Power" lo={powerLo} hi={powerHi} setLo={setPowerLo} setHi={setPowerHi}
                   min={RANGES.power.min} max={RANGES.power.max} unit="dBm" disabled={running} />
-                <RangeRow label="PA Duty Cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
+                <RangeRow label="PA duty cycle" lo={dutyLo} hi={dutyHi} setLo={setDutyLo} setHi={setDutyHi}
                   min={RANGES.duty.min} max={RANGES.duty.max} disabled={running} />
-                <RangeRow label="HP Max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
+                <RangeRow label="HP max" lo={hpLo} hi={hpHi} setLo={setHpLo} setHi={setHpHi}
                   min={RANGES.hp.min} max={RANGES.hp.max} disabled={running} />
-              </Stack>
+              </Box>
             )}
+            </Box>
           </Section>
 
           <Section title="Common settings" panel>
@@ -651,9 +667,13 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
             current_a: lastRow?.current_a ?? null,
             voltage_v: lastRow?.voltage_v ?? null,
             label: 'Last measured row',
+            // Says what the card is waiting for. The path loss is quoted only
+            // with a row it was applied to; idle, it is already on the page.
             subLabel: lastRow
               ? `#${lastRow.idx + 1} · ${comboLabel(lastRow)} · incl. path loss ${pathLossDb} dB`
-              : `waiting for first step… · path loss ${pathLossDb} dB`,
+              : running
+                ? 'Waiting for first step…'
+                : 'Fills in when the sweep runs',
           }}
         />
 
@@ -668,57 +688,43 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
           flush
           action={
             <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
-              <Button
-                size="small"
-                variant="text"
-                startIcon={<ShowChartIcon sx={{ fontSize: 15 }} />}
+              <MiniAction
+                startIcon={<ShowChartIcon />}
                 onClick={() => setGraphOpen(true)}
                 disabled={rows.length === 0}
-                sx={resultActionSx}
               >
                 Graph
-              </Button>
-              <Button
-                size="small"
-                variant="text"
-                startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
+              </MiniAction>
+              <MiniAction
+                startIcon={<DownloadIcon />}
                 onClick={() => exportXlsx.mutate()}
                 // With a file open this re-exports the file (see exportXlsx),
                 // so it needs no run of this backend.
                 disabled={(!hasSweep && !imported) || exportXlsx.isPending}
-                sx={resultActionSx}
               >
                 Export
-              </Button>
-              <Button
-                size="small"
-                variant="text"
+              </MiniAction>
+              <MiniAction
                 // Label fixed, spinner in the icon's place: see Load Pull's Export.
-                startIcon={importXlsx.isPending
-                  ? <CircularProgress size={13} color="inherit" />
-                  : <UploadFileIcon sx={{ fontSize: 15 }} />}
+                startIcon={importXlsx.isPending ? <KeySpinner /> : <UploadFileIcon />}
                 onClick={() => fileInput.current?.click()}
                 disabled={running || importXlsx.isPending}
-                sx={resultActionSx}
               >
                 Import
-              </Button>
+              </MiniAction>
               {/* Clear last and apart, in the same order as every results
                   panel: it is the one action here that throws results away. */}
               <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.5 }} />
-              <Button
-                size="small"
-                variant="text"
-                color="inherit"
-                startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
+              <MiniAction
+                tone="destructive"
+                startIcon={<DeleteSweepIcon />}
                 onClick={() => (imported ? closeImported() : clearResults.mutate())}
                 // Refused mid-run by the backend; disabled here so the refusal
                 // is not the way the operator finds that out.
                 disabled={rows.length === 0 || running || clearResults.isPending}
-                sx={resultActionSx}
               >
                 Clear
-              </Button>
+              </MiniAction>
             </Stack>
           }
         >

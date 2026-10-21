@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Box, Button, CircularProgress, Stack, Tooltip, Typography } from '@mui/material'
-import RefreshIcon from '@mui/icons-material/Refresh'
+import { Box, Button, Stack, Tooltip, Typography } from '@mui/material'
+import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 import { useMutation } from '@tanstack/react-query'
 import { instrumentsApi, type MeasureResponse } from '../api/instruments'
@@ -9,7 +9,10 @@ import { usePathLoss } from '../context/PathLossContext'
 import { describeMeasureError } from '../lib/instrumentError'
 import { DEFAULT_SETTLE_MS } from '../lib/settle'
 import { useAppPalette } from '../context/ThemeModeContext'
-import { MEASURE_ALL, StatRow, StatTile, type MeasureSelection } from '../ui'
+import {
+  ACTION_W, CONTROL_H, KeySpinner, MEASURE_ALL, Section, StatRow, StatTile, TEXT, actionSx,
+  type MeasureSelection,
+} from '../ui'
 
 interface Props {
   /** Hz, used to set sensor calibration freq before reading. */
@@ -189,70 +192,81 @@ export function MeasurementCard({
           ? 'warn'
           : 'bad'
 
-  return (
-    <Box>
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-        <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
-          {staticData?.label ?? 'Measurement'}
+  // A card like the ones around it (Transmit, Last frame), with its readouts
+  // as a hairline strip running to the card's edges. It used to be a 12 px
+  // label on the page ground above a separate bordered strip, the one block on
+  // these pages that was not a card.
+  //
+  // Nothing in it changes size on a state change: the Read key is fixed-width
+  // and keeps its label (the spinner says it is busy), and a failed read is a
+  // fixed slot on the heading line plus the Measured tile's caption -- the
+  // banner it used to add under the strip pushed the next card down 50 px.
+  const heading = (
+    <Stack direction="row" alignItems="center" spacing={1}>
+      {!isStatic && (
+        <Tooltip title={failure ? `${failure.title}${failure.hint ? ` — ${failure.hint}` : ''}` : ''}>
+          <Box
+            aria-hidden={!failure}
+            sx={{ display: 'flex', width: 18, color: p.data.warn, visibility: failure ? 'visible' : 'hidden' }}
+          >
+            <ErrorOutlineRoundedIcon sx={{ fontSize: 17 }} />
+          </Box>
+        </Tooltip>
+      )}
+      {/* State where the number came from: a corrected reading that doesn't
+          say so looks like the sensor disagrees with the DUT. The correction in
+          neutral ink, and "uncalibrated" in amber when this frequency is on
+          the default: with the check course gone from these pages, this is
+          where the page itself says the reading is not calibrated for it. */}
+      {!isStatic && (pathLossDb !== 0 || !loss.calibrated) && (
+        <Tooltip
+          title={
+            loss.calibrated
+              ? 'Calibrated for this frequency'
+              : 'No calibration for this frequency - using the default. '
+                + 'Add it to the path-loss table in the Bench inspector.'
+          }
+        >
+          <Typography sx={{ ...TEXT.hint, color: 'text.secondary', cursor: 'default', whiteSpace: 'nowrap' }}>
+            incl. {pathLossDb > 0 ? '+' : ''}{pathLossDb} dB path loss
+            {!loss.calibrated && (
+              <Box component="span" sx={{ color: 'warning.main', fontWeight: 500 }}> · uncalibrated</Box>
+            )}
+          </Typography>
+        </Tooltip>
+      )}
+      {staticData?.subLabel && (
+        <Typography noWrap sx={{ ...TEXT.hint, color: 'text.secondary' }}>{staticData.subLabel}</Typography>
+      )}
+      {!isStatic && (
+        <Typography sx={{ ...TEXT.hint, color: 'text.secondary', width: 56, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+          {data?.t_ms != null ? `${data.t_ms} ms` : ''}
         </Typography>
-        {/* State where the number came from: a corrected reading that doesn't
-            say so looks like the sensor disagrees with the DUT. */}
-        {!isStatic && (pathLossDb !== 0 || !loss.calibrated) && (
-          <Tooltip
-            title={
-              loss.calibrated
-                ? 'Calibrated for this frequency'
-                : 'No calibration for this frequency - using the default. '
-                  + 'Add it to the path-loss table in the top bar.'
-            }
-          >
-            <Typography
-              sx={{
-                fontSize: 12,
-                color: loss.calibrated ? 'text.disabled' : 'warning.main',
-                fontWeight: loss.calibrated ? 400 : 600,
-                cursor: 'default',
-              }}
+      )}
+      {!isStatic && (
+        <Tooltip
+          title={connecting ? 'Connecting the instruments…' : anyConnected ? 'Re-measure' : 'Connect the instruments and read'}
+        >
+          <span>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={fire}
+              disabled={busy}
+              startIcon={busy ? <KeySpinner /> : <RefreshRoundedIcon />}
+              sx={{ ...actionSx(ACTION_W.compact), height: CONTROL_H.sm }}
             >
-              {/* An uncorrected-for-this-frequency reading looks identical to a
-                  corrected one, so the difference has to be said out loud. */}
-              incl. {pathLossDb > 0 ? '+' : ''}{pathLossDb} dB path loss
-              {loss.calibrated ? '' : ' · uncalibrated'}
-            </Typography>
-          </Tooltip>
-        )}
-        <Box sx={{ flexGrow: 1 }} />
-        {staticData?.subLabel && (
-          <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>{staticData.subLabel}</Typography>
-        )}
-        {!isStatic && data?.t_ms != null && (
-          <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>{data.t_ms} ms</Typography>
-        )}
-        {!isStatic && (
-          <Tooltip
-            title={anyConnected ? 'Re-measure' : 'Connect the instruments and read'}
-          >
-            <span>
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={fire}
-                disabled={busy}
-                startIcon={
-                  busy
-                    ? <CircularProgress size={12} color="inherit" />
-                    : <RefreshIcon sx={{ fontSize: 16 }} />
-                }
-                sx={{ minWidth: 84, height: 26, fontSize: 12, px: 1.25 }}
-              >
-                {connecting ? 'Connecting' : measure.isPending ? 'Reading' : 'Read'}
-              </Button>
-            </span>
-          </Tooltip>
-        )}
-      </Stack>
+              Read
+            </Button>
+          </span>
+        </Tooltip>
+      )}
+    </Stack>
+  )
 
-      <StatRow>
+  return (
+    <Section title={staticData?.label ?? 'Measurement'} panel action={heading}>
+      <StatRow inCard>
         {hasTarget && (
           <StatTile
             label="Target"
@@ -262,7 +276,7 @@ export function MeasurementCard({
           />
         )}
         <StatTile
-          label={hasTarget ? 'Measured' : 'TX Power'}
+          label={hasTarget ? 'Measured' : 'TX power'}
           value={ps ? num(power, 2) : '—'}
           unit={ps && power != null ? 'dBm' : undefined}
           sub={
@@ -277,9 +291,11 @@ export function MeasurementCard({
                   ? `${power_mW.toFixed(2)} mW`
                   // "not read yet" after a failed read is a lie — the read
                   // happened, it just did not produce a number.
-                  : failure ? 'read failed' : 'not read yet'
+                  : failure ? failure.title : 'not read yet'
           }
-          off={!ps}
+          // An unread value is dimmed like every other empty readout, so a
+          // bare dash in full ink does not pass for data.
+          off={!ps || measured == null}
         />
         {hasTarget && (
           <StatTile
@@ -309,40 +325,11 @@ export function MeasurementCard({
           sub={
             showVolt && volt != null
               ? `at ${volt.toFixed(3)} V`
-              : isStatic ? undefined : dc ? undefined : 'DC off'
+              : isStatic ? undefined : dc ? (failure ? 'read failed' : 'not read yet') : 'DC off'
           }
-          off={!dc}
+          off={!dc || cur_mA == null}
         />
       </StatRow>
-
-      {!isStatic && failure && (
-        <Stack
-          direction="row"
-          spacing={0.75}
-          sx={{
-            mt: 1, px: 1.25, py: 0.75,
-            borderRadius: 1,
-            bgcolor: p.data.highlight,
-            border: 1,
-            borderColor: 'divider',
-            alignItems: 'flex-start',
-          }}
-        >
-          <ErrorOutlineRoundedIcon
-            sx={{ fontSize: 15, color: p.data.warn, mt: '1px', flexShrink: 0 }}
-          />
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.primary', lineHeight: 1.35 }}>
-              {failure.title}
-            </Typography>
-            {failure.hint && (
-              <Typography sx={{ fontSize: 12, color: 'text.secondary', lineHeight: 1.35 }}>
-                {failure.hint}
-              </Typography>
-            )}
-          </Box>
-        </Stack>
-      )}
-    </Box>
+    </Section>
   )
 }

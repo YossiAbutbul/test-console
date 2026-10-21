@@ -14,7 +14,7 @@ import { DEFAULT_BANDS } from '../../lib/earfcn'
 export type ChannelUnit = 'earfcn' | 'mhz'
 
 export function useLteChannelUnit() {
-  return usePersistedState<ChannelUnit>(STORAGE_KEYS.lteChannelUnit, 'earfcn')
+  return usePersistedState<ChannelUnit>(STORAGE_KEYS.lteChannelUnit, 'mhz')
 }
 
 /**

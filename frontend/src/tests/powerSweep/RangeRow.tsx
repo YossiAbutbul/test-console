@@ -1,5 +1,10 @@
-import { Box, Slider, Stack, TextField, Typography } from '@mui/material'
+import { Box, MenuItem, TextField, Typography } from '@mui/material'
 import { MONO, TEXT } from '../../ui'
+
+/** One row of the ranges list, fixed so the page can size the card from it
+ *  (three rows): the card is then the same height in simple and advanced
+ *  mode and the results under it do not move. */
+export const RANGE_ROW_HEIGHT = 48
 
 interface RangeRowProps {
   label: string
@@ -15,122 +20,58 @@ interface RangeRowProps {
   disabled?: boolean
 }
 
-const clamp = (v: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, Number.isFinite(v) ? v : min))
-
 /**
- * One sweep axis: a span within fixed bounds.
+ * One sweep axis as a settings row: its name, From and To as pop-up menus of
+ * every allowed value, and the points it adds.
  *
- * Was a From field, a "→" glyph and a To field — three controls to say one
- * thing, and the arrow carried no information the labels did not. A track
- * shows the span *within the range the backend allows*, which is the part that
- * actually needs judging: 1–22 of 1–22 is a very different run from 14–15. The
- * numbers stay editable for the cases where you know the value you want.
+ * History, so it is not repeated: a From field, a "→" and a To field; a range
+ * slider with a number box at each end; a pair of steppers; a strip of every
+ * value with a draggable span. The operator chose pop-up menus: nothing to
+ * type or drag, every allowed value listed, and the same control as every
+ * other choice in the app.
  */
 export function RangeRow({
   label, lo, hi, setLo, setHi, min, max, unit, disabled,
 }: RangeRowProps) {
   const count = Math.max(0, Math.abs(hi - lo) + 1)
-
-  const numberSx = {
-    width: 62,
-    '& .MuiInputBase-root': { height: 30 },
-    '& input': {
-      fontFamily: MONO,
-      fontSize: 12.5,
-      textAlign: 'center' as const,
-      // The spinners eat half the box at this width and are unusable anyway.
-      '&::-webkit-outer-spin-button, &::-webkit-inner-spin-button': {
-        WebkitAppearance: 'none',
-        margin: 0,
-      },
-      MozAppearance: 'textfield' as const,
-    },
-  }
-
+  const values = Array.from({ length: max - min + 1 }, (_, i) => min + i)
+  const pick = (value: number, set: (n: number) => void, which: string) => (
+    <TextField
+      select
+      size="small"
+      value={value}
+      disabled={disabled}
+      onChange={(e) => set(Number(e.target.value))}
+      inputProps={{ 'aria-label': `${label} ${which}` }}
+      // A long list (22 powers) scrolls inside a sheet of about eight rows
+      // rather than running off the window.
+      SelectProps={{ MenuProps: { slotProps: { paper: { sx: { maxHeight: 8 * 30 + 8 } } } } }}
+      sx={{ width: 76, flexShrink: 0, '& .MuiSelect-select': { fontFamily: MONO, fontSize: 13 } }}
+    >
+      {values.map((v) => (
+        <MenuItem key={v} value={v} sx={{ fontFamily: MONO }}>{v}</MenuItem>
+      ))}
+    </TextField>
+  )
   return (
-    <Box>
-      <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 0.25 }}>
-        <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'text.primary', flexGrow: 1 }}>
-          {label}
-        </Typography>
-        <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>
-          {min}–{max}{unit ? ` ${unit}` : ''}
-        </Typography>
-        <Typography sx={{ ...TEXT.micro, fontWeight: 600, color: 'text.secondary' }}>
-          {count} step{count === 1 ? '' : 's'}
-        </Typography>
-      </Stack>
-
-      <Stack direction="row" alignItems="center" spacing={1.25}>
-        <TextField
-          disabled={disabled}
-          size="small"
-          type="number"
-          value={lo}
-          inputProps={{ min, max, 'aria-label': `${label} from` }}
-          onChange={(e) => setLo(clamp(Number(e.target.value), min, max))}
-          sx={numberSx}
-        />
-        <Slider
-          disabled={disabled}
-          size="small"
-          value={[lo, hi]}
-          min={min}
-          max={max}
-          step={1}
-          // Without this a drag past the far handle silently inverts the range.
-          disableSwap
-          onChange={(_, v) => {
-            const [a, b] = v as number[]
-            setLo(a)
-            setHi(b)
-          }}
-          aria-label={label}
-          sx={{
-            flexGrow: 1,
-            mx: 0.75,
-            py: 1,
-            color: 'text.primary',
-            // Default MUI proportions — a 4px bar under 20px filled discs —
-            // read as a consumer volume control. A hairline track with hollow,
-            // ring-shaped handles matches the instrument panels around it.
-            '& .MuiSlider-rail': {
-              height: 2,
-              opacity: 1,
-              backgroundColor: 'divider',
-            },
-            '& .MuiSlider-track': {
-              height: 2,
-              border: 'none',
-            },
-            '& .MuiSlider-thumb': {
-              width: 11,
-              height: 11,
-              backgroundColor: 'background.paper',
-              border: '2px solid currentColor',
-              // The default lifts a shadow under the handle; flat keeps it
-              // sitting on the track rather than floating over it.
-              '&::before': { boxShadow: 'none' },
-              '&:hover, &.Mui-focusVisible': {
-                boxShadow: '0 0 0 5px rgba(128,128,128,0.16)',
-              },
-              '&.Mui-active': {
-                boxShadow: '0 0 0 7px rgba(128,128,128,0.2)',
-              },
-            },
-          }}
-        />
-        <TextField
-          disabled={disabled}
-          size="small"
-          type="number"
-          value={hi}
-          inputProps={{ min, max, 'aria-label': `${label} to` }}
-          onChange={(e) => setHi(clamp(Number(e.target.value), min, max))}
-          sx={numberSx}
-        />
-      </Stack>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, height: RANGE_ROW_HEIGHT, px: 1.5 }}>
+      {/* The unit sits with the name it qualifies. */}
+      <Typography noWrap sx={{ ...TEXT.label, fontWeight: 600, color: 'text.primary', flexGrow: 1, minWidth: 0 }}>
+        {label}
+        {unit && (
+          <Box component="span" sx={{ ml: 0.5, fontWeight: 400, color: 'text.secondary' }}>
+            [{unit}]
+          </Box>
+        )}
+      </Typography>
+      <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>From</Typography>
+      {pick(lo, setLo, 'from')}
+      <Typography sx={{ ...TEXT.hint, color: 'text.secondary', ml: 0.5 }}>To</Typography>
+      {pick(hi, setHi, 'to')}
+      {/* A fixed column, so "4 steps" and "22 steps" end on one line. */}
+      <Typography sx={{ ...TEXT.hint, color: 'text.secondary', width: 56, textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+        {count} step{count === 1 ? '' : 's'}
+      </Typography>
     </Box>
   )
 }

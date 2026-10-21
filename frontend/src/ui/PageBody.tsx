@@ -42,8 +42,12 @@ export function PageBody({ children, width = 'panel', scroll, grow }: PageBodyPr
         // reads as `md` while the page itself is 300px wide. Sizing off this
         // box instead means a grid stacks exactly when it runs out of room.
         containerType: 'inline-size',
+        // Children keep their own height in a scrolling body. As flex items
+        // of a column with a fixed height they shrank to fit it instead of
+        // overflowing it, and Load Pull's stat tiles were squeezed to a 2 px
+        // rule under the check course.
         ...(scroll
-          ? { flexGrow: 1, minHeight: 0, overflowY: 'auto', pr: 1, pb: 2 }
+          ? { flexGrow: 1, minHeight: 0, overflowY: 'auto', pr: 1, pb: 2, '& > *': { flexShrink: 0 } }
           : null),
         // `minHeight: 0` is the load-bearing half: without it the flex item
         // refuses to shrink below its content and the inner scroll never

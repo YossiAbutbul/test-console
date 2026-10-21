@@ -17,15 +17,15 @@
  */
 import { useMemo, useState } from 'react'
 import {
-  Box, Dialog, DialogContent, DialogTitle, IconButton, Slider, Stack, Tab, Tabs,
+  Box, Dialog, DialogContent, DialogTitle, IconButton, Slider, Stack, Tab,
   Typography,
 } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
+import CloseIcon from '@mui/icons-material/CloseRounded'
 import {
   CartesianGrid, LabelList, Legend, Line, LineChart, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { useConnection } from '../../context/ConnectionContext'
-import { ChartFrame, ChartSwitch, ChartToolbar, fileTimestamp, useChart } from '../../ui'
+import { ChartFrame, ChartSwitch, ChartToolbar, DenseTabs, TEXT, fileTimestamp, useChart } from '../../ui'
 import { buildSeries, pickAxis, type GraphableRow } from './graphSeries'
 
 export type { GraphableRow } from './graphSeries'
@@ -112,12 +112,10 @@ export function ResultsGraphModal({ open, onClose, results }: Props) {
       onClose={onClose}
       maxWidth="lg"
       fullWidth
-      transitionDuration={{ enter: 150, exit: 0 }}
-      slotProps={{ paper: { sx: { borderRadius: 2, height: 620, maxHeight: '90vh' } } }}
-    >
+      slotProps={{ paper: { sx: { height: 620, maxHeight: '90vh' } } }}>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1.5 }}>
         <Stack direction="row" alignItems="baseline" spacing={1.5}>
-          <Typography sx={{ fontSize: 17, fontWeight: 700 }}>Results graph</Typography>
+          <Typography sx={TEXT.dialog}>Results graph</Typography>
           <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
             {results.length} point{results.length === 1 ? '' : 's'} · {freqCount} freq{freqCount === 1 ? '' : 's'} · {powerCount} power{powerCount === 1 ? '' : 's'}
           </Typography>
@@ -159,24 +157,20 @@ export function ResultsGraphModal({ open, onClose, results }: Props) {
               </>
             )}
           />
-          <IconButton size="small" onClick={onClose}>
+          <IconButton size="small" aria-label="Close" onClick={onClose}>
             <CloseIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Stack>
       </DialogTitle>
 
       <Box sx={{ px: 3, borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs
+        <DenseTabs
           value={mode}
           onChange={(_, v) => setMode(v)}
-          sx={{
-            minHeight: 36,
-            '& .MuiTab-root': { minHeight: 36, py: 0.5, fontSize: 13, textTransform: 'none', fontWeight: 600 },
-          }}
         >
           <Tab value="power" label={`Measured vs ${axis === 'set' ? 'Set' : 'Freq'}`} />
           <Tab value="current" label={`Current vs ${axis === 'set' ? 'Set' : 'Freq'}`} />
-        </Tabs>
+        </DenseTabs>
       </Box>
 
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>

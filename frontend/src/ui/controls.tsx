@@ -2,24 +2,18 @@ import {
   Box, Button, CircularProgress, Divider, Stack, Tabs, Tooltip,
   Typography, type ButtonProps, type TabsProps,
 } from '@mui/material'
-import PowerIcon from '@mui/icons-material/Power'
-import StopIcon from '@mui/icons-material/Stop'
+import { alpha, type Theme } from '@mui/material/styles'
+import PowerRoundedIcon from '@mui/icons-material/PowerRounded'
+import StopRoundedIcon from '@mui/icons-material/StopRounded'
 import type { CommandResponse } from '../types/models'
 import { useAppPalette } from '../context/ThemeModeContext'
 import { Section } from './Section'
 import { useDutGated } from './gate'
 import { HazardGlyph } from './HazardGlyph'
 import { hazardRingSx, type HazardKind } from './hazardStyle'
+import { actionSx } from './actionSx'
 import { ACTION_W, CONTROL_H, MONO, TEXT } from './tokens'
 
-/** Shared sizing for every header action, so button rows line up page to
- *  page. A fixed width (see ACTION_W): the label may change, the box may not.
- *  A label that would still not fit is cut with an ellipsis, never allowed to
- *  widen the key. */
-const actionSx = (width: number) => ({
-  width, minWidth: width, height: CONTROL_H.md, flexShrink: 0,
-  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-} as const)
 
 interface ConnectButtonProps {
   connected: boolean
@@ -28,6 +22,14 @@ interface ConnectButtonProps {
   disabled?: boolean
   onConnect: () => void
   onDisconnect: () => void
+}
+
+/** The in-place progress mark every key shows while its request is in
+ *  flight: a spinner in the icon slot, the label left as it was. Swapping the
+ *  label ("…", "Sending…") made a key's words flicker on sub-second requests
+ *  and, on the keys without a fixed width, changed its size. */
+export function KeySpinner() {
+  return <CircularProgress size={14} color="inherit" />
 }
 
 /**
@@ -42,12 +44,12 @@ export function ConnectButton({
   return (
     <Button
       variant={connected ? 'outlined' : 'contained'}
-      startIcon={<PowerIcon sx={{ fontSize: 16 }} />}
+      startIcon={pending ? <KeySpinner /> : <PowerRoundedIcon />}
       onClick={() => (connected ? onDisconnect() : onConnect())}
       disabled={disabled || pending}
       sx={actionSx(ACTION_W.wide)}
     >
-      {pending ? '…' : connected ? 'Disconnect' : 'Connect'}
+      {connected ? 'Disconnect' : 'Connect'}
     </Button>
   )
 }
@@ -115,12 +117,12 @@ export function RunControls({
       {children}
       <Button
         variant="outlined"
-        startIcon={<StopIcon />}
+        startIcon={stopping ? <KeySpinner /> : <StopRoundedIcon />}
         disabled={!running || stopping}
         onClick={onStop}
         sx={actionSx(ACTION_W.default)}
       >
-        {stopping ? 'Stopping…' : 'Stop'}
+        Stop
       </Button>
       {blocker ? (
         <Tooltip title={`${runLabel} is blocked until the ${blocker} step is done`}>
@@ -146,8 +148,8 @@ interface EmergencyStopProps {
  *
  * In the header rather than floating over the page: `PageHeader` lives outside
  * the scrolling `PageBody`, so this is permanently on screen without covering
- * any content and without costing layout space. The divider, the red fill and
- * the "E-STOP" label keep it from reading as a third ordinary button, and the
+ * any content and without costing layout space. The divider, the red tint and
+ * the "E-Stop" label keep it from reading as a third ordinary button, and the
  * divider puts a gap between it and Run so neither is easy to hit by accident.
  *
  * Sized to `CONTROL_H.md` — the same height as every other header action — so
@@ -165,11 +167,11 @@ export function EmergencyStop({
   return (
     <Stack direction="row" alignItems="center" spacing={1}>
       {/* A labelled key, not an icon in a red disc: under stress the
-          operator reads "E-STOP", and two square stop glyphs a divider apart
+          operator reads "E-Stop", and two square stop glyphs a divider apart
           (this and the ordinary Stop) were the one thing on the page that
-          could be confused. Wider than Stop and filled, so it is also the
+          could be confused. Wider than Stop and red, so it is also the
           easiest of the two to hit. */}
-      <Tooltip title={`${title}: stops the motor, then the run, then the transmitter`} placement="bottom">
+      <Tooltip title="Stops motor, run and RF" placement="bottom">
         <Button
           aria-label={title}
           variant="contained"
@@ -177,18 +179,23 @@ export function EmergencyStop({
           onClick={onStop}
           startIcon={busy
             ? <CircularProgress size={16} color="inherit" />
-            : <StopIcon sx={{ fontSize: 20 }} />}
+            : <StopRoundedIcon sx={{ fontSize: 18 }} />}
+          // A tinted destructive key, as macOS draws one: red ink on a red
+          // wash, the palette's `disconnect` pair. It was a solid red slab in
+          // 800-weight spaced capitals with an inner ring -- the loudest thing
+          // on every Load Pull screen while nothing was wrong. Still the only
+          // red key in the toolbar, with its glyph and its divider, so it is
+          // found at once when it is needed; the press darkens the wash.
           sx={{
             ...actionSx(112),
-            bgcolor: 'error.main',
-            color: p.actions.danger.fg,
-            fontWeight: 800,
-            letterSpacing: 0.6,
-            boxShadow: (t) => `inset 0 0 0 2px ${t.palette.error.dark}`,
-            '&:hover': { bgcolor: 'error.dark' },
+            bgcolor: p.actions.disconnect.bg,
+            color: p.actions.disconnect.fg,
+            fontWeight: 600,
+            '&:hover': { bgcolor: p.actions.disconnect.bgHover },
+            '&:active': { bgcolor: alpha(p.actions.disconnect.fg, 0.22) },
           }}
         >
-          E-STOP
+          E-Stop
         </Button>
       </Tooltip>
       <Divider orientation="vertical" flexItem sx={{ my: 0.5 }} />
@@ -210,38 +217,48 @@ interface SendStopControlsProps {
    * other control can still cut transmission, since this hides the obvious one.
    */
   canStop?: boolean
+  /** Why Send is disabled when `canSend` is false ("PA duty cycle and HP max
+   *  must be 1–7"), shown on hover. A grey key that said nothing left the
+   *  operator to find the bad field. */
+  sendDisabledReason?: string
   onSend: () => void
   onStop: () => void
 }
 
-/** Send/Stop pair for the one-shot DUT command pages (Power, Debug, Modulated). */
+/** Send/Stop pair for the one-shot DUT command pages (Power, Debug, Modulated).
+ *
+ *  The same footprint as RunControls -- Stop 120 with its glyph, the primary
+ *  176 -- because the two pairs share a toolbar slot on the pages with a
+ *  Manual and an Automation tab. Send used to be 120, so switching tabs moved
+ *  Stop 56 px and gave it an icon it did not have a moment before. */
 export function SendStopControls({
-  busy, sending, stopping, canSend = true, canStop = true, onSend, onStop,
+  busy, sending, stopping, canSend = true, canStop = true, sendDisabledReason, onSend, onStop,
 }: SendStopControlsProps) {
   const gated = useDutGated()
   const send = (
     <Button
       variant="contained"
-      startIcon={<HazardGlyph kind="tx" />}
+      startIcon={sending ? <KeySpinner /> : <HazardGlyph kind="tx" />}
       disabled={busy || !canSend || gated}
       onClick={onSend}
-      sx={[actionSx(ACTION_W.default), hazardRingSx('tx')]}
+      sx={[actionSx(ACTION_W.run), hazardRingSx('tx')]}
     >
-      {sending ? 'Sending…' : gated ? 'Needs DUT' : 'Send'}
+      {gated ? 'Needs DUT' : 'Send'}
     </Button>
   )
   return (
     <Stack direction="row" spacing={1}>
       <Button
         variant="outlined"
+        startIcon={stopping ? <KeySpinner /> : <StopRoundedIcon />}
         disabled={busy || !canStop}
         onClick={onStop}
         sx={actionSx(ACTION_W.default)}
       >
-        {stopping ? 'Stopping…' : 'Stop'}
+        Stop
       </Button>
-      {gated ? (
-        <Tooltip title="Send is blocked until the DUT step is done">
+      {gated || (!canSend && sendDisabledReason) ? (
+        <Tooltip title={gated ? 'Send is blocked until the DUT step is done' : sendDisabledReason}>
           <span>{send}</span>
         </Tooltip>
       ) : send}
@@ -281,11 +298,15 @@ export function FrameDump({ result, plain }: { result: CommandResponse; plain?: 
  */
 export function LastFrameSection({ result }: { result: CommandResponse | null }) {
   const p = useAppPalette()
+  // Collapsible from the start, folded, so the card is one heading tall before
+  // the first Send and after it. It used to be a plain card with a two-line
+  // hint that turned collapsible -- and 30 px shorter -- the moment a reply
+  // arrived, moving everything under it.
   return (
     <Section
       title="Last frame"
       panel
-      collapsible={result != null}
+      collapsible
       defaultOpen={false}
       action={
         result ? (
@@ -298,24 +319,25 @@ export function LastFrameSection({ result }: { result: CommandResponse | null })
             />
             <Typography
               sx={{
-                fontSize: 12, fontWeight: 600,
+                ...TEXT.hint, fontWeight: 600,
                 color: result.ok ? p.data.ok : p.data.bad,
-                textTransform: 'none', letterSpacing: 0,
               }}
             >
               {result.ok ? 'ok' : 'failed'}
             </Typography>
-            <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
+            <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
               status {result.status}
             </Typography>
           </Stack>
-        ) : null
+        ) : (
+          <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>nothing sent yet</Typography>
+        )
       }
     >
       {result ? (
         <FrameDump result={result} plain />
       ) : (
-        <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
+        <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
           Send a command to see the raw request and reply here.
         </Typography>
       )}
@@ -324,35 +346,49 @@ export function LastFrameSection({ result }: { result: CommandResponse | null })
 }
 
 /**
- * Small text button for a panel heading's secondary actions ("Add", "Apply",
- * "Store as VNA"). 24px tall so it sits inside a Section header row without
- * pushing it taller than the title.
+ * Small text button for a panel heading's secondary actions ("Add", "Graph",
+ * "Export", "Clear"). `CONTROL_H.sm` tall, the one height for every control
+ * in a Section heading, so a heading's field, segmented choice and actions
+ * share a centre line. It sizes its own icon; callers pass the glyph only.
  *
- * Pass an icon through `startIcon` at fontSize 15 to match the others.
+ * `tone="destructive"` for the one that throws data away (Clear): quieter
+ * ink rather than the accent, so it does not read as one more Export.
  */
-export function MiniAction({ sx, ...rest }: ButtonProps) {
+export function MiniAction({ sx, tone, ...rest }: ButtonProps & { tone?: 'destructive' }) {
   return (
     <Button
       size="small"
       variant="text"
       {...rest}
-      sx={[{ minWidth: 0, height: 24, fontSize: 12, px: 1 }, ...(Array.isArray(sx) ? sx : [sx])]}
+      sx={[
+        {
+          minWidth: 0, height: CONTROL_H.sm, fontSize: 12.5, px: 1,
+          '& .MuiButton-startIcon': { mr: 0.5 },
+          '& .MuiButton-startIcon > svg, & .MuiButton-endIcon > svg': { fontSize: 16 },
+        },
+        tone === 'destructive' ? { color: 'text.secondary', '&:hover': { color: 'error.main' } } : {},
+        ...(Array.isArray(sx) ? sx : [sx]),
+      ]}
     />
   )
 }
 
 const DENSE_TABS = {
   /** A page's own sub-tabs, under the header. */
-  md: { h: 36, fontSize: 13, tab: { py: 0.25 } },
+  md: { h: 32, fontSize: 13, px: 1.75 },
   /** A view switch inside a panel heading. */
-  sm: { h: 28, fontSize: 12, tab: { py: 0, px: 1.25 } },
+  sm: { h: 28, fontSize: 12, px: 1.25 },
 } as const
 
 /**
- * MUI Tabs at the app's density. The default 48px is a touch-screen size and
- * makes a sub-tab row as tall as the page header above it.
+ * MUI Tabs drawn as the macOS segmented control: a filled track with the
+ * chosen tab raised out of it. An underline across the page read as a rule
+ * dividing it, and a sub-tab row as tall as MUI's 48 px default was a band
+ * as heavy as the header.
  *
- * Placement (a bottom border, a nudge up) stays with the caller via `sx`.
+ * One weight for every tab, chosen or not: tabs size to their labels, and a
+ * label going bold on selection widened its tab and shifted the next one.
+ * Placement (a nudge up) stays with the caller via `sx`.
  */
 export function DenseTabs({ size = 'md', sx, ...rest }: TabsProps & { size?: 'md' | 'sm' }) {
   const d = DENSE_TABS[size]
@@ -360,7 +396,37 @@ export function DenseTabs({ size = 'md', sx, ...rest }: TabsProps & { size?: 'md
     <Tabs
       {...rest}
       sx={[
-        { minHeight: d.h, '& .MuiTab-root': { minHeight: d.h, fontSize: d.fontSize, ...d.tab } },
+        (t: Theme) => ({
+          minHeight: d.h,
+          display: 'inline-flex',
+          alignSelf: 'flex-start',
+          maxWidth: '100%',
+          flexShrink: 0,
+          p: '2px',
+          borderRadius: '8px',
+          bgcolor: alpha(t.palette.text.secondary, 0.14),
+          '& .MuiTabs-indicator': { display: 'none' },
+          '& .MuiTabs-flexContainer': { gap: '2px' },
+          '& .MuiTab-root': {
+            minHeight: d.h - 4,
+            minWidth: 0,
+            py: 0,
+            px: d.px,
+            fontSize: d.fontSize,
+            fontWeight: 500,
+            borderRadius: '6px',
+            color: 'text.secondary',
+            transition: 'background-color .15s ease, color .15s ease',
+            '&:hover': { color: 'text.primary' },
+          },
+          '& .MuiTab-root.Mui-selected': {
+            color: 'text.primary',
+            // White out of a grey track in Light; on the dark grounds a raised
+            // white would glare, so the tab is lifted by a translucent step.
+            bgcolor: t.palette.mode === 'light' ? '#FFFFFF' : alpha(t.palette.text.primary, 0.16),
+            boxShadow: '0 1px 2px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.06)',
+          },
+        }),
         ...(Array.isArray(sx) ? sx : [sx]),
       ]}
     />

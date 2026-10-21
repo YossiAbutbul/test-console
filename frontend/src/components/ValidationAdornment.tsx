@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import { Box, InputAdornment } from '@mui/material'
+// Outlined, not the Rounded family's filled disc: a solid info mark beside the
+// grey Scan key read as heavier than the key itself.
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 
 /**

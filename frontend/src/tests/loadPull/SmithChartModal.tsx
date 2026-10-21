@@ -1,13 +1,15 @@
 import { useMemo, useRef, useState } from 'react'
 import {
-  Box, Button, Dialog, DialogContent, DialogTitle, IconButton, MenuItem, Stack,
+  Box, Dialog, DialogContent, DialogTitle, IconButton, MenuItem, Stack,
   TextField, Typography,
 } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import { alpha } from '@mui/material/styles'
+import CloseIcon from '@mui/icons-material/CloseRounded'
+import ContentCopyIcon from '@mui/icons-material/ContentCopyRounded'
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
-import { useAppPalette } from '../../context/ThemeModeContext'
-import { MONO, TEXT } from '../../ui'
+import { useAppPalette, useThemeMode } from '../../context/ThemeModeContext'
+import { MONO, MiniAction, TEXT } from '../../ui'
+import { TOP_BAR_H } from '../../ui/tokens'
 import type { LoadPullResultRow } from '../../store/loadPullPageStore'
 import { Z0, VCC, RAMP, reflection, dbmToW, efficiency, rampColor, chartRows } from './smith'
 
@@ -74,6 +76,7 @@ export function SmithChartModal({
   // Grid, ink and ground come from the theme like every other chart, rather
   // than blue-grey values of the chart's own that read as a different product.
   const pal = useAppPalette()
+  const { mode } = useThemeMode()
   const [hover, setHover] = useState<number | null>(null)
   const svgRef = useRef<SVGSVGElement | null>(null)
   const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle')
@@ -254,31 +257,40 @@ export function SmithChartModal({
   const fmtPct = (e: number | null) => (e == null ? '—' : `${(e * 100).toFixed(1)} %`)
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth
-      slotProps={{ paper: { sx: { borderRadius: 2, height: '88vh' } } }}>
+    <Dialog
+      open={open} onClose={onClose} maxWidth="lg" fullWidth
+      // Below the toolbar, scrim included: this can be opened mid-run, and a
+      // scrim over the whole window hid E-STOP and Stop behind it. Focus is
+      // not held inside either, so the keyboard can reach them too.
+      sx={{ top: TOP_BAR_H }}
+      disableEnforceFocus
+      slotProps={{
+        paper: { sx: { height: '88vh' } },
+        backdrop: { sx: { top: TOP_BAR_H } },
+      }}
+    >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', py: 1.5 }}>
         <Stack direction="row" spacing={1.5} alignItems="baseline" sx={{ minWidth: 0 }}>
-          <Typography sx={{ fontSize: 17, fontWeight: 700 }}>Smith Chart</Typography>
+          <Typography sx={TEXT.dialog}>Smith chart</Typography>
           <Typography sx={{ fontSize: 12, color: 'text.secondary', whiteSpace: 'nowrap' }}>
             {points.length} point{points.length === 1 ? '' : 's'} · Z₀ = {Z0} Ω
           </Typography>
         </Stack>
         <Box sx={{ flexGrow: 1 }} />
-        <Button
-          size="small"
-          startIcon={
-            copied === 'done'
-              ? <CheckRoundedIcon sx={{ fontSize: 16 }} />
-              : <ContentCopyIcon sx={{ fontSize: 15 }} />
-          }
+        {/* The dialog's one action, so accent; fixed width so the three
+            labels it cycles through never move the close key beside it. */}
+        <MiniAction
+          startIcon={copied === 'done' ? <CheckRoundedIcon /> : <ContentCopyIcon />}
           onClick={() => void copyChart()}
           disabled={points.length === 0}
-          color={copied === 'failed' ? 'error' : 'inherit'}
-          sx={{ mr: 1, fontSize: 12.5 }}
+          color={copied === 'failed' ? 'error' : 'primary'}
+          sx={{ mr: 1, width: 112, justifyContent: 'flex-start' }}
         >
           {copied === 'done' ? 'Copied' : copied === 'failed' ? 'Copy failed' : 'Copy chart'}
-        </Button>
-        <IconButton size="small" onClick={onClose}><CloseIcon sx={{ fontSize: 18 }} /></IconButton>
+        </MiniAction>
+        <IconButton size="small" onClick={onClose} aria-label="Close">
+          <CloseIcon sx={{ fontSize: 18 }} />
+        </IconButton>
       </DialogTitle>
 
       {/* View controls, on their own strip rather than crammed into the title.
@@ -315,8 +327,7 @@ export function SmithChartModal({
 
       <DialogContent
         dividers
-        sx={{ bgcolor: 'action.hover', display: 'flex', flexDirection: 'column', minHeight: 0 }}
-      >
+        sx={{ bgcolor: 'action.hover', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {points.length === 0 ? (
           <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 6, textAlign: 'center' }}>
             No R/J data to plot. Run the test first.
@@ -353,11 +364,11 @@ export function SmithChartModal({
                   }}
                 >
                   <Box sx={{ width: 26 }}>#</Box>
-                  <Box sx={{ flex: 1, textAlign: 'right' }}>Pos</Box>
-                  {hasAtt && <Box sx={{ flex: 0.8, textAlign: 'right' }}>Att</Box>}
-                  <Box sx={{ flex: 1.2, textAlign: 'right' }}>Z (Ω)</Box>
-                  <Box sx={{ flex: 1, textAlign: 'right' }}>Pout</Box>
-                  <Box sx={{ flex: 0.9, textAlign: 'right' }}>Eff</Box>
+                  <Box sx={{ flex: 1, textAlign: 'left' }}>Pos</Box>
+                  {hasAtt && <Box sx={{ flex: 0.8, textAlign: 'left' }}>Att</Box>}
+                  <Box sx={{ flex: 1.2, textAlign: 'left' }}>Z (Ω)</Box>
+                  <Box sx={{ flex: 1, textAlign: 'left' }}>Pout</Box>
+                  <Box sx={{ flex: 0.9, textAlign: 'left' }}>Eff</Box>
                 </Stack>
                 {/* No height of its own: it is as tall as its rows, and the
                     cap above turns that into a scroll once the dialog runs out
@@ -387,23 +398,23 @@ export function SmithChartModal({
                           }} />
                           {pt.idx + 1}
                         </Box>
-                        <Box sx={{ flex: 1, textAlign: 'right' }}>{pt.row.pos_mm.toFixed(1)}</Box>
+                        <Box sx={{ flex: 1, textAlign: 'left' }}>{pt.row.pos_mm.toFixed(1)}</Box>
                         {/* Every attenuation is on the chart at once, so the
                             list is where a dot says which cycle it came from. */}
                         {hasAtt && (
-                          <Box sx={{ flex: 0.8, textAlign: 'right' }}>
+                          <Box sx={{ flex: 0.8, textAlign: 'left' }}>
                             {pt.row.att_db == null ? '—' : pt.row.att_db}
                           </Box>
                         )}
-                        <Box sx={{ flex: 1.2, textAlign: 'right' }}>
+                        <Box sx={{ flex: 1.2, textAlign: 'left' }}>
                           {pt.row.r_ohm == null || pt.row.x_ohm == null
                             ? '—'
                             : `${pt.row.r_ohm.toFixed(0)}${pt.row.x_ohm >= 0 ? '+' : '−'}j${Math.abs(pt.row.x_ohm).toFixed(0)}`}
                         </Box>
-                        <Box sx={{ flex: 1, textAlign: 'right' }}>
+                        <Box sx={{ flex: 1, textAlign: 'left' }}>
                           {pt.row.power_dbm == null ? '—' : pt.row.power_dbm.toFixed(1)}
                         </Box>
-                        <Box sx={{ flex: 0.9, textAlign: 'right' }}>
+                        <Box sx={{ flex: 0.9, textAlign: 'left' }}>
                           {pt.eff == null ? '—' : `${(pt.eff * 100).toFixed(1)}%`}
                         </Box>
                       </Stack>
@@ -453,7 +464,12 @@ export function SmithChartModal({
                       cx={p.x} cy={p.y}
                       r={isHover ? 7 : 4.5}
                       fill={colorOf(p.eff)}
-                      stroke={isHover ? pal.sidebar.text : pal.paper}
+                      // On white the paper-coloured edge vanished and the pale
+                      // yellow end of the ramp went with it; a faint ink edge
+                      // keeps every dot findable whatever its colour.
+                      stroke={isHover
+                        ? pal.sidebar.text
+                        : mode === 'light' ? alpha(pal.sidebar.text, 0.35) : pal.paper}
                       strokeWidth={isHover ? 2 : 0.8}
                       style={{ cursor: 'pointer' }}
                       onMouseEnter={() => setHover(p.idx)}
@@ -502,41 +518,47 @@ export function SmithChartModal({
                 the chart shows the shape of the contour, but the numbers behind
                 each point were previously reachable one hover at a time. */}
             <Box sx={{ width: 290, flexShrink: 0 }}>
-              <Box sx={{ p: 2, borderRadius: 1.5, border: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
-                {hp ? (
-                  <>
-                    <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary', mb: 0.5 }}>
-                      Measurement
-                    </Typography>
-                    <Typography sx={{ fontSize: 16, fontWeight: 700, mb: 1.5 }}>
-                      Step {hp.idx + 1} · pos {hp.row.pos_mm.toFixed(2)} mm
-                    </Typography>
-                    <Stack spacing={0.75}>
-                      <Row label="Efficiency" value={fmtPct(hp.eff)} strong color={colorOf(hp.eff)} />
-                      <Row label="Pout" value={hp.row.power_dbm == null ? '—' : `${hp.row.power_dbm.toFixed(2)} dBm`} />
-                      <Row label="Pout (W)" value={hp.row.power_dbm == null ? '—' : dbmToW(hp.row.power_dbm).toFixed(3)} />
-                      <Row label="Icc" value={hp.row.current_a == null ? '—' : `${(hp.row.current_a * 1000).toFixed(1)} mA`} />
-                      <Row label="Z" value={hp.row.r_ohm == null || hp.row.x_ohm == null ? '—'
-                        : `${hp.row.r_ohm.toFixed(1)} ${hp.row.x_ohm >= 0 ? '+' : '−'} j${Math.abs(hp.row.x_ohm).toFixed(1)} Ω`} />
-                      <Row label="|S11|" value={hp.row.s11_db == null ? '—' : `${hp.row.s11_db.toFixed(2)} dB`} />
-                      <Row label="Γ" value={`${hp.gr.toFixed(3)} ${hp.gi >= 0 ? '+' : '−'} j${Math.abs(hp.gi).toFixed(3)}`} />
-                      {hp.row.att_db != null && (
-                        <Row label="Attenuator" value={`${hp.row.att_db} dB`} />
-                      )}
-                      <Row label="Pos (pulses)" value={hp.row.pos_pulses.toLocaleString()} />
-                    </Stack>
-                    {hp.row.error && (
-                      <Typography sx={{ fontSize: 12, color: 'error.main', mt: 1 }}>{hp.row.error}</Typography>
+              {/* Both layouts are always laid out in one cell, the idle one
+                  hidden, so the card is the measurement's height from the
+                  start and does not grow and shrink as the cursor crosses
+                  points. */}
+              <Box sx={{
+                p: 2, borderRadius: 1.5, border: 1, borderColor: 'divider', bgcolor: 'background.paper',
+                display: 'grid',
+              }}>
+                <Box sx={{ gridArea: '1 / 1', visibility: hp ? 'visible' : 'hidden' }} aria-hidden={!hp}>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
+                    Measurement
+                  </Typography>
+                  <Typography sx={{ fontSize: 16, fontWeight: 700, mb: 1.5 }}>
+                    {hp ? `Step ${hp.idx + 1} · pos ${hp.row.pos_mm.toFixed(2)} mm` : '—'}
+                  </Typography>
+                  <Stack spacing={0.75}>
+                    <Row label="Efficiency" value={fmtPct(hp?.eff ?? null)} strong color={hp ? colorOf(hp.eff) : undefined} />
+                    <Row label="Pout" value={hp?.row.power_dbm == null ? '—' : `${hp.row.power_dbm.toFixed(2)} dBm`} />
+                    <Row label="Pout (W)" value={hp?.row.power_dbm == null ? '—' : dbmToW(hp.row.power_dbm).toFixed(3)} />
+                    <Row label="Icc" value={hp?.row.current_a == null ? '—' : `${(hp.row.current_a * 1000).toFixed(1)} mA`} />
+                    <Row label="Z" value={hp?.row.r_ohm == null || hp.row.x_ohm == null ? '—'
+                      : `${hp.row.r_ohm.toFixed(1)} ${hp.row.x_ohm >= 0 ? '+' : '−'} j${Math.abs(hp.row.x_ohm).toFixed(1)} Ω`} />
+                    <Row label="|S11|" value={hp?.row.s11_db == null ? '—' : `${hp.row.s11_db.toFixed(2)} dB`} />
+                    <Row label="Γ" value={hp ? `${hp.gr.toFixed(3)} ${hp.gi >= 0 ? '+' : '−'} j${Math.abs(hp.gi).toFixed(3)}` : '—'} />
+                    {/* Reserved for the whole run once any row has one, so
+                        moving between cycles does not add and drop a line. */}
+                    {hasAtt && (
+                      <Row label="Attenuator" value={hp?.row.att_db == null ? '—' : `${hp.row.att_db} dB`} />
                     )}
-                  </>
-                ) : (
-                  <>
-                    <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 1.5 }}>
-                      Hover a point to see its measurement. Color = efficiency:
-                    </Typography>
-                    <EfficiencyFormula vcc={VCC} />
-                  </>
-                )}
+                    <Row label="Pos (pulses)" value={hp ? hp.row.pos_pulses.toLocaleString() : '—'} />
+                  </Stack>
+                  {hp?.row.error && (
+                    <Typography sx={{ fontSize: 12, color: 'error.main', mt: 1 }}>{hp.row.error}</Typography>
+                  )}
+                </Box>
+                <Box sx={{ gridArea: '1 / 1', visibility: hp ? 'hidden' : 'visible' }} aria-hidden={!!hp}>
+                  <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 1.5 }}>
+                    Hover a point to see its measurement. Color = efficiency:
+                  </Typography>
+                  <EfficiencyFormula vcc={VCC} />
+                </Box>
               </Box>
 
             </Box>

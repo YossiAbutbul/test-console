@@ -3,8 +3,8 @@ import {
   Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
   IconButton, Stack, Typography,
 } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import CloseIcon from '@mui/icons-material/CloseRounded'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineRounded'
 import { MONO, TEXT } from '../../ui'
 import { RangeRow } from './RangeRow'
 import { blockSteps, describeProblem, newBlock, type BlockDraft, type Bounds } from './blocks'
@@ -36,8 +36,7 @@ export function RangeEditorModal({
 }: Props) {
   const open = editing !== undefined
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth
-      slotProps={{ paper: { sx: { borderRadius: 2 } } }}>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       {/* Mounted only while open so the editor seeds itself from props on
           mount -- no effect, and reopening always shows what is in force. */}
       {open && (
@@ -68,14 +67,14 @@ function Editor({ editing, bounds, onSave, onDelete, onClose, position }: Props)
       <DialogTitle sx={{ py: 1.75 }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Box>
-            <Typography sx={{ fontSize: 17, fontWeight: 700, lineHeight: 1.2 }}>
+            <Typography sx={{ ...TEXT.dialog, lineHeight: 1.2 }}>
               {editing ? `Edit range ${position ?? ''}`.trim() : 'New range'}
             </Typography>
             <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
               Every combination of these three spans is swept
             </Typography>
           </Box>
-          <IconButton size="small" onClick={onClose}><CloseIcon sx={{ fontSize: 18 }} /></IconButton>
+          <IconButton size="small" onClick={onClose} aria-label="Close"><CloseIcon sx={{ fontSize: 18 }} /></IconButton>
         </Stack>
       </DialogTitle>
 

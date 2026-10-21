@@ -10,20 +10,23 @@
  * power, ignoring the sensor's under-range sentinel, so the export and this
  * cannot disagree about what the run found.
  */
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import {
   Box, Dialog, DialogContent, DialogTitle, IconButton, Stack, Typography,
 } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
-import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
-import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import { alpha } from '@mui/material/styles'
+import CloseIcon from '@mui/icons-material/CloseRounded'
+import StarIcon from '@mui/icons-material/StarRounded'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeftRounded'
+import ChevronRightIcon from '@mui/icons-material/ChevronRightRounded'
 import {
   CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import type { ResultRow } from '../../types/models'
 import { useAppPalette } from '../../context/ThemeModeContext'
-import { ChartFrame, ChartToolbar, MONO, fileTimestamp, useChart } from '../../ui'
+import {
+  CONTROL_H, ChartFrame, ChartToolbar, MONO, TEXT, fileTimestamp, useChart,
+} from '../../ui'
 import {
   buildLevels, comboLabel as combo, milliamps as mA,
 } from './bestSettings'
@@ -36,6 +39,10 @@ interface Props {
 
 export function SweepResultsModal({ open, onClose, rows }: Props) {
   const p = useAppPalette()
+  const titleId = useId()
+  // The cheapest combination is marked in the accent, not green: green is
+  // kept for pass, and "lowest current" is a ranking, not a verdict.
+  const best = p.sidebar.accent
   // One series and no legend, so the frame's legend switch is hidden below.
   const chart = useChart({ showLegend: false })
   const { theme } = chart
@@ -71,17 +78,16 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
       onClose={onClose}
       maxWidth="lg"
       fullWidth
-      transitionDuration={{ enter: 150, exit: 0 }}
-      slotProps={{ paper: { sx: { borderRadius: 2, height: 640, maxHeight: '92vh' } } }}
-    >
+      aria-labelledby={titleId}
+      slotProps={{ paper: { sx: { height: 640, maxHeight: '92vh' } } }}>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1.5 }}>
         <Stack direction="row" alignItems="baseline" spacing={1.5}>
-          <Typography sx={{ fontSize: 17, fontWeight: 700 }}>Best settings</Typography>
+          <Typography id={titleId} sx={TEXT.dialog}>Best settings</Typography>
           <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
             {rows.length} rows · {levels.length} power level{levels.length === 1 ? '' : 's'} reached
           </Typography>
         </Stack>
-        <IconButton size="small" onClick={onClose}>
+        <IconButton size="small" onClick={onClose} aria-label="Close">
           <CloseIcon sx={{ fontSize: 18 }} />
         </IconButton>
       </DialogTitle>
@@ -96,7 +102,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
             {/* The trade-off itself: what each dB of output costs in current. */}
             <Box>
               <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.5 }}>
-                <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'text.secondary' }}>
+                <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary' }}>
                   Lowest current per power reached
                 </Typography>
                 <Stack direction="row" spacing={0.5}>
@@ -154,7 +160,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                   {active && (
                     <ReferenceLine
                       x={active.power}
-                      stroke={p.data.ok}
+                      stroke={best}
                       strokeWidth={1.5}
                       strokeDasharray="3 3"
                     />
@@ -178,27 +184,33 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                 chart above draws, so the two read as one control, and nothing
                 opens over the results to do it. */}
             <Stack direction="row" alignItems="center" spacing={1.5} sx={{ flexShrink: 0 }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'text.secondary' }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary' }}>
                 Combinations at
               </Typography>
+              {/* The segmented control's grey track, so the stepper reads as
+                  the same family of control. Track and keys add up to
+                  CONTROL_H.sm, as a SegmentedChoice does. */}
               <Stack
                 direction="row"
                 alignItems="center"
-                sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}
+                sx={{
+                  p: '2px', gap: '2px', borderRadius: '8px',
+                  bgcolor: alpha(p.sidebar.textDim, 0.14),
+                }}
               >
                 {/* Left steps down in power, matching the chart's own axis. */}
                 <IconButton
                   size="small"
                   onClick={() => step(+1)}
                   disabled={activeIndex >= levels.length - 1}
-                  sx={{ borderRadius: 0, width: 26, height: 26 }}
-                  aria-label="lower power"
+                  sx={{ borderRadius: '6px', width: CONTROL_H.sm - 4, height: CONTROL_H.sm - 4 }}
+                  aria-label="Lower power"
                 >
                   <ChevronLeftIcon sx={{ fontSize: 17 }} />
                 </IconButton>
                 <Typography
                   sx={{
-                    fontFamily: MONO, fontSize: 12.5, fontWeight: 700,
+                    ...TEXT.dense, fontFamily: MONO,
                     px: 1, minWidth: 66, textAlign: 'center',
                     fontVariantNumeric: 'tabular-nums',
                   }}
@@ -209,13 +221,13 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                   size="small"
                   onClick={() => step(-1)}
                   disabled={activeIndex <= 0}
-                  sx={{ borderRadius: 0, width: 26, height: 26 }}
-                  aria-label="higher power"
+                  sx={{ borderRadius: '6px', width: CONTROL_H.sm - 4, height: CONTROL_H.sm - 4 }}
+                  aria-label="Higher power"
                 >
                   <ChevronRightIcon sx={{ fontSize: 17 }} />
                 </IconButton>
               </Stack>
-              <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
+              <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
                 {active?.rows.length ?? 0} combination{active?.rows.length === 1 ? '' : 's'}
                 {' · cheapest first · click the curve to jump'}
               </Typography>
@@ -242,8 +254,8 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                   >
                     <Box sx={{ width: 18, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
                       {isBest
-                        ? <EmojiEventsIcon sx={{ fontSize: 15, color: p.data.ok }} />
-                        : <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>{i + 1}</Typography>}
+                        ? <StarIcon aria-label="Lowest current" sx={{ fontSize: 16, color: best }} />
+                        : <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>{i + 1}</Typography>}
                     </Box>
                     <Typography
                       sx={{
@@ -260,7 +272,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                       <Box
                         sx={{
                           width: `${pct}%`, height: '100%',
-                          bgcolor: isBest ? p.data.ok : 'text.disabled',
+                          bgcolor: isBest ? best : 'text.disabled',
                           opacity: isBest ? 1 : 0.5,
                         }}
                       />
@@ -270,7 +282,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                         fontFamily: MONO, fontSize: 12.5, width: 76, textAlign: 'right', flexShrink: 0,
                         fontVariantNumeric: 'tabular-nums',
                         fontWeight: isBest ? 700 : 400,
-                        color: isBest ? p.data.ok : 'text.primary',
+                        color: isBest ? best : 'text.primary',
                       }}
                     >
                       {cur == null ? '—' : `${cur.toFixed(1)} mA`}
@@ -278,7 +290,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                     <Typography
                       sx={{
                         fontFamily: MONO, fontSize: 12, width: 66, textAlign: 'right', flexShrink: 0,
-                        color: 'text.disabled',
+                        color: 'text.secondary',
                       }}
                     >
                       {r.tx_power_dbm == null ? '—' : `${r.tx_power_dbm.toFixed(2)}`}

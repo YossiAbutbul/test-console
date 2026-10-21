@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
+import AltRouteIcon from '@mui/icons-material/AltRouteRounded'
 import type { TestModule } from '../types'
 import { SwitchPage } from './SwitchPage'
 
@@ -9,7 +9,7 @@ export const switchModule: TestModule = {
   protocol: 'LoRa',
   root: true,
   group: 'Components',
-  icon: createElement(SwapHorizIcon, { fontSize: 'small' }),
+  icon: createElement(AltRouteIcon, { fontSize: 'small' }),
   Page: SwitchPage,
   requiresConnection: false,
   requiresInstruments: true,

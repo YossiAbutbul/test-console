@@ -1,11 +1,10 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, IconButton, MenuItem, Select, Stack, Tooltip, Typography,
+  Alert, Box, Button, CircularProgress, IconButton, MenuItem, Select, Stack,
+  Tooltip, Typography,
 } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
-import RefreshIcon from '@mui/icons-material/Refresh'
+import RefreshIcon from '@mui/icons-material/RefreshRounded'
 import { device } from '../api/device'
 import { useConnection } from '../context/ConnectionContext'
 import { useLog } from '../context/LogContext'
@@ -14,7 +13,7 @@ import type {
   AppModeOption, MeterInfoField, SaveResetResponse, SetAppModeResponse,
   SetChannelsResponse,
 } from '../types/models'
-import { MONO } from '../ui'
+import { KeySpinner, ModalShell, MONO } from '../ui'
 
 interface Props {
   open: boolean
@@ -24,11 +23,11 @@ interface Props {
 /** What a field that came back `ok: false` should read as.
  *
  *  A non-zero status is the unit declining a query it understood, which the
- *  vendor dialog prints as "Not Supported". A transport failure is a different
+ *  vendor dialog prints as "Not Supported" (shown here in sentence case). A transport failure is a different
  *  thing and says so, otherwise a dropped link looks like a missing feature. */
 function failureText(f: MeterInfoField): string {
   if (f.error) return 'Unavailable'
-  return 'Not Supported'
+  return 'Not supported'
 }
 
 /** Pending choices, by row. Absent means "whatever the unit reported". */
@@ -316,35 +315,47 @@ export function MeterInfoModal({ open, onClose }: Props) {
     && !update.isPending && !!status?.connected
 
   return (
-    <Dialog
+    <ModalShell
       open={open}
       onClose={close}
       maxWidth="xs"
-      fullWidth
-      slotProps={{ paper: { sx: { borderRadius: 2 } } }}
+      dividers
+      title="Meter information"
+      headerActions={
+        <Tooltip title="Re-read">
+          <span>
+            <IconButton
+              size="small"
+              aria-label="Re-read"
+              onClick={() => q.refetch()}
+              disabled={q.isFetching}
+            >
+              <RefreshIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </span>
+        </Tooltip>
+      }
+      footer={{
+        primary: (
+          // Disabled until something actually differs from what the unit
+          // reported. This writes to a live meter and can reboot it, so
+          // re-sending the settings it already has should not be one stray
+          // click away. Sends only the rows that changed.
+          //
+          // The label stays "Update" while it sends, with the spinner in the
+          // icon slot: swapping the word resized the key mid-press.
+          <Button
+            variant="contained"
+            disabled={!canUpdate}
+            onClick={() => update.mutate()}
+            startIcon={update.isPending ? <KeySpinner /> : undefined}
+            sx={{ width: 120, minWidth: 120 }}
+          >
+            Update
+          </Button>
+        ),
+      }}
     >
-      <DialogTitle
-        sx={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          py: 1.5,
-        }}
-      >
-        <Typography sx={{ fontSize: 17, fontWeight: 700 }}>Meter Information</Typography>
-        <Stack direction="row" alignItems="center" spacing={0.5}>
-          <Tooltip title="Re-read">
-            <span>
-              <IconButton size="small" onClick={() => q.refetch()} disabled={q.isFetching}>
-                <RefreshIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <IconButton size="small" onClick={close}>
-            <CloseIcon sx={{ fontSize: 18 }} />
-          </IconButton>
-        </Stack>
-      </DialogTitle>
-
-      <DialogContent dividers>
         {q.isPending && (
           <Stack alignItems="center" spacing={1.5} sx={{ py: 4 }}>
             <CircularProgress size={22} />
@@ -363,12 +374,12 @@ export function MeterInfoModal({ open, onClose }: Props) {
 
         {q.data && (
           <Stack spacing={2} sx={{ py: 1 }}>
-            <Row label="Connected To" value={connectedName} />
+            <Row label="Connected to" value={connectedName} />
             <Row label="Device ID" {...text('device_id')} mono />
-            <Row label="FW Version" {...versionRow()} />
-            <Row label="MAC Address" {...text('ble_mac')} mono />
+            <Row label="Firmware version" {...versionRow()} />
+            <Row label="MAC address" {...text('ble_mac')} mono />
             <Picker
-              label="App Mode"
+              label="App mode"
               options={modes}
               value={selMode}
               fallback={text('app_mode').value}
@@ -376,7 +387,7 @@ export function MeterInfoModal({ open, onClose }: Props) {
               onChange={(v) => setPicked((p) => ({ ...p, mode: v }))}
             />
             <Picker
-              label="Primary Channel"
+              label="Primary channel"
               options={primaries}
               value={selPrimary}
               fallback={text('primary_channel').value}
@@ -384,7 +395,7 @@ export function MeterInfoModal({ open, onClose }: Props) {
               onChange={(v) => setPicked((p) => ({ ...p, primary: v }))}
             />
             <Picker
-              label="Secondary Channel"
+              label="Secondary channel"
               options={secondaries}
               value={selSecondary}
               fallback={text('secondary_channel').value}
@@ -396,23 +407,6 @@ export function MeterInfoModal({ open, onClose }: Props) {
                 still in device/info.py — only the query list dropped them. */}
           </Stack>
         )}
-      </DialogContent>
-
-      <DialogActions sx={{ px: 3, py: 2 }}>
-        {/* Disabled until something actually differs from what the unit
-            reported. This writes to a live meter and can reboot it, so
-            re-sending the settings it already has should not be one stray
-            click away. Sends only the rows that changed. */}
-        <Button
-          variant="contained"
-          disabled={!canUpdate}
-          onClick={() => update.mutate()}
-          endIcon={update.isPending ? <CircularProgress size={14} color="inherit" /> : undefined}
-          sx={{ minWidth: 120 }}
-        >
-          {update.isPending ? 'Sending' : 'Update'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+    </ModalShell>
   )
 }

@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { Box, Button, Stack, TextField, Typography } from '@mui/material'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
-import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
-import FirstPageIcon from '@mui/icons-material/FirstPage'
-import LastPageIcon from '@mui/icons-material/LastPage'
-import StopIcon from '@mui/icons-material/Stop'
+import { Box, Button, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import ArrowBackIcon from '@mui/icons-material/ArrowBackRounded'
+import ArrowForwardIcon from '@mui/icons-material/ArrowForwardRounded'
+import FirstPageIcon from '@mui/icons-material/FirstPageRounded'
+import LastPageIcon from '@mui/icons-material/LastPageRounded'
+import StopIcon from '@mui/icons-material/StopRounded'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
@@ -12,11 +12,12 @@ import { ValidationAdornment, shouldShowValidation } from '../../components/Vali
 import { motor } from '../../api/motor'
 import { useLog } from '../../context/LogContext'
 import { DASH } from '../../lib/format'
-import { fmtMm, mmToPulses, pulsesToMm } from '../../lib/trombone'
+import { JOG_SPEEDS, fmtMm, mmToPulses, pulsesToMm } from '../../lib/trombone'
+import { useHoldJog } from './useHoldJog'
 import { loadPullPageSnapshot } from '../../store/loadPullPageStore'
 import {
-  ACTION_W, CONTROL_H, InstrumentBar, MONO, PageBody, Section,
-  StatRow, StatTile, TEXT, TwoCol,
+  ACTION_W, CONTROL_H, InstrumentBar, KeySpinner, MONO, PageBody, Section,
+  StatRow, StatTile, TEXT, TwoCol, JogPad, SegmentedChoice,
   hazardRingSx,
   InstrumentError,
   HazardGlyph,
@@ -47,6 +48,10 @@ const OPEN_TRAVEL = 1_000_000
  */
 const JOG_STEP_MM = 8
 const JOG_STEP_PULSES = mmToPulses(JOG_STEP_MM)
+
+/** Every key in the Step card is one width, so the 2×2 grid has fixed
+ *  columns and the keys never re-wrap 3+1 / 2+2 with the window. */
+const STEP_KEY_SX = { width: ACTION_W.default, minWidth: ACTION_W.default, height: CONTROL_H.md } as const
 
 export function TrombonePage({ group }: TestPageProps) {
   const { log } = useLog()
@@ -135,6 +140,12 @@ export function TrombonePage({ group }: TestPageProps) {
     jogPosM.isPending || jogNegM.isPending || goMinM.isPending ||
     goMaxM.isPending || stopM.isPending
 
+  // Press-and-hold jog, as on Load Pull: hold an arrow (or focus the pad and
+  // hold ← / →) to run the motor, release to stop. Blocked while a step or
+  // move is in flight, so a jog never races another command on the bus.
+  const [jogSpeed, setJogSpeed] = useState<number>(800)
+  const jog = useHoldJog({ enabled: connected && !busy, speed: jogSpeed, onStopped: refresh })
+
   const statusText = !connected ? 'Disconnected' : moving ? 'Moving' : 'Idle'
   const mmNum = (n: number | null) => (n == null ? DASH : pulsesToMm(n).toFixed(2))
   const pulseNum = (n: number) => `${n.toLocaleString()} pulses`
@@ -159,12 +170,14 @@ export function TrombonePage({ group }: TestPageProps) {
                 is not red -- red marks the keys that act on the bench. */}
             <Button
               variant="outlined"
-              startIcon={<StopIcon />}
+              // Spinner in the icon slot rather than a "Stopping…" label: the
+              // key keeps its word and its width while the stop is in flight.
+              startIcon={stopM.isPending ? <KeySpinner /> : <StopIcon />}
               onClick={() => stopM.mutate()}
               disabled={!connected || stopM.isPending}
               sx={{ width: ACTION_W.default, minWidth: ACTION_W.default, height: CONTROL_H.md }}
             >
-              {stopM.isPending ? 'Stopping…' : 'Stop'}
+              Stop
             </Button>
           </Stack>
         }
@@ -187,7 +200,9 @@ export function TrombonePage({ group }: TestPageProps) {
           onDisconnect={() => disconnectM.mutate()}
           config={
             <Box>
-              <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>Device index</Typography>
+              {/* Set like LabeledField's label, so this dialog reads like the
+                  forms on the pages. */}
+              <Typography sx={{ ...TEXT.label, color: 'text.primary', mb: 0.5 }}>Device index</Typography>
               <TextField
                 size="small"
                 type="number"
@@ -211,7 +226,7 @@ export function TrombonePage({ group }: TestPageProps) {
               value={mmNum(pos)}
               unit={pos == null ? undefined : 'mm'}
               sub={pos == null
-                ? undefined
+                ? (connected ? 'waiting for position' : undefined)
                 : pctOfTravel == null || !hasLimits
                   ? pulseNum(pos)
                   : `${pulseNum(pos)} · ${pctOfTravel.toFixed(0)}% of travel`}
@@ -233,40 +248,6 @@ export function TrombonePage({ group }: TestPageProps) {
             />
           </StatRow>
 
-          {/* The bar only means something against known ends. */}
-          {hasLimits && (
-            <Box sx={{ mt: 1.25 }}>
-              <Box
-                sx={{
-                  position: 'relative', height: 6, borderRadius: 3,
-                  bgcolor: 'action.hover', overflow: 'hidden',
-                }}
-              >
-                {pctOfTravel != null && (
-                  <Box
-                    sx={{
-                      position: 'absolute', top: 0, bottom: 0, left: 0,
-                      width: `${pctOfTravel}%`,
-                      bgcolor: moving ? 'warning.main' : 'primary.main',
-                      transition: 'width 0.3s',
-                    }}
-                  />
-                )}
-              </Box>
-              <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
-                <Typography sx={{ fontSize: 12, color: 'text.secondary', fontFamily: MONO }}>
-                  {fmtMm(softMin)}
-                </Typography>
-                <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
-                  {fmtMm(travel)} of travel ({pulseNum(travel)})
-                </Typography>
-                <Typography sx={{ fontSize: 12, color: 'text.secondary', fontFamily: MONO }}>
-                  {fmtMm(softMax)}
-                </Typography>
-              </Stack>
-            </Box>
-          )}
-
           {s?.error && (
             <InstrumentError message={s.error} raw />
           )}
@@ -278,7 +259,7 @@ export function TrombonePage({ group }: TestPageProps) {
               <LabeledField
                 label="Target"
                 hint={hasLimits
-                  ? `${pulsesToMm(softMin).toFixed(2)} … ${pulsesToMm(softMax).toFixed(2)}`
+                  ? `${pulsesToMm(softMin).toFixed(2)} … ${pulsesToMm(softMax).toFixed(2)} mm`
                   : 'mm'}
                 type="number"
                 value={targetStr}
@@ -286,6 +267,9 @@ export function TrombonePage({ group }: TestPageProps) {
                 onChange={(e) => setTargetStr(e.target.value)}
                 onFocus={() => setTargetFocused(true)}
                 onBlur={() => setTargetFocused(false)}
+                // Capped: a millimetre target needs no more, and a field
+                // stretched to the card's width pushed Move to the far edge.
+                sx={{ maxWidth: 240 }}
                 error={targetOutOfRange || (!targetValid && targetStr.trim() !== '')}
                 // On the input's own row, through the kit's slot for it: a
                 // margin nudge to line it up was being reset by the Stack.
@@ -294,7 +278,7 @@ export function TrombonePage({ group }: TestPageProps) {
                     variant="contained"
                     onClick={() => moveM.mutate()}
                     disabled={!connected || busy || !targetInRange}
-                    startIcon={<HazardGlyph kind="move" />}
+                    startIcon={moveM.isPending ? <KeySpinner /> : <HazardGlyph kind="move" />}
                     sx={[{ width: ACTION_W.default, height: CONTROL_H.md, flexShrink: 0 }, hazardRingSx('move')]}
                   >
                     Move
@@ -328,48 +312,91 @@ export function TrombonePage({ group }: TestPageProps) {
           </Section>
 
           <Section
-            title="Jog"
+            title="Step"
             panel
-            hint={`Steps of ${JOG_STEP_MM} mm (${pulseNum(JOG_STEP_PULSES)}), clamped to the soft limits.`}
+            hint={hasLimits
+              ? `Steps of ${JOG_STEP_MM} mm (${pulseNum(JOG_STEP_PULSES)}), clamped to the soft limits.`
+              : `Steps of ${JOG_STEP_MM} mm. No soft limits set — travel is not bounded.`}
           >
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            {/* A fixed 2-column grid: the hold-to-jog pad and its speed across
+                the top, then the steps, then the ends. A wrapping row broke
+                3+1 at 1440 px and 2+2 at 1280. */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(2, ${ACTION_W.default}px)`, gap: 1 }}>
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <JogPad
+                  dir={jog.dir}
+                  focused={jog.focused}
+                  disabled={!connected || busy}
+                  onStart={jog.start}
+                  onStop={jog.stop}
+                  onKeyDown={jog.onKeyDown}
+                  onKeyUp={jog.onKeyUp}
+                  onFocusChange={jog.setFocused}
+                />
+              </Box>
+              {/* The speed applies to the hold-to-jog only, not to the steps
+                  or the moves. */}
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <SegmentedChoice
+                  text
+                  fullWidth
+                  size="md"
+                  aria-label="Jog speed"
+                  value={String(jogSpeed)}
+                  options={JOG_SPEEDS}
+                  onChange={(v) => setJogSpeed(Number(v))}
+                  disabled={!connected || busy}
+                />
+              </Box>
               <Button
                 variant="outlined"
-                startIcon={<ArrowBackIcon />}
+                startIcon={jogNegM.isPending ? <KeySpinner /> : <ArrowBackIcon />}
                 onClick={() => jogNegM.mutate()}
                 disabled={!connected || busy}
-                sx={[{ minWidth: ACTION_W.compact, height: CONTROL_H.md }, hazardRingSx('move')]}
+                aria-label={`Step down ${JOG_STEP_MM} mm`}
+                sx={[STEP_KEY_SX, hazardRingSx('move')]}
               >
-                Step down
+                −{JOG_STEP_MM} mm
               </Button>
               <Button
                 variant="outlined"
-                endIcon={<ArrowForwardIcon />}
+                endIcon={jogPosM.isPending ? <KeySpinner /> : <ArrowForwardIcon />}
                 onClick={() => jogPosM.mutate()}
                 disabled={!connected || busy}
-                sx={[{ minWidth: ACTION_W.compact, height: CONTROL_H.md }, hazardRingSx('move')]}
+                aria-label={`Step up ${JOG_STEP_MM} mm`}
+                sx={[STEP_KEY_SX, hazardRingSx('move')]}
               >
-                Step up
+                +{JOG_STEP_MM} mm
               </Button>
-              <Button
-                variant="outlined"
-                startIcon={<FirstPageIcon />}
-                onClick={() => goMinM.mutate()}
-                disabled={!connected || busy || !hasLimits}
-                sx={[{ minWidth: ACTION_W.compact, height: CONTROL_H.md }, hazardRingSx('move')]}
-              >
-                Go min
-              </Button>
-              <Button
-                variant="outlined"
-                endIcon={<LastPageIcon />}
-                onClick={() => goMaxM.mutate()}
-                disabled={!connected || busy || !hasLimits}
-                sx={[{ minWidth: ACTION_W.compact, height: CONTROL_H.md }, hazardRingSx('move')]}
-              >
-                Go max
-              </Button>
-            </Stack>
+              {/* The reason sits on a span: a disabled button fires no hover,
+                  so a tooltip on the button itself would never show. */}
+              <Tooltip title={hasLimits ? '' : 'No soft limits set'}>
+                <span>
+                  <Button
+                    variant="outlined"
+                    startIcon={goMinM.isPending ? <KeySpinner /> : <FirstPageIcon />}
+                    onClick={() => goMinM.mutate()}
+                    disabled={!connected || busy || !hasLimits}
+                    sx={[STEP_KEY_SX, hazardRingSx('move')]}
+                  >
+                    Go min
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title={hasLimits ? '' : 'No soft limits set'}>
+                <span>
+                  <Button
+                    variant="outlined"
+                    endIcon={goMaxM.isPending ? <KeySpinner /> : <LastPageIcon />}
+                    onClick={() => goMaxM.mutate()}
+                    disabled={!connected || busy || !hasLimits}
+                    sx={[STEP_KEY_SX, hazardRingSx('move')]}
+                  >
+                    Go max
+                  </Button>
+                </span>
+              </Tooltip>
+            </Box>
           </Section>
         </TwoCol>
       </PageBody>

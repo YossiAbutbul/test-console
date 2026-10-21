@@ -1,21 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box, Collapse, Drawer, IconButton, ListItemButton,
-  ListItemText, Popover, Stack, TextField, Tooltip, Typography,
+  ListItemText, MenuItem, MenuList, Popover, Stack, Switch, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { instrumentsApi } from '../api/instruments'
 import { STORAGE_KEYS } from '../store/keys'
 import { usePersistedState } from '../store/persistent'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import ChevronRightIcon from '@mui/icons-material/ChevronRight'
-import FolderIcon from '@mui/icons-material/Folder'
-import FolderOpenIcon from '@mui/icons-material/FolderOpen'
-import SettingsIcon from '@mui/icons-material/Settings'
-import CheckIcon from '@mui/icons-material/Check'
+import ChevronRightIcon from '@mui/icons-material/ChevronRightRounded'
+import ScienceIcon from '@mui/icons-material/ScienceRounded'
+import SettingsIcon from '@mui/icons-material/SettingsRounded'
+import CheckIcon from '@mui/icons-material/CheckRounded'
 import { useInstrumentsState } from '../context/InstrumentsContext'
 import { useThemeMode, type ThemePreference } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
-import { SIDEBAR_W, TOP_BAR_H } from '../ui/tokens'
+import { CONTROL_H, SIDEBAR_W, TOP_BAR_H } from '../ui/tokens'
 import { useShellLayout } from '../ui/useShellLayout'
 import { testRegistry } from '../tests/registry'
 import { useInstrumentsUnavailableReason } from '../context/CapabilitiesContext'
@@ -23,6 +21,7 @@ import type { TestModule } from '../tests/types'
 import { LatchingKey } from '../ui'
 import { useDutLink } from '../context/dutLink'
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
+import { selectOnFocus, useSelectOnFocusSetting } from '../lib/selectOnFocus'
 
 // Re-exported for the call sites that reach for them alongside Sidebar; the
 // values themselves live with the rest of the layout tokens.
@@ -37,6 +36,10 @@ interface SidebarProps {
   open: boolean
   /** Float over the page instead of holding a column of its own. */
   floating: boolean
+  /** Fold the floating sidebar away. While it floats it covers the toolbar's
+   *  logo toggle that opened it, so its own logo -- in the same spot -- is
+   *  the second press that closes it. */
+  onClose?: () => void
 }
 
 type ProtocolTree = Array<{
@@ -86,6 +89,10 @@ function DcSupplySection() {
   const p = getAppPalette(mode)
   const s = p.sidebar
   const { instruments } = useInstrumentsState()
+  // The key fills what the voltage field leaves of the footer line (16 px
+  // gutters, 80 px field, 8 px gap), so the two end flush at both edges.
+  const { sidebarW } = useShellLayout()
+  const keyW = sidebarW - 32 - 80 - 8
   const dcConnected = instruments['dc-analyzer']?.status === 'connected'
   const [enabled, setEnabled] = usePersistedState<boolean>(STORAGE_KEYS.dcSupplyEnabled, false)
   const [voltage, setVoltage] = usePersistedState<number>(STORAGE_KEYS.dcSupplyVoltage, 3.6)
@@ -143,9 +150,16 @@ function DcSupplySection() {
     : dcConnected ? (enabled ? 'DC analyzer supply is on' : 'Turn the DC analyzer supply on') : 'Connect the DC analyzer first'
   return (
     <Box sx={{ minWidth: 0 }}>
-      <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: s.textDim, mb: 0.5 }}>
-        DC supply
-      </Typography>
+      {/* The error mark sits on the label line, so the keys below it can take
+          the full width of the footer in two even parts. */}
+      <Stack direction="row" alignItems="center" sx={{ mb: 0.75, gap: 0.75 }}>
+        <Typography sx={{ fontSize: 12, fontWeight: 600, color: s.textDim }}>
+          DC supply
+        </Typography>
+        <Box sx={{ display: 'flex', color: p.data.bad, visibility: err ? 'visible' : 'hidden' }}>
+          <ErrorOutlineRoundedIcon sx={{ fontSize: 15 }} />
+        </Box>
+      </Stack>
       <Stack direction="row" alignItems="center" spacing={1}>
         <Tooltip title={reason} placement="top">
           <span>
@@ -154,8 +168,9 @@ function DcSupplySection() {
               onChange={onToggle}
               offLabel="Off"
               onLabel="On"
-              disabled={!dcConnected || busy}
-              width={96}
+              disabled={!dcConnected}
+              pending={busy}
+              width={keyW}
             />
           </span>
         </Tooltip>
@@ -167,14 +182,13 @@ function DcSupplySection() {
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commitVoltage}
           onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-          onFocus={(e) => (e.target as HTMLInputElement).select()}
+          onFocus={selectOnFocus}
           inputProps={{ step: 0.1, min: 0, max: 60, 'aria-label': 'DC supply voltage' }}
           InputProps={{ endAdornment: <Typography sx={{ fontSize: 12, color: s.textDim }}>V</Typography> }}
-          sx={{ width: 84, '& .MuiInputBase-root': { color: s.text } }}
+          // Tight inner padding: in a 240 px sidebar the default 14 px each
+          // side left room for one digit, and "3.6" read as "3".
+          sx={{ width: 80, '& .MuiInputBase-root': { color: s.text, pr: 1 }, '& input': { pl: 1.25, pr: 0.5 } }}
         />
-        <Box sx={{ width: 18, display: 'flex', color: p.data.bad, visibility: err ? 'visible' : 'hidden' }}>
-          <ErrorOutlineRoundedIcon sx={{ fontSize: 18 }} />
-        </Box>
       </Stack>
     </Box>
   )
@@ -191,7 +205,7 @@ function ScanTimeSetting() {
   const { duration, setDuration, isConnected, scanning } = useDutLink()
   return (
     <Box sx={{ px: 1.5, pt: 0.75, pb: 1 }}>
-      <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: s.textDim, mb: 0.5 }}>
+      <Typography sx={{ fontSize: 12, fontWeight: 600, color: s.textDim, mb: 0.5 }}>
         DUT scan time
       </Typography>
       <TextField
@@ -200,12 +214,38 @@ function ScanTimeSetting() {
         value={duration}
         disabled={isConnected || scanning}
         onChange={(e) => setDuration(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
-        onFocus={(e) => (e.target as HTMLInputElement).select()}
+        onFocus={selectOnFocus}
         inputProps={{ min: 1, max: 30, 'aria-label': 'DUT scan time in seconds' }}
         InputProps={{ endAdornment: <Typography sx={{ fontSize: 12, color: s.textDim }}>s</Typography> }}
         sx={{ width: 96, '& .MuiInputBase-root': { color: s.text } }}
       />
     </Box>
+  )
+}
+
+/** Whether clicking into a field selects its value. Off by default. */
+function SelectOnFocusSetting() {
+  const { mode } = useThemeMode()
+  const s = getAppPalette(mode).sidebar
+  const [on, setOn] = useSelectOnFocusSetting()
+  return (
+    // The whole row toggles, as a settings row does; the switch mirrors it.
+    <Stack
+      component="label"
+      direction="row"
+      alignItems="center"
+      sx={{ px: 1.5, py: 0.5, gap: 1, cursor: 'pointer', borderRadius: '6px', '&:hover': { bgcolor: s.hover } }}
+    >
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 500, color: s.text }}>
+          Select text on focus
+        </Typography>
+        <Typography sx={{ fontSize: 12, color: s.textDim }}>
+          Clicking a field selects its value
+        </Typography>
+      </Box>
+      <Switch size="small" checked={on} onChange={(e) => setOn(e.target.checked)} inputProps={{ 'aria-label': 'Select text on focus' }} />
+    </Stack>
   )
 }
 
@@ -216,11 +256,11 @@ function SettingsButton() {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   return (
     <>
-      <Tooltip title="Settings" placement="top">
+      <Tooltip title="Settings" placement="bottom">
         <IconButton
-          size="small"
+          aria-label="Settings"
           onClick={(e) => setAnchor(e.currentTarget)}
-          sx={{ color: s.textDim, '&:hover': { color: s.text, bgcolor: s.hover } }}
+          sx={{ color: s.textDim, mr: -0.75, '&:hover': { color: s.text, bgcolor: s.hover } }}
         >
           <SettingsIcon sx={{ fontSize: 18 }} />
         </IconButton>
@@ -230,50 +270,53 @@ function SettingsButton() {
         anchorEl={anchor}
         onClose={() => setAnchor(null)}
         keepMounted
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        transformOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
         slotProps={{
           paper: {
             sx: {
               minWidth: 240,
-              bgcolor: s.bg,
+              bgcolor: getAppPalette(mode).paper,
               color: s.text,
-              border: `1px solid ${s.border}`,
-              borderRadius: 2,
+              borderRadius: '10px',
               p: 1,
-              mt: -0.5,
+              mt: 0.5,
             },
           },
         }}
       >
         <ScanTimeSetting />
-        <Typography sx={{ px: 1.5, pt: 0.5, pb: 0.5, fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: s.textDim }}>
+        <SelectOnFocusSetting />
+        <Typography sx={{ px: 1.5, pt: 0.5, pb: 0.5, fontSize: 12, fontWeight: 600, color: s.textDim }}>
           Theme
         </Typography>
-        {THEME_OPTIONS.map((opt) => {
-          const sel = preference === opt.value
-          return (
-            <Stack
-              key={opt.value}
-              direction="row"
-              alignItems="center"
-              onClick={() => { setPreference(opt.value); setAnchor(null) }}
-              sx={{
-                px: 1.5, py: 0.85,
-                borderRadius: 1.25,
-                cursor: 'pointer',
-                color: s.text,
-                '&:hover': { bgcolor: s.hover },
-                gap: 1,
-              }}
-            >
-              <Typography sx={{ flexGrow: 1, fontSize: 13, fontWeight: sel ? 600 : 500 }}>
-                {opt.label}
-              </Typography>
-              {sel && <CheckIcon sx={{ fontSize: 16, color: s.accent }} />}
-            </Stack>
-          )
-        })}
+        {/* Real menu items, so the theme can be chosen from the keyboard and
+            a screen reader hears which one is on. They were clickable rows
+            with no role or tab stop. */}
+        <MenuList dense aria-label="Theme" sx={{ py: 0 }}>
+          {THEME_OPTIONS.map((opt) => {
+            const sel = preference === opt.value
+            return (
+              <MenuItem
+                key={opt.value}
+                role="menuitemradio"
+                aria-checked={sel}
+                onClick={() => { setPreference(opt.value); setAnchor(null) }}
+                sx={{
+                  px: 1.5, minHeight: CONTROL_H.md, borderRadius: '6px', color: s.text, gap: 1,
+                  // The hover row is the accent fill, so an accent check on
+                  // it vanished; it takes the row's text colour there.
+                  '&:hover .theme-check, &.Mui-focusVisible .theme-check': { color: 'inherit' },
+                }}
+              >
+                <Typography sx={{ flexGrow: 1, fontSize: 13, fontWeight: 500 }}>
+                  {opt.label}
+                </Typography>
+                <CheckIcon className="theme-check" sx={{ fontSize: 16, color: s.accent, visibility: sel ? 'visible' : 'hidden' }} />
+              </MenuItem>
+            )
+          })}
+        </MenuList>
       </Popover>
     </>
   )
@@ -282,21 +325,29 @@ function SettingsButton() {
 function StatusFoot() {
   const { mode } = useThemeMode()
   const s = getAppPalette(mode).sidebar
-  // The DUT's status used to live here; its connection controls are in the
-  // top bar now, so the footer holds the DC supply instead.
+  // The DC supply, in view on every page: it powers the DUT. The credit that
+  // used to float over the bottom-right corner of the window lives here too,
+  // where it no longer paints over the inspector.
   return (
-    <Box sx={{ px: 2, py: 1.25, borderTop: `1px solid ${s.border}` }}>
-      <Stack direction="row" alignItems="flex-end" spacing={1}>
-        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-          <DcSupplySection />
+    <Box sx={{ px: 2, pt: 1.25, pb: 1, borderTop: `1px solid ${s.border}` }}>
+      <DcSupplySection />
+      <Typography noWrap sx={{ fontSize: 12, color: s.textDim, mt: 1 }}>
+        © {new Date().getFullYear()}{' '}
+        <Box
+          component="a"
+          href="https://github.com/YossiAbutbul"
+          target="_blank"
+          rel="noopener noreferrer"
+          sx={{ color: s.textDim, textDecoration: 'none', fontWeight: 600, '&:hover': { textDecoration: 'underline', color: s.text } }}
+        >
+          Yossi Abutbul
         </Box>
-        <SettingsButton />
-      </Stack>
+      </Typography>
     </Box>
   )
 }
 
-export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
+export function Sidebar({ activeId, onSelect, open, floating, onClose }: SidebarProps) {
   const tree = useProtocolTree()
   const { sidebarW } = useShellLayout()
   const { mode } = useThemeMode()
@@ -312,32 +363,15 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
   const [initialMod] = useState(() => testRegistry.find((m) => m.id === activeId))
 
   const [expandedProto, setExpandedProto] = useState<Record<string, boolean>>(() => {
-    const out: Record<string, boolean> = {}
-    for (const p of PROTOCOLS) out[p] = false
-    // Root pages belong to no protocol, so fall back to the old default of
-    // opening the first one rather than leaving every branch shut.
-    if (initialMod && !initialMod.root) out[initialMod.protocol] = true
-    else out[PROTOCOLS[0]] = true
+    // Every section starts open: a flat list of a dozen rows fits the column,
+    // and a closed section hides the page you came for. The root pages
+    // (Components) fold too, under the key 'root'.
+    const out: Record<string, boolean> = { root: true }
+    for (const p of PROTOCOLS) out[p] = true
+    if (initialMod) out[initialMod.root ? 'root' : initialMod.protocol] = true
     return out
   })
-  const [expandedGroup, setExpandedGroup] = useState<Record<string, boolean>>(() => {
-    const out: Record<string, boolean> = {}
-    // A protocol's groups start open except its 'Other' drawer. Root groups
-    // (Components) start closed: they are rig tools rather than the tests
-    // most sessions come for, and open they push LTE and BLE off the bottom.
-    for (const p of tree) {
-      for (const g of p.groups) {
-        out[`${p.protocol ?? 'root'}/${g.group}`] = p.protocol != null && g.group !== 'Other'
-      }
-    }
-    // ...except the one holding the page on screen, which opens even if it is
-    // an 'Other' drawer.
-    if (initialMod) {
-      const proto = initialMod.root ? 'root' : initialMod.protocol
-      out[`${proto}/${initialMod.group ?? '_'}`] = true
-    }
-    return out
-  })
+  const toggleProto = (key: string) => setExpandedProto((st) => ({ ...st, [key]: !st[key] }))
   return (
     <Drawer
       variant="persistent"
@@ -356,169 +390,159 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
         '& .MuiDrawer-paper': {
           width: sidebarW,
           boxSizing: 'border-box',
-          bgcolor: getAppPalette(mode).logBg,
+          bgcolor: s.bg,
           color: s.text,
           border: 0,
-          ...(floating
-            ? {
-                borderRight: `1px solid ${s.border}`,
-                boxShadow: '8px 0 24px rgba(0,0,0,0.18)',
-              }
-            : null),
-          top: TOP_BAR_H,
-          height: `calc(100vh - ${TOP_BAR_H}px)`,
+          borderRight: `1px solid ${s.border}`,
+          ...(floating ? { boxShadow: '8px 0 24px rgba(0,0,0,0.18)' } : null),
+          // Full height, as a macOS sidebar: the window toolbar starts at its
+          // edge rather than running across it.
+          top: 0,
+          height: '100vh',
           display: 'flex', flexDirection: 'column',
           zIndex: (t) => t.zIndex.drawer + 1,
         },
       }}
     >
-      <Box sx={{ flexGrow: 1, overflowY: 'auto', py: 1.5 }}>
-        {/* No Instruments entry here: the top bar's Instruments lamp opens the
-            same panel and shows the count, so a second way in only repeated
-            it. Protocols with no pages yet (BLE) are not listed: a greyed
-            "coming soon" row was a control that did nothing. */}
+      <Stack direction="row" alignItems="center" sx={{ height: TOP_BAR_H, px: 2, gap: 1.25, flexShrink: 0 }}>
+        {floating && onClose ? (
+          // The same key, at the same place, as the toolbar's logo toggle the
+          // floating sidebar now covers: pressing it again closes the menu.
+          <Tooltip title="Hide menu" placement="bottom-start">
+            <IconButton aria-label="Hide menu" aria-expanded onClick={onClose} sx={{ ml: -0.5, mr: -0.75 }}>
+              <Box
+                sx={{
+                  width: 26, height: 26, borderRadius: '7px',
+                  bgcolor: s.text, color: s.bg,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <ScienceIcon sx={{ fontSize: 16 }} />
+              </Box>
+            </IconButton>
+          </Tooltip>
+        ) : (
+          <Box
+            sx={{
+              width: 26, height: 26, borderRadius: '7px', flexShrink: 0,
+              bgcolor: s.text, color: s.bg,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <ScienceIcon sx={{ fontSize: 16 }} />
+          </Box>
+        )}
+        <Typography noWrap sx={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.01em', flexGrow: 1 }}>
+          Test Console
+        </Typography>
+        {/* Settings with the app's name, as an app's preferences sit with its
+            name in macOS. In the footer it was a 28 px glyph wedged beside the
+            DC supply keys, none of them the same size. */}
+        <SettingsButton />
+      </Stack>
+      <Box component="nav" aria-label="Pages" sx={{ flexGrow: 1, overflowY: 'auto', px: 1.25, pb: 1.5 }}>
+        {/* Sections, not a folder tree. The protocol is the section header;
+            its groups (TX, Other) were a second level of folders that each
+            held a handful of rows, and opening one was a click spent on
+            finding a page rather than on using it. Protocols with no pages yet
+            (BLE) are not listed: a greyed "coming soon" row was a control that
+            did nothing. */}
         {tree.filter((p) => p.groups.length > 0).map(({ protocol, groups }) => {
-          // Root entry: no protocol row to expand, and always open.
           const isRoot = protocol == null
           const pkey = protocol ?? 'root'
-          const protoExp = isRoot ? true : (expandedProto[pkey] ?? true)
-          const protoActive = groups.some((g) => g.mods.some((m) => m.id === activeId))
-          const empty = groups.length === 0
+          const protoExp = expandedProto[pkey] ?? true
+          const mods = groups.flatMap((g) => g.mods)
+          const heading = isRoot ? (groups[0]?.group ?? 'Components') : protocol
+          const headerProps = {
+            role: 'button' as const,
+            tabIndex: 0,
+            'aria-expanded': protoExp,
+            // A plain toggle, not an accordion: comparing two protocols means
+            // having both open.
+            onClick: () => toggleProto(pkey),
+            onKeyDown: (e: React.KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                toggleProto(pkey)
+              }
+            },
+          }
           return (
-            <Box key={pkey} sx={{ mb: 0.5 }}>
-              {!isRoot && (
+            <Box key={pkey} sx={{ mt: 1.5 }}>
               <Stack
                 direction="row"
                 alignItems="center"
-                // A plain toggle, not an accordion. Opening one protocol used
-                // to close the others, which undid the branch the operator had
-                // just been working in every time they looked at another one --
-                // and comparing two protocols means having both open.
-                onClick={() => setExpandedProto((st) => ({ ...st, [pkey]: !st[pkey] }))}
+                {...headerProps}
                 sx={{
-                  mx: 1.5,
-                  mb: 0.25,
-                  px: 1.25,
-                  height: 36,
-                  borderRadius: 1.5,
+                  px: 1, height: 26, borderRadius: '6px',
+                  color: s.textDim,
                   cursor: 'pointer',
-                  // A protocol with no pages yet is quiet by colour, not by 50 %
-                  // opacity: faded that way its label fell to 3.8:1 in Light.
-                  color: empty ? 'text.disabled' : protoActive ? s.text : s.textDim,
-                  '&:hover': { bgcolor: s.hover, color: empty ? 'text.disabled' : s.text },
-                  gap: 1,
+                  // The chevron shows on hover, as in Finder: a section header
+                  // that always carried one read as a control first and a
+                  // heading second. A closed section keeps it, as the sign
+                  // there is more inside.
+                  '& .sb-chev': { opacity: protoExp ? 0 : 1, transition: 'opacity .15s' },
+                  '&:hover .sb-chev, &:focus-visible .sb-chev': { opacity: 1 },
+                  '&:focus-visible': { outline: 'none', bgcolor: s.hover },
                 }}
               >
-                {protoExp ? <FolderOpenIcon sx={{ fontSize: 15 }} /> : <FolderIcon sx={{ fontSize: 15 }} />}
-                <Typography sx={{ flexGrow: 1, fontSize: 13.5, fontWeight: 600 }}>
-                  {protocol}
-                </Typography>
-                {empty && (
-                  <Typography sx={{ fontSize: 12, color: 'text.disabled', fontStyle: 'italic' }}>
-                    coming soon
-                  </Typography>
-                )}
-                {!empty && (
-                  protoExp
-                    ? <ExpandMoreIcon sx={{ fontSize: 16, color: s.textDim }} />
-                    : <ChevronRightIcon sx={{ fontSize: 16, color: s.textDim }} />
-                )}
-              </Stack>
-              )}
-              <Collapse in={protoExp && !empty} unmountOnExit>
-                <Box sx={{ pl: isRoot ? 0 : 1.5, position: 'relative' }}>
-                  {/* The guide line marks nesting under a protocol; at the root
-                      there is nothing to nest under. */}
-                  {!isRoot && (
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        left: 18, top: 4, bottom: 4,
-                        width: '1px',
-                        bgcolor: s.border,
-                      }}
-                    />
-                  )}
-                  {groups.map(({ group, mods }) => {
-                    const hasGroup = group !== '_'
-                    const key = `${pkey}/${group}`
-                    const groupExp = expandedGroup[key] ?? true
-                    const groupActive = mods.some((m) => m.id === activeId)
-                    return (
-                      <Box key={group} sx={{ mb: 1 }}>
-                        {hasGroup && (
-                          <Stack
-                            direction="row"
-                            alignItems="center"
-                            onClick={() => setExpandedGroup((st) => ({ ...st, [key]: !st[key] }))}
-                            sx={{
-                              mx: 1.5,
-                              px: 1.25,
-                              height: 36,
-                              borderRadius: 1.5,
-                              cursor: 'pointer',
-                              color: groupActive ? s.text : s.textDim,
-                              '&:hover': { bgcolor: s.hover, color: s.text },
-                              gap: 1,
-                            }}
-                          >
-                            {groupExp ? <FolderOpenIcon sx={{ fontSize: 14 }} /> : <FolderIcon sx={{ fontSize: 14 }} />}
-                            <Typography sx={{ flexGrow: 1, fontSize: 12, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>
-                              {group}
-                            </Typography>
-                            {groupExp ? <ExpandMoreIcon sx={{ fontSize: 14, color: s.textDim }} /> : <ChevronRightIcon sx={{ fontSize: 14, color: s.textDim }} />}
-                          </Stack>
-                        )}
-                        <Collapse in={!hasGroup || groupExp} unmountOnExit>
-                          <Box sx={{ pl: hasGroup ? 2 : 0 }}>
-                            {mods.map((m) => {
-                              const sel = m.id === activeId
-                              // Greyed out rather than hidden, so the sidebar
-                              // reads the same on a PC without a rig and the
-                              // tooltip can say what is missing.
-                              const blocked = m.requiresInstruments ? noInstruments : null
-                              return (
-                                <Box key={m.id} sx={{ px: 1.5 }}>
-                                  <Tooltip
-                                    title={blocked ?? ''}
-                                    placement="right"
-                                    // A disabled button fires no pointer events,
-                                    // so the tooltip has to listen on the wrapper.
-                                    disableHoverListener={!blocked}
-                                  >
-                                    <Box>
-                                      <ListItemButton
-                                        disableRipple
-                                        disabled={!!blocked}
-                                        onClick={() => onSelect(m.id)}
-                                        sx={{
-                                          borderRadius: 1.5,
-                                          px: 1.5,
-                                          mx: 0,
-                                          height: 36,
-                                          my: 0.25,
-                                          color: sel ? s.text : s.textDim,
-                                          bgcolor: sel ? s.accentSoft : 'transparent',
-                                          '&:hover': { bgcolor: sel ? s.accentSoftHover : s.hover, color: s.text },
-                                          '&.Mui-disabled': { opacity: 0.38 },
-                                        }}
-                                      >
-                                        <ListItemText
-                                          primary={m.label}
-                                          primaryTypographyProps={{ fontSize: 14, fontWeight: sel ? 600 : 500 }}
-                                        />
-                                      </ListItemButton>
-                                    </Box>
-                                  </Tooltip>
-                                </Box>
-                              )
-                            })}
-                          </Box>
-                        </Collapse>
-                      </Box>
-                    )
-                  })}
+                <Typography sx={{ flexGrow: 1, fontSize: 12, fontWeight: 600 }}>{heading}</Typography>
+                <Box
+                  className="sb-chev"
+                  component="span"
+                  sx={{ display: 'flex', transform: protoExp ? 'rotate(90deg)' : 'none', transition: 'transform .18s, opacity .15s' }}
+                >
+                  <ChevronRightIcon sx={{ fontSize: 16 }} />
                 </Box>
+              </Stack>
+              <Collapse in={protoExp} unmountOnExit>
+                {mods.map((m) => {
+                  const sel = m.id === activeId
+                  // Greyed out rather than hidden, so the sidebar reads the
+                  // same on a PC without a rig and the tooltip can say what is
+                  // missing.
+                  const blocked = m.requiresInstruments ? noInstruments : null
+                  return (
+                    <Tooltip
+                      key={m.id}
+                      title={blocked ?? ''}
+                      placement="right"
+                      // A disabled button fires no pointer events, so the
+                      // tooltip has to listen on the wrapper.
+                      disableHoverListener={!blocked}
+                    >
+                      <Box>
+                        <ListItemButton
+                          disableRipple
+                          disabled={!!blocked}
+                          selected={sel}
+                          aria-current={sel ? 'page' : undefined}
+                          onClick={() => onSelect(m.id)}
+                          sx={{
+                            borderRadius: '6px',
+                            px: 1, mx: 0, my: '1px',
+                            height: 30,
+                            gap: 1,
+                            color: s.text,
+                            '&:hover': { bgcolor: sel ? s.accentSoftHover : s.hover },
+                            '&.Mui-disabled': { opacity: 0.38 },
+                          }}
+                        >
+                          <Box
+                            component="span"
+                            sx={{ display: 'flex', width: 18, justifyContent: 'center', color: s.accent, '& svg': { fontSize: 17 } }}
+                          >
+                            {m.icon}
+                          </Box>
+                          <ListItemText
+                            primary={m.label}
+                            primaryTypographyProps={{ fontSize: 13.5, fontWeight: sel ? 600 : 400, noWrap: true }}
+                          />
+                        </ListItemButton>
+                      </Box>
+                    </Tooltip>
+                  )
+                })}
               </Collapse>
             </Box>
           )

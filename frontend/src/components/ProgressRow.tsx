@@ -25,7 +25,7 @@ function fmtElapsed(ms: number): string {
 function Stat({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <Box sx={{ flex: 1, minWidth: 0 }}>
-      <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         {label}
       </Typography>
       <Typography
@@ -93,7 +93,7 @@ export function ProgressRow({
             color={cancelling ? 'warning' : (STATE_COLOR[state] ?? 'default')}
             label={cancelling ? 'cancelling' : state}
             sx={{
-              textTransform: 'uppercase', fontWeight: 600, letterSpacing: 0.5, height: 22,
+              fontWeight: 600, height: 22,
               animation: cancelling ? 'tcPulse 1s ease-in-out infinite' : undefined,
               '@keyframes tcPulse': {
                 '0%, 100%': { opacity: 1 },

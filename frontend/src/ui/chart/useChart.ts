@@ -44,7 +44,8 @@ export function useChartTheme(): ChartTheme {
       axis: p.chart.axis,
       background: p.paper,
       text: p.sidebar.text,
-      tick: { fontSize: 11, fill: p.chart.axis },
+      // The 12 px floor holds on charts too.
+      tick: { fontSize: 12, fill: p.chart.axis },
       axisStroke: p.chart.axis,
       labelStyle: { fontSize: 12, fill: p.chart.axis },
       tooltipStyle: {

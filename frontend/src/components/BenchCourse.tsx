@@ -3,7 +3,7 @@ import {
   useInstrumentsActions, useInstrumentsState, type InstrumentId,
 } from '../context/InstrumentsContext'
 import { usePathLoss } from '../context/PathLossContext'
-import { CheckRail, CheckStep, type CheckState } from '../ui'
+import { scrollBehavior, CheckRail, CheckStep, type CheckState } from '../ui'
 import { PathLossModal } from './PathLossModal'
 import type { CourseStep } from './courseSteps'
 
@@ -109,7 +109,7 @@ export function BenchCourse({
     if (s.id === 'path-loss') return () => setTableOpen(true)
     if (s.targetId) {
       const id = s.targetId
-      return () => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      return () => document.getElementById(id)?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
     }
     return undefined
   }

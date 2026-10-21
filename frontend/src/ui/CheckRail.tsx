@@ -107,6 +107,8 @@ export function CheckStep({ state, label, summary, selected, onClick }: CheckSte
       onClick={onClick}
       aria-expanded={onClick ? !!selected : undefined}
       aria-label={`${label}: ${STATE_WORD[state]}`}
+      // The summary hides on a narrow rail; it stays readable on hover.
+      title={typeof summary === 'string' ? summary : undefined}
       sx={{
         display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 1.25,
         minWidth: 0, px: 1.5, py: 1.1, textAlign: 'left',
@@ -160,7 +162,13 @@ export function CheckRail({ children }: { children: ReactNode }) {
           gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
           ml: '-1px', mt: '-1px',
           '& > *': { borderLeft: 1, borderTop: 1, borderColor: 'divider' },
-          '@container (max-width: 760px)': { '& .check-summary': { display: 'none' } },
+          // Narrow: summaries drop out and the steps narrow to their marks and
+          // labels, so five checks still sit on one line at 1280 px with the
+          // inspector open (at 150 px each they wrapped an orphan to a row).
+          '@container (max-width: 760px)': {
+            gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))',
+            '& .check-summary': { display: 'none' },
+          },
         }}
       >
         {children}

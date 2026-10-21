@@ -4,15 +4,15 @@ import { MONO } from './tokens'
 /**
  * Body cell style for a measured or set number.
  *
- * Right-aligned with tabular figures, so a column of 9.60 / 11.42 / 13.24
- * lines up on the decimal and a short value never reads as a different
- * magnitude. Results tables used to set these left-aligned, which made a
- * column of dBm values a ragged edge to compare by eye.
+ * Left-aligned, as the operator asked, under a left-aligned heading: every
+ * column of every table starts on one edge. Mono with tabular figures, so
+ * values with the same number of places still line up digit for digit (a
+ * ragged left edge was the reason they were once right-aligned).
  */
 export const NUM_CELL_SX = {
   fontFamily: MONO,
   fontVariantNumeric: 'tabular-nums',
-  textAlign: 'right',
+  textAlign: 'left',
   whiteSpace: 'nowrap',
 } as const
 

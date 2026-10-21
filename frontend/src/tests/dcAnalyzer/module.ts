@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import BatteryChargingFullIcon from '@mui/icons-material/BatteryChargingFull'
+import BatteryChargingFullIcon from '@mui/icons-material/BatteryChargingFullRounded'
 import type { TestModule } from '../types'
 import { DcAnalyzerPage } from './DcAnalyzerPage'
 

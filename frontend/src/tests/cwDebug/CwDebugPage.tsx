@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { Box, MenuItem } from '@mui/material'
+import { Box, MenuItem, Typography } from '@mui/material'
 import { PageHeader } from '../../components/PageHeader'
-import { BenchCourse } from '../../components/BenchCourse'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
@@ -13,7 +12,7 @@ import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
 import {
-  FieldGrid, LastFrameSection, PageBody, Section, SendStopControls,
+  FieldGrid, LastFrameSection, PageBody, Section, SendStopControls, TEXT,
 } from '../../ui'
 
 /** This page measures what it transmits, so the readings need these up. */
@@ -31,8 +30,11 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
+  // Display only: a Send the preflight called off. It returns no error, so
+  // without this the page showed nothing and the reason was only in the log.
+  const [cancelled, setCancelled] = useState(false)
 
-  // PA Duty Cycle and HP Max are valid only in 1..7 (0 doesn't work on the DUT).
+  // PA duty cycle and HP max are valid only in 1..7 (0 doesn't work on the DUT).
   const inRange = (v: number) => Number.isInteger(v) && v >= 1 && v <= 7
   const inRangeStr = (s: string) => s.trim() !== '' && inRange(Number(s))
   const dutyValid = inRangeStr(duty)
@@ -45,6 +47,7 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
   })
 
   const send = useMutation({
+    onMutate: () => setCancelled(false),
     mutationFn: async () => {
       if (!hasBackend) {
         log('DUT', `${protocol} Debug: no backend wired yet`, 'warn')
@@ -53,6 +56,7 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
       // Connect before keying the PA — see PowerPage.send.
       if (!(await preflight.run())) {
         log('DUT', 'Send cancelled — instruments not ready', 'warn')
+        setCancelled(true)
         return null
       }
       return device.loraCw({ freq_hz: Math.round(freqMhz * 1_000_000), power_dbm: power, pa_duty_cycle: Number(duty), hp_max: Number(hp), pa_mode: paMode })
@@ -81,6 +85,15 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
 
   const busy = send.isPending || stop.isPending
 
+  // The latest Send/Stop outcome that did not go through, said on the page as
+  // well as in the log. Whichever was pressed last wins.
+  const lastFailed = send.submittedAt >= stop.submittedAt ? send : stop
+  const outcome = lastFailed.error
+    ? { text: `failed · ${lastFailed.error.message}`, color: 'error.main' }
+    : cancelled && !send.isPending
+      ? { text: 'cancelled · instruments not ready', color: 'text.secondary' }
+      : null
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
       <PageHeader
@@ -93,36 +106,43 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
             sending={send.isPending}
             stopping={stop.isPending}
             canSend={dutyValid && hpValid}
+            sendDisabledReason="PA duty cycle and HP max must be 1–7"
             onSend={() => send.mutate()}
             onStop={() => stop.mutate()}
           />
         }
       />
 
-      <BenchCourse instruments={REQUIRED_INSTRUMENTS} freqsMhz={[freqMhz]} />
-
       <PageBody width="fluid">
-        <Section title="Transmit" panel>
+        <Section
+          title="Transmit"
+          panel
+          // In the heading row, which is there anyway, so the line costs no
+          // height and nothing under it moves when it appears.
+          action={
+            <Typography
+              role="status"
+              title={outcome?.text}
+              sx={{
+                ...TEXT.hint, fontWeight: 600, color: outcome?.color,
+                minWidth: 0, maxWidth: '60%',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}
+            >
+              {outcome?.text}
+            </Typography>
+          }
+        >
+          {/* Radio settings first, PA trims after, so the second row is the
+              pair that belongs together rather than a ragged leftover. */}
           <FieldGrid>
             <LabeledField label="Frequency" hint="MHz" type="number" value={freqMhz}
               onChange={(e) => setFreqMhz(Number(e.target.value))}
               inputProps={{ step: 0.1 }} />
             <LabeledField label="Power" hint="dBm" type="number" value={power}
               onChange={(e) => setPower(Number(e.target.value))} />
-            <LabeledField label="PA Duty Cycle" hint="1–7" type="number" value={duty}
-              inputProps={{ min: 1, max: 7 }}
-              error={!dutyValid}
-              {...focusBind('duty')}
-              InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(duty, dutyValid, focusKey === 'duty')} message={duty.trim() === '' ? 'Enter a value' : 'Allowed range: 1–7'} /> }}
-              onChange={(e) => setDuty(e.target.value)} />
-            <LabeledField label="HP Max" hint="1–7" type="number" value={hp}
-              inputProps={{ min: 1, max: 7 }}
-              error={!hpValid}
-              {...focusBind('hp')}
-              InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(hp, hpValid, focusKey === 'hp')} message={hp.trim() === '' ? 'Enter a value' : 'Allowed range: 1–7'} /> }}
-              onChange={(e) => setHp(e.target.value)} />
             <LabeledField
-              label="PA Mode"
+              label="PA mode"
               select
               value={paMode}
               onChange={(e) => setPaMode(Number(e.target.value))}
@@ -131,6 +151,18 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
               <MenuItem value={1}>On</MenuItem>
               <MenuItem value={0}>Off</MenuItem>
             </LabeledField>
+            <LabeledField label="PA duty cycle" hint="1–7" type="number" value={duty}
+              inputProps={{ min: 1, max: 7 }}
+              error={!dutyValid}
+              {...focusBind('duty')}
+              InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(duty, dutyValid, focusKey === 'duty')} message={duty.trim() === '' ? 'Enter a value' : 'Allowed range: 1–7'} /> }}
+              onChange={(e) => setDuty(e.target.value)} />
+            <LabeledField label="HP max" hint="1–7" type="number" value={hp}
+              inputProps={{ min: 1, max: 7 }}
+              error={!hpValid}
+              {...focusBind('hp')}
+              InputProps={{ endAdornment: <ValidationAdornment show={shouldShowValidation(hp, hpValid, focusKey === 'hp')} message={hp.trim() === '' ? 'Enter a value' : 'Allowed range: 1–7'} /> }}
+              onChange={(e) => setHp(e.target.value)} />
           </FieldGrid>
         </Section>
 

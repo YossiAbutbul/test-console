@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import CellTowerIcon from '@mui/icons-material/CellTower'
+import SettingsInputAntennaIcon from '@mui/icons-material/SettingsInputAntennaRounded'
 import type { TestModule } from '../types'
 import { SignalGeneratorPage } from './SignalGeneratorPage'
 
@@ -12,7 +12,7 @@ export const signalGeneratorModule: TestModule = {
   protocol: 'LoRa',
   root: true,
   group: 'Components',
-  icon: createElement(CellTowerIcon, { fontSize: 'small' }),
+  icon: createElement(SettingsInputAntennaIcon, { fontSize: 'small' }),
   Page: SignalGeneratorPage,
   // Drives the generator over RS-232; nothing here talks to the DUT.
   requiresConnection: false,

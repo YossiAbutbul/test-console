@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import BoltIcon from '@mui/icons-material/Bolt'
+import BoltIcon from '@mui/icons-material/BoltRounded'
 import type { TestModule } from '../types'
 import { PowerPage } from './PowerPage'
 

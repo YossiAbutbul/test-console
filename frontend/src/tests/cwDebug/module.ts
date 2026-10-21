@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import WifiTetheringIcon from '@mui/icons-material/WifiTethering'
+import BugReportIcon from '@mui/icons-material/BugReportRounded'
 import type { TestModule } from '../types'
 import { CwDebugPage } from './CwDebugPage'
 
@@ -8,7 +8,7 @@ export const cwDebugModule: TestModule = {
   label: 'Debug',
   protocol: 'LoRa',
   group: 'TX',
-  icon: createElement(WifiTetheringIcon, { fontSize: 'small' }),
+  icon: createElement(BugReportIcon, { fontSize: 'small' }),
   Page: CwDebugPage,
   requiresConnection: true,
 }

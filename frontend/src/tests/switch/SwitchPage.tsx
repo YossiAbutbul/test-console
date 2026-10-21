@@ -1,23 +1,25 @@
 import { useEffect, useState } from 'react'
 import {
-  Autocomplete, Box, Button, IconButton, Stack, TextField, Typography,
+  Autocomplete, Box, Button, Stack, TextField, Tooltip, Typography,
 } from '@mui/material'
-import SaveIcon from '@mui/icons-material/Save'
-import AddIcon from '@mui/icons-material/Add'
-import RemoveIcon from '@mui/icons-material/Remove'
+import SaveIcon from '@mui/icons-material/SaveRounded'
+import AddIcon from '@mui/icons-material/AddRounded'
+import RemoveIcon from '@mui/icons-material/RemoveRounded'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { servo, type ServoTarget } from '../../api/servo'
 import { useLog } from '../../context/LogContext'
 import { DASH } from '../../lib/format'
 import {
-  ACTION_W, CONTROL_H, InstrumentBar, MiniAction, MONO, PageBody, Section,
+  ACTION_W, CONTROL_H, InstrumentBar, KeySpinner, MONO, PageBody, Section,
+  actionSx,
   StatRow, StatTile, TEXT, TwoCol,
   HazardGlyph, hazardRingSx,
   InstrumentError,
 } from '../../ui'
 import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
+import { selectOnFocus } from '../../lib/selectOnFocus'
 
 /** Slower than the trombone: the servo only reports its last commanded angle,
  *  so there is nothing to track mid-move. */
@@ -133,11 +135,31 @@ export function SwitchPage({ group }: TestPageProps) {
   const statusDetail = [s?.port, s?.idn].filter(Boolean).join(' · ')
   const nudge = (by: number) => setAngle((a) => clampAngle(a + by))
 
+  // A square outlined key at the angle field's height, so the row reads as one
+  // line of controls -- the same Button as every other key, not a hand-drawn
+  // bordered IconButton.
   const nudgeSx = {
-    // The angle field's height, so the row reads as one line of controls.
-    width: CONTROL_H.md, height: CONTROL_H.md, borderRadius: 1,
-    border: 1, borderColor: 'divider',
-  }
+    width: CONTROL_H.md, minWidth: CONTROL_H.md, height: CONTROL_H.md, px: 0,
+    fontSize: 12.5, fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+  } as const
+  const nudgeKey = (by: number, label: string, tip: string, aria: string, Icon?: typeof AddIcon) => (
+    <Tooltip title={tip}>
+      <span>
+        <Button
+          variant="outlined"
+          sx={nudgeSx}
+          disabled={!connected || busy || (by < 0 ? angle <= ANGLE_MIN : angle >= ANGLE_MAX)}
+          onClick={() => nudge(by)}
+          aria-label={aria}
+        >
+          {Icon ? <Icon sx={{ fontSize: 16 }} /> : label}
+        </Button>
+      </span>
+    </Tooltip>
+  )
+  // Which key started the pending mutation, so only that one spins.
+  const gotoPending = (t: ServoTarget) => gotoM.isPending && gotoM.variables === t
+  const savePending = (t: ServoTarget) => saveM.isPending && saveM.variables === t
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
@@ -157,7 +179,9 @@ export function SwitchPage({ group }: TestPageProps) {
           onDisconnect={() => disconnectM.mutate()}
           config={
             <Box>
-              <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>Port</Typography>
+              {/* Set like LabeledField's label, so this dialog reads like the
+                  forms on the pages. */}
+              <Typography sx={{ ...TEXT.label, color: 'text.primary', mb: 0.5 }}>Port</Typography>
               <Autocomplete
                 size="small"
                 freeSolo
@@ -189,8 +213,9 @@ export function SwitchPage({ group }: TestPageProps) {
             />
             <StatTile
               label="Angle"
-              value={lastAngle == null ? DASH : String(lastAngle)}
-              unit={lastAngle == null ? undefined : '°'}
+              // The degree sign belongs to the number: as a unit it sat a
+              // space away ("124 °").
+              value={lastAngle == null ? DASH : `${lastAngle}°`}
               // Not a gap in the readout: the preset position lives on the
               // Arduino, so the host genuinely does not know the angle.
               sub={lastAngle == null && path != null && path !== 'Manual'
@@ -207,22 +232,26 @@ export function SwitchPage({ group }: TestPageProps) {
 
         <TwoCol stretch>
           {/* The everyday operation: two paths, one button each. */}
+          {/* All three servo keys (Go VNA, Go PCB, Move) are the same grey
+              hazard key. A filled Go key used to mean "current path" while a
+              filled Move meant "primary" -- one colour, two meanings. The
+              Selected tile is what says which path is on. */}
           <Section title="Presets" panel hint="Positions stored on the servo itself.">
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Button
-                variant={path === 'VNA' ? 'contained' : 'outlined'}
+                variant="outlined"
                 onClick={() => gotoM.mutate('VNA')}
                 disabled={!connected || busy}
-                startIcon={<HazardGlyph kind="path" />}
+                startIcon={gotoPending('VNA') ? <KeySpinner /> : <HazardGlyph kind="path" />}
                 sx={[{ width: ACTION_W.default, height: CONTROL_H.md }, hazardRingSx('path')]}
               >
                 Go VNA
               </Button>
               <Button
-                variant={path === 'PCB' ? 'contained' : 'outlined'}
+                variant="outlined"
                 onClick={() => gotoM.mutate('PCB')}
                 disabled={!connected || busy}
-                startIcon={<HazardGlyph kind="path" />}
+                startIcon={gotoPending('PCB') ? <KeySpinner /> : <HazardGlyph kind="path" />}
                 sx={[{ width: ACTION_W.default, height: CONTROL_H.md }, hazardRingSx('path')]}
               >
                 Go PCB
@@ -233,20 +262,14 @@ export function SwitchPage({ group }: TestPageProps) {
           {/* Calibration: drive to an angle, then store it as a preset. Save
               records wherever the servo is standing, so it belongs here rather
               than beside the Go buttons it looks like it matches. */}
-          <Section title="Manual angle" panel hint={`${ANGLE_MIN}–${ANGLE_MAX}°, then store it as a preset.`}>
-            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 1.25 }}>
-              <IconButton
-                size="small" sx={nudgeSx} disabled={!connected || busy || angle <= ANGLE_MIN}
-                onClick={() => nudge(-10)} aria-label="minus ten degrees"
-              >
-                <Typography sx={{ fontSize: 12, fontWeight: 700 }}>10</Typography>
-              </IconButton>
-              <IconButton
-                size="small" sx={nudgeSx} disabled={!connected || busy || angle <= ANGLE_MIN}
-                onClick={() => nudge(-1)} aria-label="minus one degree"
-              >
-                <RemoveIcon sx={{ fontSize: 15 }} />
-              </IconButton>
+          <Section
+            title="Manual angle"
+            panel
+            hint={`Move to an angle from ${ANGLE_MIN} to ${ANGLE_MAX}°, then store the current position as a preset.`}
+          >
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
+              {nudgeKey(-10, '−10', '−10°', 'minus ten degrees')}
+              {nudgeKey(-1, '−1', '−1°', 'minus one degree', RemoveIcon)}
               <TextField
                 size="small"
                 type="number"
@@ -255,7 +278,7 @@ export function SwitchPage({ group }: TestPageProps) {
                   const n = Number(e.target.value)
                   if (Number.isFinite(n)) setAngle(clampAngle(n))
                 }}
-                onFocus={(e) => (e.target as HTMLInputElement).select()}
+                onFocus={selectOnFocus}
                 inputProps={{ min: ANGLE_MIN, max: ANGLE_MAX, step: 1 }}
                 disabled={!connected || busy}
                 sx={{
@@ -263,49 +286,42 @@ export function SwitchPage({ group }: TestPageProps) {
                   '& input': { fontFamily: MONO, textAlign: 'center', fontWeight: 600 },
                 }}
               />
-              <IconButton
-                size="small" sx={nudgeSx} disabled={!connected || busy || angle >= ANGLE_MAX}
-                onClick={() => nudge(1)} aria-label="plus one degree"
-              >
-                <AddIcon sx={{ fontSize: 15 }} />
-              </IconButton>
-              <IconButton
-                size="small" sx={nudgeSx} disabled={!connected || busy || angle >= ANGLE_MAX}
-                onClick={() => nudge(10)} aria-label="plus ten degrees"
-              >
-                <Typography sx={{ fontSize: 12, fontWeight: 700 }}>10</Typography>
-              </IconButton>
+              {nudgeKey(1, '+1', '+1°', 'plus one degree', AddIcon)}
+              {nudgeKey(10, '+10', '+10°', 'plus ten degrees')}
               <Box sx={{ flexGrow: 1 }} />
               <Button
-                variant="contained"
+                variant="outlined"
                 onClick={() => moveM.mutate()}
                 disabled={!connected || busy}
                 // Drives the servo, so it is a hazard key like Go VNA / Go PCB.
-                startIcon={<HazardGlyph kind="path" />}
+                startIcon={moveM.isPending ? <KeySpinner /> : <HazardGlyph kind="path" />}
                 sx={[{ width: ACTION_W.default, height: CONTROL_H.md }, hazardRingSx('path')]}
               >
                 Move
               </Button>
             </Stack>
 
-            <Stack direction="row" spacing={0.5} alignItems="center">
-              <Typography sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5 }}>
-                Store current position as
-              </Typography>
-              <MiniAction
-                startIcon={<SaveIcon sx={{ fontSize: 15 }} />}
+            {/* Real keys, not 24 px text links: storing overwrites a preset
+                on the Arduino, which is worth a key the size of the others. */}
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Button
+                variant="outlined"
+                startIcon={savePending('VNA') ? <KeySpinner /> : <SaveIcon />}
                 onClick={() => saveM.mutate('VNA')}
                 disabled={!connected || busy}
+                sx={actionSx(ACTION_W.wide)}
               >
-                VNA
-              </MiniAction>
-              <MiniAction
-                startIcon={<SaveIcon sx={{ fontSize: 15 }} />}
+                Store as VNA
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={savePending('PCB') ? <KeySpinner /> : <SaveIcon />}
                 onClick={() => saveM.mutate('PCB')}
                 disabled={!connected || busy}
+                sx={actionSx(ACTION_W.wide)}
               >
-                PCB
-              </MiniAction>
+                Store as PCB
+              </Button>
             </Stack>
           </Section>
         </TwoCol>

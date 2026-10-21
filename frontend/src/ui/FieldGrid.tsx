@@ -8,6 +8,13 @@ interface FieldGridProps {
   columns?: number
   /** Let the grid use the full panel width — for wide inputs, not numbers. */
   wide?: boolean
+  /**
+   * How much wider the first column is than the rest at the full column
+   * count, as a share (1.4 = 40 % wider). For a first field whose hint is
+   * long -- "EARFCN 18900 · Band 2" -- where an even split cut it off. Give
+   * every grid in a stack the same value so their columns stay aligned.
+   */
+  lead?: number
 }
 
 /**
@@ -18,7 +25,7 @@ interface FieldGridProps {
  * number fields half a screen wide. This keeps them in a compact block that
  * stops growing at a readable width.
  */
-export function FieldGrid({ children, columns = 3, wide }: FieldGridProps) {
+export function FieldGrid({ children, columns = 3, wide, lead = 1 }: FieldGridProps) {
   return (
     <Box
       sx={{
@@ -33,7 +40,9 @@ export function FieldGrid({ children, columns = 3, wide }: FieldGridProps) {
           gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
         },
         [`@container (min-width:${FIELD_MIN_W * columns + GRID_GAP * (columns - 1)}px)`]: {
-          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+          gridTemplateColumns: lead === 1
+            ? `repeat(${columns}, minmax(0, 1fr))`
+            : `minmax(0, ${lead}fr) repeat(${columns - 1}, minmax(0, 1fr))`,
         },
         ...(wide ? null : { maxWidth: FIELD_MAX_W }),
       }}

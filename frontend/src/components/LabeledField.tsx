@@ -1,12 +1,7 @@
 import { Box, Stack, TextField, Typography, type TextFieldProps } from '@mui/material'
 import { type FocusEvent, type ReactNode } from 'react'
+import { selectOnFocus } from '../lib/selectOnFocus'
 
-function selectOnFocus(e: FocusEvent<HTMLInputElement>) {
-  // Only HTMLInputElement / HTMLTextAreaElement expose .select() — guard for
-  // select-style fields (MUI renders a non-input element on focus).
-  const t = e.target as HTMLElement & { select?: () => void }
-  if (typeof t.select === 'function') t.select()
-}
 
 interface Props extends Omit<TextFieldProps, 'label' | 'variant'> {
   label: string
@@ -26,7 +21,14 @@ export function LabeledField({ label, hint, width, action, sx, onFocus, ...rest 
   }
   return (
     <Stack spacing={0.5} sx={{ width: width ?? '100%' }}>
-      <Box>
+      {/* One line, always: a long hint ("EARFCN 18900 · Band 2") wrapped
+          under its label and pushed that field's input below its row's.
+          The hint gives way with an ellipsis; the label never does. Its
+          full text is the line's tooltip. */}
+      <Box
+        title={hint ? `${label} · ${hint}` : undefined}
+        sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}
+      >
         <Typography
           component="span"
           sx={{ fontSize: 13, fontWeight: 500, color: 'text.primary' }}

@@ -1,10 +1,10 @@
 import { memo, useEffect, useRef } from 'react'
 import {
-  Box, Table, TableBody, TableCell, TableHead, TableRow, Typography,
+  Box, Table, TableBody, TableCell, TableHead, TableRow,
 } from '@mui/material'
 import type { ResultRow } from '../../types/models'
 import { fmt } from '../../lib/format'
-import { HeadCell, NUM_CELL_SX } from '../../ui'
+import { scrollBehavior, HeadCell, NUM_CELL_SX } from '../../ui'
 
 /**
  * Columns follow the sweep's configuration — Power, PA DC, HP Max — and mirror
@@ -45,16 +45,11 @@ export function SweepResultsTable({ rows }: { rows: ResultRow[] }) {
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    el.scrollTo({ top: el.scrollHeight, behavior: scrollBehavior() })
   }, [rows.length])
 
-  if (rows.length === 0) {
-    return (
-      <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-        No data yet. Set the ranges and press Run sweep.
-      </Typography>
-    )
-  }
+  // No "no data yet" line: with no rows the table still shows, header and
+  // an empty body, so the panel looks the same before the first row as after.
 
   return (
     // overflowX hidden, not auto. The vertical scrollbar takes ~15px out of
@@ -65,7 +60,7 @@ export function SweepResultsTable({ rows }: { rows: ResultRow[] }) {
     <Box ref={scrollRef} sx={{ flexGrow: 1, minHeight: 0, overflowY: 'scroll', overflowX: 'hidden' }}>
       <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%' }}>
         <colgroup>
-          <col style={{ width: '7%' }} />
+          <col style={{ width: 40 }} />
           <col style={{ width: '13%' }} />
           <col style={{ width: '11%' }} />
           <col style={{ width: '11%' }} />

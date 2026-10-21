@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import SpeedIcon from '@mui/icons-material/Speed'
+import SpeedIcon from '@mui/icons-material/SpeedRounded'
 import type { TestModule } from '../types'
 import { PowerMeterPage } from './PowerMeterPage'
 

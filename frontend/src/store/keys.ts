@@ -5,6 +5,7 @@
  */
 export const STORAGE_KEYS = {
   themePref: 'app-theme-pref',
+  selectOnFocus: 'select-on-focus-v1',
   nicknames: 'mac-nicknames-v1',
   logWidth: 'log-panel-width-v1',
   dockTab: 'dock-tab-v1',

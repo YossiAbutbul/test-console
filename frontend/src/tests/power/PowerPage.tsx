@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Box, MenuItem, Tab, Tabs } from '@mui/material'
+import { Box, MenuItem, Tab } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
-import { BenchCourse } from '../../components/BenchCourse'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
@@ -11,6 +10,7 @@ import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import {
   FieldGrid, LastFrameSection, MeasureOptions, PageBody, RunControls, Section,
   SendStopControls, measuresAnything, requiredInstruments, type MeasureSelection,
+  DenseTabs,
 } from '../../ui'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
@@ -140,29 +140,16 @@ export function PowerPage({ protocol, group, active }: TestPageProps) {
         }
       />
 
-      {/* What this tab needs before it can send or run, in order. The manual
-          tab reads only what its Measure options ask for. */}
-      <BenchCourse
-        instruments={tab === 'manual' ? requiredInstruments(measure) : ['power-sensor', 'dc-analyzer']}
-        connectsOn={tab === 'manual' ? 'Send' : 'Run'}
-        freqsMhz={tab === 'manual' ? [freqMhz] : (autoCtl?.freqsMhz ?? [])}
-      />
-
       {/* Switching tabs sends nothing, and the Automation tab holds results
           to import, export and graph without a DUT. */}
-      <Tabs
+      <DenseTabs
         data-ungated
         value={tab}
         onChange={(_, v) => setTab(v)}
-        sx={{
-          minHeight: 36, mt: -0.5,
-          borderBottom: 1, borderColor: 'divider',
-          '& .MuiTab-root': { minHeight: 36, py: 0.25, fontSize: 13 },
-        }}
       >
         <Tab value="manual" label="Manual" />
         <Tab value="automation" label="Automation" />
-      </Tabs>
+      </DenseTabs>
 
       {/* Both panels stay mounted; toggle via display so switching is instant. */}
       <Box sx={{ display: tab === 'manual' ? 'block' : 'none' }}>
@@ -180,7 +167,7 @@ export function PowerPage({ protocol, group, active }: TestPageProps) {
               <LabeledField label="Power" hint="dBm" type="number" value={power}
                 onChange={(e) => setPower(Number(e.target.value))} />
               <LabeledField
-                label="PA Mode"
+                label="PA mode"
                 select
                 value={paMode}
                 onChange={(e) => setPaMode(Number(e.target.value))}
@@ -217,9 +204,11 @@ export function PowerPage({ protocol, group, active }: TestPageProps) {
         </PageBody>
       </Box>
 
+      {/* mt 1, the same top as the Manual tab's PageBody, so switching tabs
+          does not move the first card. */}
       <Box
         sx={{
-          mt: 2, flexGrow: 1, minHeight: 0, flexDirection: 'column',
+          mt: 1, flexGrow: 1, minHeight: 0, flexDirection: 'column',
           display: tab === 'automation' ? 'flex' : 'none',
         }}
       >

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Autocomplete, Box, Button, IconButton, Stack, Table, TableBody,
-  Tab, TableCell, TableHead, TableRow, TextField, Typography,
+  Tab, TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
-import AddIcon from '@mui/icons-material/Add'
-import DeleteIcon from '@mui/icons-material/Delete'
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import AddIcon from '@mui/icons-material/AddRounded'
+import DeleteIcon from '@mui/icons-material/DeleteRounded'
+import PlayArrowIcon from '@mui/icons-material/PlayArrowRounded'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
@@ -16,22 +16,20 @@ import {
 import { useLog } from '../../context/LogContext'
 import { DASH, fmt, fmtHz, fmtMhz } from '../../lib/format'
 import {
-  ACTION_W, CONTROL_H, DenseTabs, InstrumentBar, MiniAction, MONO, PageBody, Section,
+  ACTION_W, CONTROL_H, DenseTabs, InstrumentBar, KeySpinner, MiniAction, MONO, PageBody, Section,
   StatRow, StatTile, TEXT, TwoCol,
-  HeadCell, NUM_CELL_SX,
+  HeadCell, NUM_CELL_SX, actionSx,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import { pickCandidate } from '../../context/InstrumentsContext'
 import { filterCandidates } from '../../lib/instrumentCandidates'
 import { useActionReporter } from '../engine/useRunReporter'
+import { selectOnFocus } from '../../lib/selectOnFocus'
 
 const MHZ = 1e6
 
 const MAX_MARKERS = 9
 
-/** Frequency fields are retyped rather than edited, so focus selects the value. */
-const selectOnFocus = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-  e.target.select()
 
 export function NetworkAnalyzerPage({ group }: TestPageProps) {
   const { log } = useLog()
@@ -184,6 +182,11 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
   const pendingFreq = connected && freqValid
     && (differs(cfg?.start_hz, startHz) || differs(cfg?.stop_hz, stopHz))
 
+  // One name for the run, in the header and on the readings panel: they do
+  // the same thing, and "Sweep + Read S11" beside "Read S11" read as two.
+  const sName = sTab === 's11' ? 'S11' : 'S21'
+  const sweeping = measureM.isPending || measureS21M.isPending
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
       <PageHeader
@@ -194,17 +197,22 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
             {/* Follows the open tab. Reading S11 from a button sitting above
                 an S21 table would be the wrong parameter under the right
                 heading, which is worse than having no button here. */}
-            <Button
-              variant="contained"
-              startIcon={<PlayArrowIcon />}
-              onClick={() => (sTab === 's11' ? measureM.mutate() : measureS21M.mutate())}
-              disabled={!connected || busy || markerHzList.length === 0}
-              sx={{ minWidth: ACTION_W.wide, height: CONTROL_H.md }}
-            >
-              {busy && (measureM.isPending || measureS21M.isPending)
-                ? 'Sweeping…'
-                : `Sweep + Read ${sTab === 's11' ? 'S11' : 'S21'}`}
-            </Button>
+            {/* A fixed width with a spinner in the icon slot: the key grew
+                for "Sweep + Read S11" and shrank for "Sweeping…". The span
+                carries the tooltip, since a disabled button fires no hover. */}
+            <Tooltip title={connected ? '' : 'Connect the analyzer first'}>
+              <span>
+                <Button
+                  variant="contained"
+                  startIcon={sweeping ? <KeySpinner /> : <PlayArrowIcon />}
+                  onClick={() => (sTab === 's11' ? measureM.mutate() : measureS21M.mutate())}
+                  disabled={!connected || busy || markerHzList.length === 0}
+                  sx={actionSx(ACTION_W.run)}
+                >
+                  {connected ? `Sweep ${sName}` : 'Needs VNA'}
+                </Button>
+              </span>
+            </Tooltip>
           </Stack>
         }
       />
@@ -223,7 +231,9 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
           onDisconnect={() => disconnectM.mutate()}
           config={
             <Box>
-              <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>VISA resource</Typography>
+              {/* Set like LabeledField's label, so this dialog reads like the
+                  forms on the pages. */}
+              <Typography sx={{ ...TEXT.label, color: 'text.primary', mb: 0.5 }}>VISA resource</Typography>
               <Autocomplete
                 size="small"
                 freeSolo
@@ -243,35 +253,39 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
         />
 
         <Box>
-          {/* Read back from the instrument, not echoed from the form. */}
+          {/* Read back from the instrument, not echoed from the form. No
+              "not connected" under each tile: the status chip above says it
+              once, and the greyed values already show it. */}
           <StatRow>
             <StatTile
               label="Start"
               value={cfg?.start_hz == null ? DASH : fmtMhz(cfg.start_hz, 3)}
               unit={cfg?.start_hz == null ? undefined : 'MHz'}
-              sub={connected ? undefined : 'not connected'}
               off={!connected}
             />
             <StatTile
               label="Stop"
               value={cfg?.stop_hz == null ? DASH : fmtMhz(cfg.stop_hz, 3)}
               unit={cfg?.stop_hz == null ? undefined : 'MHz'}
-              sub={connected ? undefined : 'not connected'}
               off={!connected}
             />
             <StatTile
               label="Points"
               value={cfg?.points == null ? DASH : String(cfg.points)}
-              sub={cfg?.source_power_dbm == null
-                ? (connected ? undefined : 'not connected')
-                : `source ${fmt(cfg.source_power_dbm, 1)} dBm`}
               off={!connected}
             />
             <StatTile
               label="IF bandwidth"
               value={cfg?.if_bandwidth_hz == null ? DASH : fmt(cfg.if_bandwidth_hz / 1e3, 1)}
               unit={cfg?.if_bandwidth_hz == null ? undefined : 'kHz'}
-              sub={connected ? undefined : 'not connected'}
+              off={!connected}
+            />
+            {/* Its own tile rather than a caption under Points: it is a
+                setting in its own right, not a property of the point count. */}
+            <StatTile
+              label="Source"
+              value={cfg?.source_power_dbm == null ? DASH : fmt(cfg.source_power_dbm, 1)}
+              unit="dBm"
               off={!connected}
             />
           </StatRow>
@@ -281,8 +295,14 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
           <Section
             title="Sweep range"
             panel
-            // Says which of the two ranges a sweep would actually use.
-            hint={pendingFreq ? 'Not applied — the instrument still has the range above.' : undefined}
+            // Says which of the two ranges a sweep would actually use. Always
+            // a line, so typing a value does not mount one and push the
+            // fields down under the cursor.
+            hint={!connected || !freqValid
+              ? 'Sent to the instrument on Apply.'
+              : pendingFreq
+                ? 'Not applied — the instrument still has the range above.'
+                : 'Applied to the instrument.'}
           >
             {/* Bottom-aligned: Apply belongs to the inputs' row, not their labels'. */}
             <Stack direction="row" spacing={1} alignItems="flex-end">
@@ -331,7 +351,7 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
             hint={`Up to ${MAX_MARKERS}, in MHz. Read on the next sweep.`}
             action={
               <Stack direction="row" alignItems="center" spacing={0.5}>
-                <Typography sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5 }}>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary', mr: 0.5, fontVariantNumeric: 'tabular-nums' }}>
                   {markerHzList.length}/{MAX_MARKERS}
                 </Typography>
                 <MiniAction
@@ -351,34 +371,40 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
             }
           >
             <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+              {/* Keyed by position, not by value: the rows are positional
+                  (M1, M2…) and a value can be typed twice. Removing one
+                  re-keys the rest, which only matters for focus. */}
               {markersMHz.map((v, i) => (
-                <Stack key={i} direction="row" alignItems="center">
-                  <LabeledField
-                    label={`M${i + 1}`}
-                    type="number"
-                    value={v}
-                    onChange={(e) => updateMarker(i, e.target.value)}
-                    inputProps={{ step: 1, min: 0 }}
-                    width={108}
-                    sx={{ '& input': { fontFamily: MONO } }}
-                    disabled={busy}
-                  />
-                  <IconButton
-                    size="small"
-                    onClick={() => removeMarker(i)}
-                    disabled={busy}
-                    aria-label={`remove marker ${i + 1}`}
-                  >
-                    <DeleteIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </Stack>
+                <LabeledField
+                  key={i}
+                  label={`M${i + 1}`}
+                  type="number"
+                  value={v}
+                  onChange={(e) => updateMarker(i, e.target.value)}
+                  inputProps={{ step: 1, min: 0 }}
+                  width={148}
+                  sx={{ '& input': { fontFamily: MONO } }}
+                  disabled={busy}
+                  // Through the kit's slot, so the button is centred on the
+                  // input rather than on the label and input together.
+                  action={
+                    <IconButton
+                      size="medium"
+                      onClick={() => removeMarker(i)}
+                      disabled={busy}
+                      aria-label={`remove marker ${i + 1}`}
+                    >
+                      <DeleteIcon sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  }
+                />
               ))}
             </Stack>
           </Section>
         </TwoCol>
 
         <Section
-          title="At markers"
+          title="Marker readings"
           panel
           action={
             <Stack direction="row" alignItems="center" spacing={1.5}>
@@ -393,25 +419,60 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
               <MiniAction
                 disabled={!connected || busy || markerHzList.length === 0}
                 onClick={() => (sTab === 's11' ? measureM.mutate() : measureS21M.mutate())}
-                // One width for "Read S11" and "Read S21": switching tab must
+                // One width for "Sweep S11" and "Sweep S21": switching tab must
                 // not shift the sweep summary beside it.
-                sx={{ width: 76 }}
+                sx={{ width: 84 }}
               >
-                {sTab === 's11' ? 'Read S11' : 'Read S21'}
+                Sweep {sName}
               </MiniAction>
-              {shown ? (
-                <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
-                  {fmtHz(shown.start_hz)} → {fmtHz(shown.stop_hz)} · {shown.points} pts
-                </Typography>
-              ) : null}
+              {/* Always there, at one width, showing a dash until the first
+                  result: mounting it on that result shoved the tabs and the
+                  Sweep key along the heading. */}
+              <Typography
+                noWrap
+                title={shown ? undefined : 'No sweep yet'}
+                sx={{
+                  width: 232, flexShrink: 0, textAlign: 'right',
+                  fontSize: 12, color: 'text.secondary', fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {shown
+                  ? `${fmtHz(shown.start_hz)} → ${fmtHz(shown.stop_hz)} · ${shown.points} pts`
+                  : DASH}
+              </Typography>
             </Stack>
           }
         >
+          {/* Before the first result: the table itself, header and an empty
+              body, rather than a sentence where the table will be. */}
           {!shown ? (
-            <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-              No {sTab === 's11' ? 'S11' : 'S21'} measurement yet. Set markers,
-              then Read {sTab === 's11' ? 'S11' : 'S21'}.
-            </Typography>
+            <Box sx={{ overflowX: 'auto' }}>
+              <Table size="small" sx={{ width: '100%' }}>
+                <TableHead>
+                  {sTab === 's11' ? (
+                    <TableRow>
+                      <HeadCell label="Mk" />
+                      <HeadCell label="Freq" unit="MHz" numeric />
+                      <HeadCell label="R" unit="Ω" numeric />
+                      <HeadCell label="jX" unit="Ω" numeric />
+                      <HeadCell label="|S11|" unit="dB" numeric />
+                      <HeadCell label="S11 real" numeric />
+                      <HeadCell label="S11 imag" numeric />
+                    </TableRow>
+                  ) : (
+                    <TableRow>
+                      <HeadCell label="Mk" />
+                      <HeadCell label="Freq" unit="MHz" numeric />
+                      <HeadCell label="|S21|" unit="dB" numeric />
+                      <HeadCell label="Phase" unit="°" numeric />
+                      <HeadCell label="S21 real" numeric />
+                      <HeadCell label="S21 imag" numeric />
+                    </TableRow>
+                  )}
+                </TableHead>
+                <TableBody />
+              </Table>
+            </Box>
           ) : sTab === 's11' && lastMeas ? (
             <Box sx={{ overflowX: 'auto' }}>
               <Table size="small" sx={{ width: '100%' }}>

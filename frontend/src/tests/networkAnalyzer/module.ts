@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import GraphicEqIcon from '@mui/icons-material/GraphicEq'
+import MultilineChartIcon from '@mui/icons-material/MultilineChartRounded'
 import type { TestModule } from '../types'
 import { NetworkAnalyzerPage } from './NetworkAnalyzerPage'
 
@@ -9,7 +9,7 @@ export const networkAnalyzerModule: TestModule = {
   protocol: 'LoRa',
   root: true,
   group: 'Components',
-  icon: createElement(GraphicEqIcon, { fontSize: 'small' }),
+  icon: createElement(MultilineChartIcon, { fontSize: 'small' }),
   Page: NetworkAnalyzerPage,
   requiresConnection: false,
   requiresInstruments: true,

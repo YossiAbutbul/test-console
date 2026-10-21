@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Box, MenuItem, Stack, Tab, Tabs } from '@mui/material'
+import { Box, MenuItem, Stack, Tab } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
-import { BenchCourse } from '../../components/BenchCourse'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
@@ -15,11 +14,12 @@ import type { CommandResponse, LteModulatedRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
 import { useChatSource } from '../../context/ChatContext'
 import { mA, statusOf } from '../../lib/chatRows'
-import TuneIcon from '@mui/icons-material/Tune'
+import TuneIcon from '@mui/icons-material/FilterListRounded'
 import { IconButton, Tooltip } from '@mui/material'
 import {
-  FieldGrid, LastFrameSection, LatchingKey, PageBody, RunControls, Section,
+  FieldGrid, GRID_GAP, LastFrameSection, LatchingKey, PageBody, RunControls, Section,
   SegmentedChoice, SendStopControls,
+  DenseTabs,
 } from '../../ui'
 import { BandsModal } from '../lte/BandsModal'
 import { useLteBands, useLteChannelUnit, type ChannelUnit } from '../lte/channel'
@@ -372,28 +372,16 @@ export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
         }
       />
 
-      {/* What this tab needs before it can send or run, in order. */}
-      <BenchCourse
-        instruments={tab === 'manual' ? REQUIRED_INSTRUMENTS : ['power-sensor', 'dc-analyzer']}
-        connectsOn={tab === 'manual' ? 'Send' : 'Run'}
-        freqsMhz={tab === 'manual' ? channel ? [channel.freqHz / 1e6] : [] : (autoCtl?.freqsMhz ?? [])}
-      />
-
       {/* Switching tabs sends nothing, and the Automation tab holds results
           to import, export and graph without a DUT. */}
-      <Tabs
+      <DenseTabs
         data-ungated
         value={tab}
         onChange={(_, v) => setTab(v)}
-        sx={{
-          minHeight: 36, mt: -0.5,
-          borderBottom: 1, borderColor: 'divider',
-          '& .MuiTab-root': { minHeight: 36, py: 0.25, fontSize: 13 },
-        }}
       >
         <Tab value="manual" label="Manual" />
         <Tab value="automation" label="Automation" />
-      </Tabs>
+      </DenseTabs>
 
       {/* Both panels stay mounted; toggle via display so switching is instant
           and a run keeps going while the manual tab is on screen. */}
@@ -407,71 +395,79 @@ export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
                 <SegmentedChoice
                   value={unit}
                   options={[
-                    { value: 'earfcn', label: 'EARFCN' },
                     { value: 'mhz', label: 'MHz' },
+                    { value: 'earfcn', label: 'EARFCN' },
                   ]}
                   onChange={switchUnit}
                 />
                 <Tooltip title="Bands in use">
-                  <IconButton size="small" onClick={() => setBandsOpen(true)}>
-                    <TuneIcon sx={{ fontSize: 17 }} />
+                  <IconButton size="small" aria-label="Bands in use" onClick={() => setBandsOpen(true)}>
+                    <TuneIcon sx={{ fontSize: 18 }} />
                   </IconButton>
                 </Tooltip>
               </Stack>
             }
           >
-            <FieldGrid>
-              <LabeledField
-                label={unit === 'earfcn' ? 'EARFCN' : 'Frequency'}
-                hint={channelHint()} type="number" value={earfcn}
-                {...validation(earfcn, channelValid, channelError(), 'earfcn')}
-                onChange={(e) => setEarfcn(e.target.value)}
-              />
-              <LabeledField
-                label="Tx Power" hint="dBm" type="number" value={power}
-                inputProps={{ step: 0.01, min: 0, max: MAX_POWER_DBM }}
-                {...validation(power, powerValid, power.trim() === '' ? 'Enter a value' : `Allowed range: 0–${MAX_POWER_DBM} dBm`, 'power')}
-                onChange={(e) => setPower(e.target.value)}
-              />
-              <LabeledField
-                label="Time" hint="s" type="number" value={seconds}
-                inputProps={{ step: 0.1, min: 0 }}
-                {...validation(seconds, secondsValid, seconds.trim() === '' ? 'Enter a value' : 'Seconds, 0–4294967', 'seconds')}
-                onChange={(e) => setSeconds(e.target.value)}
-              />
-              <LabeledField
-                label="Bandwidth" select value={bandwidth}
-                onChange={(e) => switchBandwidth(Number(e.target.value))}
-              >
-                {BW_OPTIONS.map((bw) => (
-                  <MenuItem key={bw.code} value={bw.code}>{bw.label}</MenuItem>
-                ))}
-              </LabeledField>
-              <LabeledField
-                label="MCS" hint={`0–${MCS_MAX}`} type="number" value={mcs}
-                inputProps={{ min: MCS_MIN, max: MCS_MAX, step: 1 }}
-                {...validation(String(mcs), mcsValid, `A whole number, ${MCS_MIN}–${MCS_MAX}`, 'mcs')}
-                onChange={(e) => setMcs(Number(e.target.value))}
-              />
-              <LabeledField
-                label="Resource blocks" hint={`1–${maxRb}`} type="number" value={rbCount}
-                inputProps={{ min: 1, max: maxRb, step: 1 }}
-                {...validation(String(rbCount), rbValid, `1–${maxRb} in a ${bandwidthLabel(bandwidth)} channel`, 'rb')}
-                onChange={(e) => setRbCount(Number(e.target.value))}
-              />
-              {/* Exposed here and nowhere else. The byte order of this field
-                  and nb_index is the one part of the frame the captures do not
-                  pin — both carry 0 — so anything other than 0 is unverified
-                  against hardware, and an unattended sweep is the wrong place
-                  to find that out. */}
-              <LabeledField
-                label="First block" hint={`0–${Math.max(0, maxRb - rbCount)}`}
-                type="number" value={rbStart}
-                inputProps={{ min: 0, max: Math.max(0, maxRb - rbCount), step: 1 }}
-                {...validation(String(rbStart), rbStartValid, `${rbCount} blocks from here runs past the ${maxRb} in the channel`, 'rbStart')}
-                onChange={(e) => setRbStart(Number(e.target.value))}
-              />
-            </FieldGrid>
+            {/* Two groups on one four-column grid: where and how long, then
+                the waveform. The first column is wider in both, so the
+                channel's hint fits on its line and Bandwidth stays under it. Run together, seven fields wrapped wherever the
+                width fell and split the signal settings across rows. */}
+            <Stack spacing={`${GRID_GAP}px`}>
+              <FieldGrid columns={4} lead={1.4}>
+                <LabeledField
+                  label={unit === 'earfcn' ? 'EARFCN' : 'Frequency'}
+                  hint={channelHint()} type="number" value={earfcn}
+                  {...validation(earfcn, channelValid, channelError(), 'earfcn')}
+                  onChange={(e) => setEarfcn(e.target.value)}
+                />
+                <LabeledField
+                  label="Power" hint="dBm" type="number" value={power}
+                  inputProps={{ step: 0.01, min: 0, max: MAX_POWER_DBM }}
+                  {...validation(power, powerValid, power.trim() === '' ? 'Enter a value' : `Allowed range: 0–${MAX_POWER_DBM} dBm`, 'power')}
+                  onChange={(e) => setPower(e.target.value)}
+                />
+                <LabeledField
+                  label="Duration" hint="s" type="number" value={seconds}
+                  inputProps={{ step: 0.1, min: 0 }}
+                  {...validation(seconds, secondsValid, seconds.trim() === '' ? 'Enter a value' : 'Seconds, 0–4294967', 'seconds')}
+                  onChange={(e) => setSeconds(e.target.value)}
+                />
+              </FieldGrid>
+              <FieldGrid columns={4} lead={1.4}>
+                <LabeledField
+                  label="Bandwidth" select value={bandwidth}
+                  onChange={(e) => switchBandwidth(Number(e.target.value))}
+                >
+                  {BW_OPTIONS.map((bw) => (
+                    <MenuItem key={bw.code} value={bw.code}>{bw.label}</MenuItem>
+                  ))}
+                </LabeledField>
+                <LabeledField
+                  label="MCS" hint={`0–${MCS_MAX}`} type="number" value={mcs}
+                  inputProps={{ min: MCS_MIN, max: MCS_MAX, step: 1 }}
+                  {...validation(String(mcs), mcsValid, `A whole number, ${MCS_MIN}–${MCS_MAX}`, 'mcs')}
+                  onChange={(e) => setMcs(Number(e.target.value))}
+                />
+                <LabeledField
+                  label="Number of RB allocation" hint={`1–${maxRb}`} type="number" value={rbCount}
+                  inputProps={{ min: 1, max: maxRb, step: 1 }}
+                  {...validation(String(rbCount), rbValid, `1–${maxRb} in a ${bandwidthLabel(bandwidth)} channel`, 'rb')}
+                  onChange={(e) => setRbCount(Number(e.target.value))}
+                />
+                {/* Exposed here and nowhere else. The byte order of this field
+                    and nb_index is the one part of the frame the captures do not
+                    pin — both carry 0 — so anything other than 0 is unverified
+                    against hardware, and an unattended sweep is the wrong place
+                    to find that out. */}
+                <LabeledField
+                  label="Position of RB allocation" hint={`0–${Math.max(0, maxRb - rbCount)}`}
+                  type="number" value={rbStart}
+                  inputProps={{ min: 0, max: Math.max(0, maxRb - rbCount), step: 1 }}
+                  {...validation(String(rbStart), rbStartValid, `${rbCount} blocks from here runs past the ${maxRb} in the channel`, 'rbStart')}
+                  onChange={(e) => setRbStart(Number(e.target.value))}
+                />
+              </FieldGrid>
+            </Stack>
           </Section>
 
           <MeasurementCard
@@ -484,9 +480,11 @@ export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
         </PageBody>
       </Box>
 
+      {/* mt 1, the same top as the Manual tab's PageBody, so switching tabs
+          does not move the first card. */}
       <Box
         sx={{
-          mt: 2, flexGrow: 1, minHeight: 0, flexDirection: 'column',
+          mt: 1, flexGrow: 1, minHeight: 0, flexDirection: 'column',
           display: tab === 'automation' ? 'flex' : 'none',
         }}
       >

@@ -3,10 +3,12 @@ import {
   Autocomplete, Box, Button, CircularProgress, FormControl, IconButton, MenuItem, Select, Stack,
   TextField, Tooltip, Typography,
 } from '@mui/material'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import CheckIcon from '@mui/icons-material/Check'
-import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
-import TuneIcon from '@mui/icons-material/Tune'
+import ContentCopyIcon from '@mui/icons-material/ContentCopyRounded'
+import CheckIcon from '@mui/icons-material/CheckRounded'
+import EditOutlinedIcon from '@mui/icons-material/EditRounded'
+import TuneIcon from '@mui/icons-material/TuneRounded'
+// Outlined, not the Rounded family's filled disc: a solid info mark beside the
+// grey Scan key read as heavier than the key itself.
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import { useNicknames } from '../context/NicknamesContext'
 import { usePathLoss } from '../context/PathLossContext'
@@ -17,7 +19,8 @@ import { useConnection } from '../context/ConnectionContext'
 import { useDutLink } from '../context/dutLink'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
-import { MONO } from '../ui'
+import { CONTROL_H, MONO } from '../ui'
+import { selectOnFocus } from '../lib/selectOnFocus'
 
 function actionSx(
   c: { bg: string; bgHover: string; fg: string },
@@ -56,12 +59,14 @@ function stripMac(v: string): string {
  * The DUT link controls: scan duration, device type, the MAC picker, meter
  * info, Scan and Connect.
  *
- * `compact` is the one-line form in the top bar, where they sit on every
- * page: no labels above the fields (the bar has no room for them; each field
- * says what it is by its value, placeholder, unit or tooltip). The scan state
- * lives in `useDutLink`, so any other copy drives the same scan.
+ * `compact` is the one-line form for a bar: no labels above the fields (a bar
+ * has no room for them; each field says what it is by its value, placeholder,
+ * unit or tooltip). `stacked` is the column form in the Bench inspector, where
+ * they sit on every page: one field per line, labelled, with the keys sharing
+ * the last line in equal halves. The scan state lives in `useDutLink`, so any
+ * other copy drives the same scan.
  */
-export function DutControls({ compact = false }: { compact?: boolean }) {
+export function DutControls({ compact = false, stacked = false }: { compact?: boolean; stacked?: boolean }) {
   const { selectedAddr, setSelectedAddr } = useConnection()
   const {
     duration, setDuration, nameFilter, setNameFilter, filteredDevices, scanning,
@@ -116,10 +121,12 @@ export function DutControls({ compact = false }: { compact?: boolean }) {
       <Box
         sx={compact
           ? { display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 1 }
-          : { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 1.5 }}
+          : stacked
+            ? { display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 1.5 }
+            : { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 1.5 }}
       >
         {/* Not in the top bar: there it is a setting in Settings (DUT scan time). */}
-        {!compact && (
+        {!compact && !stacked && (
         <Tooltip title="" placement="bottom">
         <Box sx={compact ? { flex: '0 0 68px' } : { flex: '0 1 110px', minWidth: 96 }}>
           {fieldLabel('Duration (sec)')}
@@ -131,7 +138,7 @@ export function DutControls({ compact = false }: { compact?: boolean }) {
               : undefined}
             value={duration}
             onChange={(e) => setDuration(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
-            onFocus={(e) => (e.target as HTMLInputElement).select()}
+            onFocus={selectOnFocus}
             inputProps={{ min: 1, max: 30 }}
             fullWidth
             disabled={isConnected || scanning}
@@ -140,7 +147,7 @@ export function DutControls({ compact = false }: { compact?: boolean }) {
         </Tooltip>
         )}
 
-        <Box sx={compact ? { flex: '0 0 136px' } : { flex: '1 1 150px', minWidth: 130, maxWidth: 220 }}>
+        <Box sx={compact ? { flex: '0 0 136px' } : stacked ? {} : { flex: '1 1 150px', minWidth: 130, maxWidth: 220 }}>
           {fieldLabel('Device type')}
           <FormControl size="small" fullWidth disabled={isConnected || scanning}>
             <Select
@@ -161,7 +168,9 @@ export function DutControls({ compact = false }: { compact?: boolean }) {
         <Box
           sx={compact
             ? { flex: '1 1 250px', minWidth: 130, maxWidth: 300, position: 'relative' }
-            : { flex: '6 1 220px', minWidth: 190, position: 'relative' }}
+            : stacked
+              ? { position: 'relative' }
+              : { flex: '6 1 220px', minWidth: 190, position: 'relative' }}
         >
           {!compact && (
           <Stack direction="row" alignItems="center" sx={{ mb: 0.5, gap: 1 }}>
@@ -343,7 +352,7 @@ export function DutControls({ compact = false }: { compact?: boolean }) {
         <Stack
           direction="row"
           alignItems="center"
-          sx={{ gap: compact ? 1 : 1.5, flexWrap: 'nowrap', ml: compact ? 0 : 'auto', flexShrink: 0 }}
+          sx={{ gap: compact || stacked ? 1 : 1.5, flexWrap: 'nowrap', ml: compact || stacked ? 0 : 'auto', flexShrink: 0 }}
         >
         <Tooltip title={isConnected ? 'Meter information' : 'Connect to a unit first'}>
           <span>
@@ -352,9 +361,10 @@ export function DutControls({ compact = false }: { compact?: boolean }) {
               onClick={() => setInfoOpen(true)}
               aria-label="Meter information"
               sx={{
-                width: 36, height: 36, borderRadius: 1,
-                border: '1px solid', borderColor: 'divider',
-                '&.Mui-disabled': { borderColor: 'divider', opacity: 0.5 },
+                width: CONTROL_H.md, height: CONTROL_H.md, borderRadius: 1,
+                bgcolor: a.scan.bg, color: a.scan.fg,
+                '&:hover': { bgcolor: a.scan.bgHover },
+                '&.Mui-disabled': { bgcolor: a.scan.bg, opacity: 0.5 },
               }}
             >
               <InfoOutlinedIcon sx={{ fontSize: 19 }} />
@@ -366,7 +376,9 @@ export function DutControls({ compact = false }: { compact?: boolean }) {
           variant="contained"
           onClick={startScan}
           disabled={isConnected}
-          sx={{ width: 96, minWidth: 96, height: 36, ...actionSx(scanning ? a.danger : a.scan, off) }}
+          // In the inspector the two keys split the line in equal halves:
+          // still fixed, since the halves do not depend on the labels.
+          sx={{ ...(stacked ? { flex: '1 1 0', minWidth: 0 } : { width: 96, minWidth: 96 }), height: CONTROL_H.md, ...actionSx(scanning ? a.danger : a.scan, off) }}
         >
           {scanning ? 'Stop' : 'Scan'}
         </Button>
@@ -375,9 +387,12 @@ export function DutControls({ compact = false }: { compact?: boolean }) {
           variant="contained"
           disabled={isConnected ? busy : !canConnect}
           onClick={toggle}
-          endIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
+          // The spinner takes the icon slot on the left, and the label stays:
+          // as an end icon it pushed "Disconnect" off-centre in the half-width
+          // inspector key and clipped it.
+          startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
           // Fixed width: Connect, the spinner and Disconnect all fit one box.
-          sx={{ width: 124, minWidth: 124, height: 36, whiteSpace: 'nowrap', ...actionSx(isConnected ? a.disconnect : a.connect, off) }}
+          sx={{ ...(stacked ? { flex: '1 1 0', minWidth: 0 } : { width: 124, minWidth: 124 }), height: CONTROL_H.md, whiteSpace: 'nowrap', ...actionSx(isConnected ? a.disconnect : a.connect, off) }}
         >
           {isConnected ? 'Disconnect' : 'Connect'}
         </Button>
@@ -425,7 +440,7 @@ export function PathLossField({
             size="small"
             value={pathLossDb}
             onChange={(e) => setPathLossDb(Number(e.target.value) || 0)}
-            onFocus={(e) => (e.target as HTMLInputElement).select()}
+            onFocus={selectOnFocus}
             inputProps={{ step: 0.1 }}
             fullWidth={!compact}
             sx={compact ? { width: 104 } : undefined}
@@ -444,12 +459,22 @@ export function PathLossField({
                     ? `Per-frequency path loss - ${points.length} calibrated`
                     : 'Per-frequency path loss'
                 }>
+                  {/* A segment of the field, split off by a hairline: the number on the left, the table behind it on
+                      the right. Full height and flush to the edge (the root's
+                      14 px end padding pulled back), so it reads as half of
+                      one control rather than an icon floating in the input. */}
                   <IconButton
                     size="small"
-                    edge="end"
                     onClick={() => setPathLossOpen(true)}
                     aria-label="Edit path loss per frequency"
-                    sx={{ mr: -0.5, color: points.length ? 'primary.main' : 'text.disabled' }}
+                    sx={{
+                      ml: 0.75, mr: '-14px', width: 32, height: 32,
+                      borderRadius: '0 7px 7px 0',
+                      borderLeft: 1,
+                      // A separator on the field's grey fill (theme.ts fieldBg).
+                      borderColor: (t) => (t.palette.mode === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.14)'),
+                      color: points.length ? 'primary.main' : 'text.disabled',
+                    }}
                   >
                     <TuneIcon sx={{ fontSize: 17 }} />
                   </IconButton>

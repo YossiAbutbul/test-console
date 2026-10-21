@@ -3,8 +3,9 @@ import {
   Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack,
   Typography,
 } from '@mui/material'
-import TuneIcon from '@mui/icons-material/Tune'
+import TuneIcon from '@mui/icons-material/TuneRounded'
 import { MONO, TEXT } from '../../ui'
+import { TOP_BAR_H } from '../../ui/tokens'
 
 interface Pending {
   db: number
@@ -56,11 +57,17 @@ export function useAttPrompt() {
       onClose={(_e, reason) => { if (reason === 'backdropClick') return }}
       maxWidth="xs"
       fullWidth
-      slotProps={{ paper: { sx: { borderRadius: 2 } } }}
+      // Below the toolbar, scrim included. This only ever opens mid-run, and a
+      // full-window scrim hid E-STOP and Stop behind it -- both of which
+      // answer this prompt themselves (they cancel it). Focus is not held
+      // inside, so the keyboard can reach them too.
+      sx={{ top: TOP_BAR_H }}
+      disableEnforceFocus
+      slotProps={{ backdrop: { sx: { top: TOP_BAR_H } } }}
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1.5 }}>
         <TuneIcon sx={{ fontSize: 20, color: 'warning.main' }} />
-        <Typography sx={{ fontSize: 17, fontWeight: 700 }}>Set the attenuator</Typography>
+        <Typography sx={TEXT.dialog}>Set the attenuator</Typography>
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={1.5} alignItems="center" sx={{ py: 1 }}>

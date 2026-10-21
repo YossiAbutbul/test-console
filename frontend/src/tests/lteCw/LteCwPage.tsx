@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Box, Stack, Tab, Tabs } from '@mui/material'
+import { Box, Stack, Tab } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
-import { BenchCourse } from '../../components/BenchCourse'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
@@ -14,12 +13,13 @@ import type { CommandResponse, LteCwRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
 import { useChatSource } from '../../context/ChatContext'
 import { mA, statusOf } from '../../lib/chatRows'
-import TuneIcon from '@mui/icons-material/Tune'
+import TuneIcon from '@mui/icons-material/FilterListRounded'
 import { IconButton, Tooltip } from '@mui/material'
 import {
   FieldGrid, LastFrameSection, LatchingKey, MeasureOptions, PageBody,
   RunControls, Section, SegmentedChoice, SendStopControls, measuresAnything,
   requiredInstruments, type MeasureSelection,
+  DenseTabs,
 } from '../../ui'
 import { BandsModal } from '../lte/BandsModal'
 import { useLteBands, useLteChannelUnit, type ChannelUnit } from '../lte/channel'
@@ -357,28 +357,16 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
         }
       />
 
-      {/* What this tab needs before it can send or run, in order. */}
-      <BenchCourse
-        instruments={tab === 'manual' ? requiredInstruments(measure) : ['power-sensor', 'dc-analyzer']}
-        connectsOn={tab === 'manual' ? 'Send' : 'Run'}
-        freqsMhz={tab === 'manual' ? channel ? [channel.freqHz / 1e6] : [] : (autoCtl?.freqsMhz ?? [])}
-      />
-
       {/* Switching tabs sends nothing, and the Automation tab holds results
           to import, export and graph without a DUT. */}
-      <Tabs
+      <DenseTabs
         data-ungated
         value={tab}
         onChange={(_, v) => setTab(v)}
-        sx={{
-          minHeight: 36, mt: -0.5,
-          borderBottom: 1, borderColor: 'divider',
-          '& .MuiTab-root': { minHeight: 36, py: 0.25, fontSize: 13 },
-        }}
       >
         <Tab value="manual" label="Manual" />
         <Tab value="automation" label="Automation" />
-      </Tabs>
+      </DenseTabs>
 
       {/* Both panels stay mounted; toggle via display so switching is instant
           and a run keeps going while the manual tab is on screen. */}
@@ -392,20 +380,22 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
                 <SegmentedChoice
                   value={unit}
                   options={[
-                    { value: 'earfcn', label: 'EARFCN' },
                     { value: 'mhz', label: 'MHz' },
+                    { value: 'earfcn', label: 'EARFCN' },
                   ]}
                   onChange={switchUnit}
                 />
                 <Tooltip title="Bands in use">
-                  <IconButton size="small" onClick={() => setBandsOpen(true)}>
-                    <TuneIcon sx={{ fontSize: 17 }} />
+                  <IconButton size="small" aria-label="Bands in use" onClick={() => setBandsOpen(true)}>
+                    <TuneIcon sx={{ fontSize: 18 }} />
                   </IconButton>
                 </Tooltip>
               </Stack>
             }
           >
-            <FieldGrid>
+            {/* Four across: in the default three the fourth field sat
+                alone on a second row. */}
+            <FieldGrid columns={4}>
               <LabeledField
                 label={unit === 'earfcn' ? 'EARFCN' : 'Frequency'}
                 hint={channelHint()} type="number" value={earfcn}
@@ -413,13 +403,13 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
                 onChange={(e) => setEarfcn(e.target.value)}
               />
               <LabeledField
-                label="Tx Power" hint="dBm" type="number" value={power}
+                label="Power" hint="dBm" type="number" value={power}
                 inputProps={{ step: 0.01, min: 0, max: MAX_POWER_DBM }}
                 {...validation(power, powerValid, power.trim() === '' ? 'Enter a value' : `Allowed range: 0–${MAX_POWER_DBM} dBm`, 'power')}
                 onChange={(e) => setPower(e.target.value)}
               />
               <LabeledField
-                label="Time" hint="s" type="number" value={seconds}
+                label="Duration" hint="s" type="number" value={seconds}
                 inputProps={{ step: 0.1, min: 0 }}
                 {...validation(seconds, secondsValid, seconds.trim() === '' ? 'Enter a value' : 'Seconds, 0–4294967', 'seconds')}
                 onChange={(e) => setSeconds(e.target.value)}
@@ -453,9 +443,11 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
         </PageBody>
       </Box>
 
+      {/* mt 1, the same top as the Manual tab's PageBody, so switching tabs
+          does not move the first card. */}
       <Box
         sx={{
-          mt: 2, flexGrow: 1, minHeight: 0, flexDirection: 'column',
+          mt: 1, flexGrow: 1, minHeight: 0, flexDirection: 'column',
           display: tab === 'automation' ? 'flex' : 'none',
         }}
       >

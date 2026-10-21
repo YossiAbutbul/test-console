@@ -1,7 +1,8 @@
 import { Box } from '@mui/material'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
-import { TOP_BAR_H } from '../ui/tokens'
+import { createPortal } from 'react-dom'
+import { usePageActive, useToolbarSlot } from '../ui/toolbarSlot'
 
 interface Props {
   /** 0..100. Ignored when indeterminate. */
@@ -14,18 +15,23 @@ interface Props {
   color?: string
 }
 
-/** Two-pixel run-progress bar pinned under the top bar. */
+/** Two-pixel run-progress bar along the bottom edge of the window toolbar.
+ *  Portalled there with the page's header, for the same reason (see
+ *  PageHeader): only the page on screen draws one. */
 export function TopProgress({ pct = 0, indeterminate = false, hidden = false, color }: Props) {
+  const slot = useToolbarSlot().bar
+  const active = usePageActive()
   const { mode } = useThemeMode()
   // Previously hardcoded to the light-mode blue, which sat off-palette in the
   // mid and dark themes.
-  const bg = color ?? getAppPalette(mode).actions.scan.bg
+  const bg = color ?? getAppPalette(mode).actions.primary.bg
 
-  return (
+  if (!slot || !active) return null
+  return createPortal(
     <Box
       sx={{
-        position: 'fixed',
-        top: TOP_BAR_H,
+        position: 'absolute',
+        bottom: 0,
         left: 0,
         right: 0,
         height: 2,
@@ -42,13 +48,18 @@ export function TopProgress({ pct = 0, indeterminate = false, hidden = false, co
             position: 'absolute',
             top: 0,
             bottom: 0,
+            left: 0,
             width: '30%',
             bgcolor: bg,
+            // A transform, not `left`: animating a layout property forever kept
+            // the compositor busy for the whole run. Still for reduced motion,
+            // a quiet band instead of a sweep.
             animation: 'tcTopProgSlide 1.2s linear infinite',
             '@keyframes tcTopProgSlide': {
-              '0%': { left: '-30%' },
-              '100%': { left: '100%' },
+              '0%': { transform: 'translateX(-100%)' },
+              '100%': { transform: 'translateX(333%)' },
             },
+            '@media (prefers-reduced-motion: reduce)': { animation: 'none', width: '100%', opacity: 0.3 },
           }}
         />
       ) : (
@@ -61,6 +72,7 @@ export function TopProgress({ pct = 0, indeterminate = false, hidden = false, co
           }}
         />
       )}
-    </Box>
+    </Box>,
+    slot,
   )
 }

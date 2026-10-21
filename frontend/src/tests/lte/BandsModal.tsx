@@ -1,13 +1,9 @@
 import { useState } from 'react'
-import {
-  Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent,
-  DialogTitle, IconButton, Stack, Typography,
-} from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
+import { Alert, Box, Button, Checkbox, Stack, Typography } from '@mui/material'
 import {
   DEFAULT_BANDS, KNOWN_BANDS, bandRangeMhz, uplinkFromMhz,
 } from '../../lib/earfcn'
-import { MONO, TEXT } from '../../ui'
+import { ModalShell, MONO, TEXT } from '../../ui'
 
 interface Props {
   open: boolean
@@ -77,23 +73,34 @@ export function BandsModal({ open, onClose, bands, onSave }: Props) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ pb: 1 }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between">
-          <Box>
-            <Typography sx={{ fontSize: 17, fontWeight: 620 }}>Bands in use</Typography>
-            <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
-              Narrows what a frequency in MHz can mean. Every channel in a ticked
-              band is available — nothing to enter by hand.
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      dividers
+      title="Bands in use"
+      subtitle={
+        <>
+          Narrows what a frequency in MHz can mean. Every channel in a ticked
+          band is available — nothing to enter by hand.
+        </>
+      }
+      footer={{
+        leading: (
+          <>
+            <Button color="inherit" onClick={() => setDraft(DEFAULT_BANDS)}>
+              Reset
+            </Button>
+            {/* A live count, so secondary ink rather than the disabled grey. */}
+            <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
+              {draft.length} band{draft.length === 1 ? '' : 's'} selected
             </Typography>
-          </Box>
-          <IconButton size="small" onClick={onClose}>
-            <CloseIcon sx={{ fontSize: 18 }} />
-          </IconButton>
-        </Stack>
-      </DialogTitle>
-
-      <DialogContent dividers>
+          </>
+        ),
+        secondary: <Button variant="outlined" color="inherit" onClick={onClose}>Cancel</Button>,
+        primary: <Button variant="contained" onClick={save}>Save</Button>,
+      }}
+    >
         {clashes.length > 0 && (
           <Alert severity="warning" sx={{ mb: 1.5, fontSize: 13 }}>
             <Box sx={{ fontWeight: 600, mb: 0.25 }}>Overlapping bands selected</Box>
@@ -140,18 +147,6 @@ export function BandsModal({ open, onClose, bands, onSave }: Props) {
             )
           })}
         </Box>
-      </DialogContent>
-
-      <DialogActions sx={{ px: 2, py: 1.25 }}>
-        <Typography sx={{ ...TEXT.micro, color: 'text.disabled', mr: 'auto' }}>
-          {draft.length} band{draft.length === 1 ? '' : 's'} selected
-        </Typography>
-        <Button size="small" color="inherit" onClick={() => setDraft(DEFAULT_BANDS)}>
-          Reset
-        </Button>
-        <Button size="small" color="inherit" onClick={onClose}>Cancel</Button>
-        <Button size="small" variant="contained" onClick={save}>Save</Button>
-      </DialogActions>
-    </Dialog>
+    </ModalShell>
   )
 }

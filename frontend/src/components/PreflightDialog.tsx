@@ -1,13 +1,9 @@
-import {
-  Box, Button, Dialog, DialogActions, DialogContent, LinearProgress, Stack,
-  Typography,
-} from '@mui/material'
-import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
-import ErrorRoundedIcon from '@mui/icons-material/ErrorRounded'
-import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
+import { Box, Button, LinearProgress, Stack, Typography } from '@mui/material'
 import type { InstrumentId } from '../context/InstrumentsContext'
 import type { ConnectFailure } from '../lib/instrumentError'
-import { TEXT } from '../ui'
+import {
+  CheckMark, HazardGlyph, ModalShell, TEXT, hazardRingSx, type CheckState,
+} from '../ui'
 import { FailureNote } from './FailureNote'
 
 export type PreflightStepState = 'pending' | 'connecting' | 'ok' | 'failed'
@@ -54,16 +50,13 @@ const COPY: Record<PreflightVerb, { busy: string; cost: string; proceed: string 
   },
 }
 
-const ICON = { fontSize: 18, flexShrink: 0 } as const
-
-function StepIcon({ state }: { state: PreflightStepState }) {
-  if (state === 'ok') return <CheckCircleRoundedIcon sx={{ ...ICON, color: 'success.main' }} />
-  if (state === 'failed') return <ErrorRoundedIcon sx={{ ...ICON, color: 'error.main' }} />
-  return (
-    <RadioButtonUncheckedIcon
-      sx={{ ...ICON, color: state === 'connecting' ? 'text.primary' : 'text.disabled' }}
-    />
-  )
+/** The kit mark, so a step here reads the same as the row it becomes in
+ *  Instruments and on the bench course. */
+const MARK: Record<PreflightStepState, CheckState> = {
+  pending: 'todo',
+  connecting: 'busy',
+  ok: 'ok',
+  failed: 'error',
 }
 
 /**
@@ -80,83 +73,95 @@ export function PreflightDialog({
   const missing = steps.filter((s) => s.state !== 'ok')
   const allOk = steps.length > 0 && missing.length === 0
   const copy = COPY[verb]
+  // The keys only mean something once every attempt has settled with
+  // something missing -- the moments the footer used to be empty.
+  const keysOff = busy || allOk
 
   return (
-    <Dialog
+    <ModalShell
       open={open}
       // Not dismissable mid-connect: the run is waiting on this answer.
       onClose={busy ? undefined : onCancel}
       maxWidth="xs"
-      fullWidth
-      slotProps={{ paper: { sx: { borderRadius: 2 } } }}
+      title={busy
+        ? 'Connecting instruments'
+        : allOk ? 'Instruments ready' : 'Instruments not connected'}
+      // Always drawn, disabled until there is a decision to make. An empty
+      // footer that sprouted three keys when the last attempt settled grew
+      // the dialog under the pointer just as it asked for an answer.
+      footer={{
+        leading: (
+          <Button onClick={onOpenInstruments} disabled={keysOff}>
+            Open instruments
+          </Button>
+        ),
+        secondary: (
+          <Button variant="outlined" color="inherit" onClick={onCancel} disabled={keysOff}>
+            Cancel
+          </Button>
+        ),
+        primary: (
+          // Proceeding starts a run that transmits, so it carries the same
+          // hazard mark as the page's own Send/Run key.
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={onRunAnyway}
+            disabled={keysOff}
+            startIcon={<HazardGlyph kind="tx" />}
+            sx={hazardRingSx('tx')}
+          >
+            {copy.proceed}
+          </Button>
+        ),
+      }}
     >
-      <DialogContent sx={{ pt: 3, pb: 2 }}>
-        <Typography sx={{ fontSize: 18, fontWeight: 700, color: 'text.primary', mb: 0.5 }}>
-          {busy
-            ? 'Connecting instruments'
-            : allOk ? 'Instruments ready' : 'Instruments not connected'}
-        </Typography>
-        <Typography sx={{ ...TEXT.hint, color: 'text.secondary', mb: 2 }}>
-          {busy
-            ? copy.busy
-            : allOk
-              ? 'All required instruments responded.'
-              : `${missing.length} instrument${missing.length === 1 ? '' : 's'} did not connect. `
-                + copy.cost}
-        </Typography>
+      <Typography sx={{ ...TEXT.hint, color: 'text.secondary', mb: 2 }}>
+        {busy
+          ? copy.busy
+          : allOk
+            ? 'All required instruments responded.'
+            : `${missing.length} instrument${missing.length === 1 ? '' : 's'} did not connect. `
+              + copy.cost}
+      </Typography>
 
-        <Stack spacing={1.25}>
-          {steps.map((s) => (
-            <Box key={s.id}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <StepIcon state={s.state} />
-                <Typography
-                  sx={{
-                    fontSize: 13,
-                    fontWeight: s.state === 'connecting' ? 600 : 500,
-                    color: 'text.primary',
-                    flexGrow: 1,
-                  }}
-                >
-                  {s.label}
-                </Typography>
-                {s.state === 'connecting' && (
-                  <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
-                    {Math.ceil((1 - elapsed) * (timeoutMs / 1000))}s
-                  </Typography>
-                )}
-                {s.failure && (
-                  <Typography sx={{ ...TEXT.micro, fontWeight: 600, color: 'error.main' }}>
-                    {s.failure.title}
-                  </Typography>
-                )}
-              </Stack>
+      <Stack spacing={1.25}>
+        {steps.map((s) => (
+          <Box key={s.id}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <CheckMark size={20} state={MARK[s.state]} />
+              <Typography
+                sx={{
+                  fontSize: 13,
+                  fontWeight: s.state === 'connecting' ? 600 : 500,
+                  color: 'text.primary',
+                  flexGrow: 1,
+                }}
+              >
+                {s.label}
+              </Typography>
               {s.state === 'connecting' && (
-                <LinearProgress
-                  variant="determinate"
-                  value={elapsed * 100}
-                  sx={{ mt: 0.75, ml: 3.25, height: 3, borderRadius: 2 }}
-                />
+                <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
+                  {Math.ceil((1 - elapsed) * (timeoutMs / 1000))}s
+                </Typography>
               )}
-              {s.failure && <FailureNote failure={s.failure} indent={3.25} />}
-            </Box>
-          ))}
-        </Stack>
-      </DialogContent>
-
-      <DialogActions sx={{ px: 3, pb: 2.5, pt: 0 }}>
-        {!busy && !allOk && (
-          <>
-            <Button onClick={onOpenInstruments} sx={{ mr: 'auto' }}>
-              Open Instruments
-            </Button>
-            <Button onClick={onCancel}>Cancel</Button>
-            <Button variant="contained" color="warning" onClick={onRunAnyway}>
-              {copy.proceed}
-            </Button>
-          </>
-        )}
-      </DialogActions>
-    </Dialog>
+              {s.failure && (
+                <Typography sx={{ ...TEXT.micro, fontWeight: 600, color: 'error.main' }}>
+                  {s.failure.title}
+                </Typography>
+              )}
+            </Stack>
+            {s.state === 'connecting' && (
+              <LinearProgress
+                variant="determinate"
+                value={elapsed * 100}
+                sx={{ mt: 0.75, ml: 3.5, height: 3, borderRadius: 2 }}
+              />
+            )}
+            {s.failure && <FailureNote failure={s.failure} indent={3.5} />}
+          </Box>
+        ))}
+      </Stack>
+    </ModalShell>
   )
 }

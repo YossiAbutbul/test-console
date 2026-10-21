@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import TuneIcon from '@mui/icons-material/Tune'
+import StraightenIcon from '@mui/icons-material/StraightenRounded'
 import type { TestModule } from '../types'
 import { TrombonePage } from './TrombonePage'
 
@@ -9,7 +9,7 @@ export const tromboneModule: TestModule = {
   protocol: 'LoRa',
   root: true,
   group: 'Components',
-  icon: createElement(TuneIcon, { fontSize: 'small' }),
+  icon: createElement(StraightenIcon, { fontSize: 'small' }),
   Page: TrombonePage,
   requiresConnection: false,
   requiresInstruments: true,

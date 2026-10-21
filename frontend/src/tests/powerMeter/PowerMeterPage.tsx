@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Box, Button, Stack, Tab, TextField, Typography } from '@mui/material'
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'
-import StopIcon from '@mui/icons-material/Stop'
-import RefreshIcon from '@mui/icons-material/Refresh'
-import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
+import {
+  Box, Button, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow,
+  TextField, Typography,
+} from '@mui/material'
+import PlayArrowIcon from '@mui/icons-material/PlayArrowRounded'
+import StopIcon from '@mui/icons-material/StopRounded'
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweepRounded'
 import { PageHeader } from '../../components/PageHeader'
 import { instrumentsApi } from '../../api/instruments'
 import {
@@ -14,10 +16,11 @@ import { useLog } from '../../context/LogContext'
 import { describeMeasureError } from '../../lib/instrumentError'
 import { DASH } from '../../lib/format'
 import {
-  DenseTabs, Eyebrow, InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
+  DenseTabs, InstrumentBar, KeySpinner, MONO, PageBody, Section, StatRow, StatTile, TEXT,
   InstrumentError,
   ACTION_W,
   MiniAction,
+  HeadCell, NUM_CELL_SX, actionSx,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import {
@@ -64,6 +67,22 @@ function clockOf(t: number): string {
   const d = new Date(t)
   const p = (n: number) => String(n).padStart(2, '0')
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+/**
+ * The connected line under the name, from the sensor's identity string.
+ *
+ * The backend reports "model,serial,firmware"; the model is already printed
+ * beside the name, so repeating it read as the same fact twice. Display only:
+ * anything not in that shape is shown as it came.
+ */
+function idnLine(idn: string | null | undefined): string | null {
+  if (!idn) return null
+  const parts = idn.split(',').map((p) => p.trim()).filter(Boolean)
+  const serialAt = parts.findIndex((p) => /^\d{4,}$/.test(p))
+  if (serialAt < 0) return idn
+  const fw = parts[serialAt + 1]
+  return fw ? `serial ${parts[serialAt]} · firmware ${fw}` : `serial ${parts[serialAt]}`
 }
 
 /**
@@ -216,15 +235,18 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
         group={group}
         label="Power Meter"
         actions={
+          // One width for both tabs' keys, so switching tab does not resize
+          // the header. Read takes the run glyph, not Refresh: Refresh is
+          // Scan elsewhere, and this key takes a measurement.
           tab === 'read' ? (
             <Button
               variant="contained"
               onClick={() => void readOnce()}
               disabled={!connected || busy}
-              startIcon={<RefreshIcon sx={{ fontSize: 16 }} />}
-              sx={{ width: ACTION_W.default, minWidth: ACTION_W.default, height: 36 }}
+              startIcon={reading ? <KeySpinner /> : <PlayArrowIcon sx={{ fontSize: 16 }} />}
+              sx={actionSx(ACTION_W.wide)}
             >
-              {reading ? 'Reading' : 'Read'}
+              Read
             </Button>
           ) : (
             <Button
@@ -238,9 +260,9 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
                   ? <StopIcon sx={{ fontSize: 16 }} />
                   : <PlayArrowIcon sx={{ fontSize: 16 }} />
               }
-              sx={{ width: ACTION_W.default, minWidth: ACTION_W.default, height: 36 }}
+              sx={actionSx(ACTION_W.wide)}
             >
-              {tracing ? 'Stop' : 'Start'}
+              {tracing ? 'Stop trace' : 'Start trace'}
             </Button>
           )
         }
@@ -253,13 +275,19 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
           model="Mini-Circuits PWR-SEN-4GHS"
           failure={sensor.failure}
           status={connecting && !connected ? 'connecting' : sensor.status}
-          detail={sensor.idn}
+          // Tracing is the sensor's live state, so it takes the chip's slot
+          // rather than a word inserted before the clock, which shifted it.
+          liveLabel={tracing ? 'Tracing' : undefined}
+          liveTone={tracing ? 'busy' : 'ok'}
+          detail={idnLine(sensor.idn)}
           summary={sensor.address ? `serial ${sensor.address}` : 'first sensor found'}
           onConnect={() => void onConnect()}
           onDisconnect={() => void disconnect('power-sensor')}
           config={
             <Box>
-              <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>Serial number</Typography>
+              {/* Set like LabeledField's label, so this dialog reads like the
+                  forms on the pages. */}
+              <Typography sx={{ ...TEXT.label, color: 'text.primary', mb: 0.5 }}>Serial number</Typography>
               <TextField
                 size="small"
                 fullWidth
@@ -286,66 +314,76 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
           }}
           // Under the instrument row, as on the test pages: what the page
           // reads from comes first, how it reads second.
-          sx={{ mb: 1, borderBottom: 1, borderColor: 'divider' }}
+          // No margin of its own: PageBody's grid gap spaces it.
+          sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
           <Tab value="read" label="Read" />
           <Tab value="continuous" label="Continuous" />
         </DenseTabs>
 
-        <Box>
-          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1 }}>
-            <Eyebrow>Reading</Eyebrow>
-            {tracing && (
-              <Typography sx={{ fontSize: 12, color: 'success.main', fontWeight: 600 }}>
-                tracing
+        <Section
+          title="Reading"
+          panel
+          action={
+            <Stack direction="row" alignItems="center" spacing={1.5}>
+              {/* When the strip was last read. Always there at one width,
+                  showing a dash before the first reading, so the controls
+                  beside it never move when it fills in. */}
+              <Typography
+                sx={{
+                  width: 64, flexShrink: 0, textAlign: 'right',
+                  fontSize: 12, color: 'text.secondary',
+                  fontFamily: MONO, fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {last ? clockOf(last.t) : DASH}
               </Typography>
-            )}
-            {last && (
-              <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
-                {clockOf(last.t)}
-              </Typography>
-            )}
-            <Box sx={{ flexGrow: 1 }} />
-            {/* The trace controls live here rather than in a section of their
-                own: they are two small settings and the strip they govern is
-                immediately below. */}
-            {tab === 'continuous' && (
-              <>
-            {/* No floating label: nothing else in the app uses MUI's notched
-                outline, so one here read as a different kind of control. The
-                name sits beside it instead, which is what the row has space
-                for. */}
-            <Typography sx={{ ...TEXT.dense, color: 'text.secondary' }}>Every</Typography>
-            <TextField
-              size="small"
-              type="number"
-              value={intervalMs}
-              onChange={(e) => setIntervalMs(e.target.value)}
-              inputProps={{ step: 100, min: MIN_INTERVAL_MS, max: MAX_INTERVAL_MS }}
-              sx={{
-                width: 96,
-                '& .MuiInputBase-root': { height: 30 },
-                '& input': { fontFamily: MONO, fontSize: 12.5, textAlign: 'center' },
-              }}
-              InputProps={{
-                endAdornment: (
-                  <Typography sx={{ fontSize: 12, color: 'text.disabled', pl: 0.5 }}>ms</Typography>
-                ),
-              }}
-            />
-              </>
-            )}
-            <MiniAction
-              color="inherit"
-              onClick={onClear}
-              disabled={!samples.length}
-              startIcon={<DeleteSweepIcon sx={{ fontSize: 15 }} />}
-            >
-              Clear
-            </MiniAction>
-          </Stack>
-
-          <StatRow>
+              {/* The trace controls live here rather than in a section of their
+                  own: they are two small settings and the strip they govern is
+                  immediately below. Kept in the row on the Read tab too, just
+                  hidden, so switching tab neither resizes the heading nor
+                  slides Clear along it. */}
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={1}
+                aria-hidden={tab !== 'continuous' || undefined}
+                sx={{ visibility: tab === 'continuous' ? 'visible' : 'hidden' }}
+              >
+                {/* No floating label: nothing else in the app uses MUI's notched
+                    outline, so one here read as a different kind of control. The
+                    name sits beside it instead, which is what the row has space
+                    for. */}
+                <Typography sx={{ ...TEXT.label, color: 'text.secondary' }}>Every</Typography>
+                <TextField
+                  size="small"
+                  type="number"
+                  value={intervalMs}
+                  onChange={(e) => setIntervalMs(e.target.value)}
+                  inputProps={{ step: 100, min: MIN_INTERVAL_MS, max: MAX_INTERVAL_MS, 'aria-label': 'Trace interval' }}
+                  sx={{
+                    width: 104,
+                    '& input': { fontFamily: MONO, fontSize: 12.5, textAlign: 'center' },
+                  }}
+                  InputProps={{
+                    endAdornment: (
+                      <Typography sx={{ fontSize: 12, color: 'text.secondary', pl: 0.5 }}>ms</Typography>
+                    ),
+                  }}
+                />
+              </Stack>
+              <MiniAction
+                tone="destructive"
+                onClick={onClear}
+                disabled={!samples.length}
+                startIcon={<DeleteSweepIcon />}
+              >
+                Clear
+              </MiniAction>
+            </Stack>
+          }
+        >
+          <StatRow inCard>
             {/* Raw first: it is what the instrument said, and an operator
                 chasing a cable fault needs it before anything derived. */}
             <StatTile
@@ -359,7 +397,7 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
               sub={
                 raw == null
                   ? (connected ? 'not read yet' : 'sensor off')
-                  : underRange ? 'under range - no signal' : 'measured'
+                  : underRange ? 'under range · no signal' : 'measured'
               }
               off={!connected || raw == null}
               tone={underRange ? 'warn' : undefined}
@@ -368,7 +406,10 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
               label="Correction"
               value={`${pathLossDb > 0 ? '+' : ''}${fmt(pathLossDb, 1)}`}
               unit="dB"
-              sub={pathLossDb === 0 ? 'none set' : 'path loss'}
+              // Names where the figure comes from, which a footnote under the
+              // strip used to repeat: Result = reading + this, set in the
+              // Bench inspector.
+              sub={pathLossDb === 0 ? 'none set · Bench' : 'path loss · Bench'}
               off={pathLossDb === 0}
             />
             <StatTile
@@ -400,42 +441,54 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
               off={mean == null}
             />
           </StatRow>
+        </Section>
 
+        {failure && <InstrumentError title={failure.title} message={failure.hint ?? ''} />}
 
-          <Typography sx={{ ...TEXT.hint, color: 'text.secondary', mt: 1 }}>
-            Result = reading + correction. The correction is the path loss set
-            in the top bar.
-          </Typography>
-
-          {failure && <InstrumentError title={failure.title} message={failure.hint ?? ''} />}
-        </Box>
-
-        {samples.length > 1 && (
-          <Section title="Recent" panel collapsible defaultOpen>
-            <Stack spacing={0.25}>
-              {[...samples].slice(-LISTED).reverse().map((s, i) => (
-                <Stack
-                  key={`${s.t}-${i}`}
-                  direction="row"
-                  spacing={2}
-                  sx={{ ...TEXT.dense, fontFamily: MONO, color: i === 0 ? 'text.primary' : 'text.secondary' }}
-                >
-                  <Box sx={{ width: 72 }}>{clockOf(s.t)}</Box>
-                  <Box sx={{ width: 96, textAlign: 'right' }}>{s.dbm.toFixed(2)} dBm</Box>
-                  <Box sx={{ width: 96, textAlign: 'right' }}>
-                    {(s.dbm + pathLossDb).toFixed(2)} dBm
-                  </Box>
-                  <Box sx={{ width: 100, textAlign: 'right' }}>
-                    {Math.pow(10, (s.dbm + pathLossDb) / 10).toFixed(3)} mW
-                  </Box>
-                </Stack>
-              ))}
-            </Stack>
-            <Typography sx={{ ...TEXT.dense, color: 'text.disabled', mt: 0.75 }}>
-              time · at sensor · result · result
-            </Typography>
-          </Section>
-        )}
+        {/* Always on the page, always LISTED rows tall: mounting it at the
+            second reading, then growing it a row per sample, moved everything
+            under it while the operator was reading. Unfilled rows are blank
+            placeholders of the same height. */}
+        <Section title="Recent" panel collapsible defaultOpen>
+          <Box sx={{ overflowX: 'auto' }}>
+            <Table size="small" sx={{ width: '100%' }}>
+              <TableHead>
+                <TableRow>
+                  <HeadCell label="Time" />
+                  <HeadCell label="At sensor" unit="dBm" numeric />
+                  <HeadCell label="Result" unit="dBm" numeric />
+                  <HeadCell label="Result" unit="mW" numeric />
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(() => {
+                  const rows = samples.length > 1 ? [...samples].slice(-LISTED).reverse() : []
+                  return Array.from({ length: LISTED }, (_, i) => {
+                    const s = rows[i]
+                    if (!s) {
+                      return (
+                        <TableRow key={`empty-${i}`}>
+                          {/* Blank, not a sentence: an empty table reads as one. */}
+                          <TableCell colSpan={4} aria-hidden>{' '}</TableCell>
+                        </TableRow>
+                      )
+                    }
+                    const res = s.dbm + pathLossDb
+                    const ink = i === 0 ? 'text.primary' : 'text.secondary'
+                    return (
+                      <TableRow key={`${s.t}-${i}`}>
+                        <TableCell sx={{ ...NUM_CELL_SX, textAlign: 'left', color: ink }}>{clockOf(s.t)}</TableCell>
+                        <TableCell sx={{ ...NUM_CELL_SX, color: ink }}>{s.dbm.toFixed(2)}</TableCell>
+                        <TableCell sx={{ ...NUM_CELL_SX, color: ink }}>{res.toFixed(2)}</TableCell>
+                        <TableCell sx={{ ...NUM_CELL_SX, color: ink }}>{Math.pow(10, res / 10).toFixed(3)}</TableCell>
+                      </TableRow>
+                    )
+                  })
+                })()}
+              </TableBody>
+            </Table>
+          </Box>
+        </Section>
       </PageBody>
     </Box>
   )

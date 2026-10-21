@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Box, MenuItem, Tab, Tabs } from '@mui/material'
+import { Box, MenuItem, Tab } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
-import { BenchCourse } from '../../components/BenchCourse'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
@@ -11,8 +10,10 @@ import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import {
   FieldGrid, LastFrameSection, PageBody, RunControls, Section, SendStopControls,
+  DenseTabs,
 } from '../../ui'
 import { AutomationPanel, type AutomationControls } from './AutomationPanel'
+import { BW_OPTIONS, MODEM_FSK, MODEM_LABEL, MODEM_LORA } from './signal'
 import {
   modulatedPageSnapshot, persistModulatedPage, type ModulatedPageTab,
 } from '../../store/modulatedPageStore'
@@ -27,12 +28,10 @@ const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
 const MODEM = { FSK: 0, LoRa: 1 } as const
 type ModemName = keyof typeof MODEM
 
-const BW_OPTIONS = [
-  { code: 0, label: '125 kHz' },
-  { code: 1, label: '250 kHz' },
-  { code: 2, label: '500 kHz' },
-  { code: 3, label: 'Reserved' },
-]
+/** Modem picker order, LoRa first as on the Automation tab. The labels come
+ *  from `./signal`, the list the sweep and the CSV use, so the two tabs cannot
+ *  name the options differently. */
+const MODEM_ORDER = [MODEM_LORA, MODEM_FSK]
 
 const DR_MIN = 6
 const DR_MAX = 12
@@ -151,28 +150,16 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
         }
       />
 
-      {/* What this tab needs before it can send or run, in order. */}
-      <BenchCourse
-        instruments={tab === 'manual' ? REQUIRED_INSTRUMENTS : ['power-sensor', 'dc-analyzer']}
-        connectsOn={tab === 'manual' ? 'Send' : 'Run'}
-        freqsMhz={tab === 'manual' ? [freqMhz] : (autoCtl?.freqsMhz ?? [])}
-      />
-
       {/* Switching tabs sends nothing, and the Automation tab holds results
           to import, export and graph without a DUT. */}
-      <Tabs
+      <DenseTabs
         data-ungated
         value={tab}
         onChange={(_, v) => setTab(v)}
-        sx={{
-          minHeight: 36, mt: -0.5,
-          borderBottom: 1, borderColor: 'divider',
-          '& .MuiTab-root': { minHeight: 36, py: 0.25, fontSize: 13 },
-        }}
       >
         <Tab value="manual" label="Manual" />
         <Tab value="automation" label="Automation" />
-      </Tabs>
+      </DenseTabs>
 
       {/* Both panels stay mounted; toggle via display so switching is instant
           and a run keeps going while the manual tab is on screen. */}
@@ -189,16 +176,8 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
                 inputProps={{ step: 0.1 }}
               />
 
-              <LabeledField
-                label="Modem"
-                select
-                value={modem}
-                onChange={(e) => setModem(e.target.value as ModemName)}
-              >
-                <MenuItem value="LoRa">LoRa</MenuItem>
-                <MenuItem value="FSK">FSK</MenuItem>
-              </LabeledField>
-
+              {/* Frequency, Power, then the signal: the order of the
+                  Automation sweep's columns and of the CW page. */}
               <LabeledField
                 label="Power"
                 hint="dBm"
@@ -206,6 +185,17 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
                 value={power}
                 onChange={(e) => setPower(Number(e.target.value))}
               />
+
+              <LabeledField
+                label="Modem"
+                select
+                value={modem}
+                onChange={(e) => setModem(e.target.value as ModemName)}
+              >
+                {MODEM_ORDER.map((code) => (
+                  <MenuItem key={code} value={MODEM_LABEL[code]}>{MODEM_LABEL[code]}</MenuItem>
+                ))}
+              </LabeledField>
 
               {/* A LabeledField like its neighbours, not a hand-rolled label +
                   select: the two markups put the label on a different baseline,
@@ -218,7 +208,7 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
                 onChange={(e) => setBandwidth(Number(e.target.value))}
               >
                 {BW_OPTIONS.map((bw) => (
-                  <MenuItem key={bw.code} value={bw.code} disabled={bw.code === 3}>
+                  <MenuItem key={bw.code} value={bw.code}>
                     {/* The label alone, as the Automation tab shows it: the
                         command code is the DUT's business, not the operator's. */}
                     {bw.label}
@@ -247,9 +237,11 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
         </PageBody>
       </Box>
 
+      {/* mt 1, the same top as the Manual tab's PageBody, so switching tabs
+          does not move the first card. */}
       <Box
         sx={{
-          mt: 2, flexGrow: 1, minHeight: 0, flexDirection: 'column',
+          mt: 1, flexGrow: 1, minHeight: 0, flexDirection: 'column',
           display: tab === 'automation' ? 'flex' : 'none',
         }}
       >

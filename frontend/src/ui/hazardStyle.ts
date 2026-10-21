@@ -1,4 +1,4 @@
-import { alpha, type Theme } from '@mui/material/styles'
+import type { Theme } from '@mui/material/styles'
 import type { SystemStyleObject } from '@mui/system'
 
 /**
@@ -12,18 +12,21 @@ import type { SystemStyleObject } from '@mui/system'
 export type HazardKind = 'tx' | 'power' | 'move' | 'path'
 
 /**
- * Ring for a hazard key: a 1 px, half-strength red outline drawn inside the
- * control, so the button keeps its size. (It was 2 px at full strength; the
- * operator found that too loud. The glyph carries the rest.) Only while enabled -- a disabled
- * key cannot do anything to the bench, and a red ring on it would say it can.
+ * The hazard ring, retired.
  *
- * Send, Run, Graph and Export used to share one look, as did Jog and
- * Recapture; this is the one thing that now sets the keys that act on
- * hardware apart, together with the glyph naming what they do.
+ * A red outline marked every key that acts on the bench: first 2 px, then a
+ * 1 px half-strength inset after the operator found it too loud, then an
+ * outline outside the blue fill once the inset proved invisible there. Drawn
+ * visibly on Run and Send it read as an error or focus state rather than "this
+ * key touches hardware", and the operator asked for it gone. The glyph each
+ * hazard key carries (HazardGlyph: radiating, power, move, path) now says it
+ * alone; E-Stop keeps its red, as a tinted key.
+ *
+ * Kept as a no-op rather than deleted so the call sites keep naming which
+ * keys are hazards -- the place to hang a future cue if one is ever wanted.
  */
 export function hazardRingSx(kind: HazardKind | null | undefined) {
   // A theme callback, for use as one entry of an `sx` array.
-  return (t: Theme): SystemStyleObject<Theme> => (kind
-    ? { '&:not(.Mui-disabled)': { boxShadow: `inset 0 0 0 1px ${alpha(t.palette.error.main, 0.55)}` } }
-    : {})
+  void kind
+  return (): SystemStyleObject<Theme> => ({})
 }

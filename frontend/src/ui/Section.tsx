@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react'
-import { Box, Collapse, Stack, Typography } from '@mui/material'
+import { Box, Collapse, Stack, Typography, useMediaQuery } from '@mui/material'
+import { focusRingOf, REDUCED_MOTION } from './feel'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
-import { CARD_PAD, CARD_SX, PANEL_SX, TEXT } from './tokens'
+import { CARD_PAD, CARD_SX, CONTROL_H, PANEL_SX, TEXT } from './tokens'
 
 interface SectionProps {
   /** Heading text. Kept short — it is a label, not a sentence. */
@@ -62,14 +63,18 @@ interface SectionProps {
  * A titled block within a page.
  *
  * Two looks share one heading rhythm: a bordered `panel`, or the default flat
- * heading with a bottom rule. Both use the same 13px uppercase label so the
- * eye reads them as one hierarchy level regardless of the frame.
+ * heading with a bottom rule. Both use the same 15 px sentence-case title
+ * (`TEXT.sectionTitle`) so the eye reads them as one hierarchy level
+ * regardless of the frame. (It was a 13 px uppercase label before the
+ * Apple-design pass.)
  */
 export function Section({
   title, anchorId, action, hint, children, grow, panel, collapsible, flush,
   defaultOpen = true, ungated,
 }: SectionProps) {
   const [open, setOpen] = useState(defaultOpen)
+  // Folding is instant for operators who asked for less motion.
+  const reduced = useMediaQuery('(prefers-reduced-motion: reduce)')
   const growSx = { display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }
   // A collapsed body must not keep reserving the heading's bottom margin, or
   // every collapsed panel carries a band of empty space under its title.
@@ -101,8 +106,11 @@ export function Section({
         pb: panel ? 0 : 0.75,
         ...(panel ? null : { borderBottom: 1, borderColor: 'divider' }),
         flexShrink: 0,
-        minHeight: 26,
-        transition: 'margin 0.15s',
+        // The heading row is as tall as the controls it carries (CONTROL_H.sm),
+        // so a heading with a field or a MiniAction is the same height as one
+        // without. No transition on the margin: it is layout, and animating it
+        // reflowed everything under the card for 150 ms.
+        minHeight: CONTROL_H.sm,
         ...(collapsible
           ? {
               cursor: 'pointer',
@@ -111,8 +119,8 @@ export function Section({
               mx: panel ? `-${CARD_PAD}px` : 0,
               px: panel ? `${CARD_PAD}px` : 0,
               borderRadius: 1,
-              '&:hover .section-title': { color: 'text.primary' },
-              '&:focus-visible': { outline: 2, outlineColor: 'text.primary', outlineOffset: 2 },
+              '&:hover .section-chevron': { color: 'text.primary' },
+              '&:focus-visible': { outline: 'none', boxShadow: focusRingOf },
             }
           : null),
       }}
@@ -121,10 +129,11 @@ export function Section({
         className="section-title"
         sx={{
           ...TEXT.sectionTitle,
-          color: 'text.secondary',
+          // Primary ink: in secondary the card's name read quieter than the
+          // field labels under it, which turned the hierarchy upside down.
+          color: 'text.primary',
           flexGrow: 1,
           minWidth: 0,
-          transition: 'color 0.15s',
         }}
       >
         {title}
@@ -136,12 +145,14 @@ export function Section({
         // silently stayed put while the panel opened underneath it.
         <Box
           component="span"
+          className="section-chevron"
           sx={{
             display: 'flex',
             flexShrink: 0,
             color: 'text.secondary',
             transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition: 'transform 0.18s',
+            transition: 'transform 0.18s, color 0.15s',
+            [REDUCED_MOTION]: { transition: 'none' },
           }}
         >
           <ExpandMoreRoundedIcon sx={{ fontSize: 18 }} />
@@ -164,7 +175,7 @@ export function Section({
   // `unmountOnExit` so a collapsed panel costs nothing to keep on the page —
   // these hold frame dumps and result lists, not a line of text.
   const body = collapsible
-    ? <Collapse in={open} unmountOnExit>{inner}</Collapse>
+    ? <Collapse in={open} unmountOnExit timeout={reduced ? 0 : 'auto'}>{inner}</Collapse>
     : inner
 
   return (

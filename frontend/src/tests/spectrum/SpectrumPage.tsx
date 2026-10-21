@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  Autocomplete, Box, Button, MenuItem, Select, Stack, Table, TableBody, TableCell,
+  Autocomplete, Box, Button, ButtonBase, MenuItem, Select, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Tooltip, Typography, useTheme,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
+import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
+import StopRoundedIcon from '@mui/icons-material/StopRounded'
 import {
   Area, CartesianGrid, ComposedChart, ReferenceDot, ReferenceLine, ResponsiveContainer,
   XAxis, YAxis,
 } from 'recharts'
 import { PageHeader } from '../../components/PageHeader'
-import { useAppPalette } from '../../context/ThemeModeContext'
+import { useAppPalette, useThemeMode } from '../../context/ThemeModeContext'
 import { LabeledField } from '../../components/LabeledField'
 import {
   DETECTOR_NAMES, TRACE_MODE_NAMES, spectrumApi,
@@ -20,9 +23,9 @@ import { useInstrumentValue, useInstrumentsActions } from '../../context/Instrum
 import { useLog } from '../../context/LogContext'
 import { DASH, fmt } from '../../lib/format'
 import {
-  ACTION_W, CONTROL_H, FieldGrid, InstrumentBar, MONO, PANEL_SX, PageBody, Section,
+  ACTION_W, CONTROL_H, FieldGrid, GRID_GAP, InstrumentBar, MONO, PANEL_SX, PageBody, Section,
   TEXT,
-  HeadCell,
+  HeadCell, SegmentedChoice, actionSx, focusRingOf, useChartTheme, PRESS_SX,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import { persistSpectrumPage, spectrumPageSnapshot } from '../../store/spectrumPageStore'
@@ -35,7 +38,7 @@ import { persistSpectrumPage, spectrumPageSnapshot } from '../../store/spectrumP
 const PERIODS = [0.3, 0.5, 1, 2, 5]
 const DEFAULT_PERIOD_S = 1
 
-const MARKER_COUNTS = [1, 2, 3, 4, 5, 6]
+const MARKER_COUNTS = ['1', '2', '3', '4', '5', '6']
 
 /** Marker panel height limits and default, px. Double-clicking the divider
  *  resets. The screen takes whatever the panel leaves. The floor still shows
@@ -44,6 +47,8 @@ const MARKER_COUNTS = [1, 2, 3, 4, 5, 6]
 const MARKERS_MIN = 144
 const MARKERS_MAX = 600
 const MARKERS_DEFAULT = 190
+/** One arrow-key step on the divider, px. */
+const MARKERS_STEP = 16
 
 interface DividerProps {
   height: number
@@ -55,23 +60,35 @@ interface DividerProps {
  * below it: dragging up grows the table, and the screen fills what is left.
  *
  * Pointer capture keeps the drag alive when the pointer leaves the thin
- * handle, which it always does on a fast move.
+ * handle, which it always does on a fast move. Focusable, with the arrow keys
+ * stepping the height, so the split is not a pointer-only control.
  */
 function PanelDivider({ height, onChange }: DividerProps) {
+  const theme = useTheme()
   const [drag, setDrag] = useState<{ y: number; h: number } | null>(null)
+  const clamp = (h: number) => Math.max(MARKERS_MIN, Math.min(MARKERS_MAX, h))
   return (
     <Box
       role="separator"
+      tabIndex={0}
       aria-orientation="horizontal"
       aria-label="Resize the marker table"
+      aria-valuemin={MARKERS_MIN}
+      aria-valuemax={MARKERS_MAX}
+      aria-valuenow={height}
       title="Drag to resize · double-click to reset"
+      // Up grows the table, as dragging up does.
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowUp') { e.preventDefault(); onChange(clamp(height + MARKERS_STEP)) }
+        if (e.key === 'ArrowDown') { e.preventDefault(); onChange(clamp(height - MARKERS_STEP)) }
+      }}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId)
         setDrag({ y: e.clientY, h: height })
       }}
       onPointerMove={(e) => {
         if (!drag) return
-        onChange(Math.max(MARKERS_MIN, Math.min(MARKERS_MAX, drag.h - (e.clientY - drag.y))))
+        onChange(clamp(drag.h - (e.clientY - drag.y)))
       }}
       onPointerUp={() => setDrag(null)}
       onPointerCancel={() => setDrag(null)}
@@ -79,12 +96,13 @@ function PanelDivider({ height, onChange }: DividerProps) {
       sx={{
         flexShrink: 0, height: 14, my: '-3px !important', cursor: 'row-resize',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        touchAction: 'none', userSelect: 'none',
+        touchAction: 'none', userSelect: 'none', borderRadius: 1, outline: 'none',
+        '&:focus-visible': { boxShadow: focusRingOf(theme) },
         '& > span': {
           width: 48, height: 4, borderRadius: 2,
           bgcolor: drag ? 'text.secondary' : 'divider', transition: 'background-color 0.15s',
         },
-        '&:hover > span': { bgcolor: 'text.secondary' },
+        '&:hover > span, &:focus-visible > span': { bgcolor: 'text.secondary' },
       }}
     >
       <span />
@@ -92,7 +110,7 @@ function PanelDivider({ height, onChange }: DividerProps) {
   )
 }
 
-interface ChoiceButtonsProps {
+interface ChoiceGridProps {
   value: string | undefined
   options: string[]
   names: Record<string, string>
@@ -100,23 +118,64 @@ interface ChoiceButtonsProps {
   onPick: (v: string) => void
 }
 
-/** One button per option, the analyzer's current one filled. Wraps to the
- *  column width, so five options fit the narrow settings column. */
-function ChoiceButtons({ value, options, names, disabled, onPick }: ChoiceButtonsProps) {
+/**
+ * A segmented control that wraps: the analyzer's current option raised out of
+ * a grey track, as `SegmentedChoice` draws it. Five trace modes or detectors do
+ * not fit one row of the settings column, and SegmentedChoice cannot wrap.
+ *
+ * It was a row of keys with the current one filled blue, which read as five
+ * actions with one already pressed rather than as a mode; blue is kept for
+ * keys that act. (A local copy until SegmentedChoice can wrap.)
+ */
+function ChoiceGrid({ value, options, names, disabled, onPick }: ChoiceGridProps) {
+  const p = useAppPalette()
+  const { mode } = useThemeMode()
+  // As SegmentedChoice: white out of a grey track in Light, a translucent
+  // step on the dark grounds, where a raised white would glare.
+  const raised = mode === 'light' ? '#FFFFFF' : alpha(p.sidebar.text, 0.16)
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(92px, 1fr))', gap: 1 }}>
-      {options.map((o) => (
-        <Button
-          key={o}
-          size="small"
-          variant={o === value ? 'contained' : 'outlined'}
-          disabled={disabled}
-          onClick={() => { if (o !== value) onPick(o) }}
-          sx={{ px: 1, whiteSpace: 'nowrap' }}
-        >
-          {names[o] ?? o}
-        </Button>
-      ))}
+    <Box
+      role="group"
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(92px, 1fr))',
+        gap: '2px',
+        p: '2px',
+        borderRadius: '8px',
+        bgcolor: alpha(p.sidebar.textDim, 0.14),
+      }}
+    >
+      {options.map((o) => {
+        const active = o === value
+        return (
+          <ButtonBase
+            key={o}
+            disableRipple
+            disabled={disabled}
+            aria-pressed={active}
+            onClick={() => { if (!active) onPick(o) }}
+            sx={{
+              fontSize: 13,
+              fontWeight: 500,
+              px: 1,
+              minHeight: CONTROL_H.sm - 4,
+              borderRadius: '6px',
+              whiteSpace: 'nowrap',
+              color: active ? p.sidebar.text : p.sidebar.textDim,
+              bgcolor: active ? raised : 'transparent',
+              boxShadow: active ? '0 1px 2px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.06)' : 'none',
+              cursor: active ? 'default' : 'pointer',
+              transition: 'background-color .15s ease, color .15s ease, box-shadow .15s ease, transform 120ms',
+              ...PRESS_SX,
+              '&:hover': { color: p.sidebar.text },
+              '&.Mui-focusVisible': { outline: 'none', boxShadow: `0 0 0 1px ${alpha(p.sidebar.accent, 0.65)}` },
+              '&.Mui-disabled': { opacity: 0.5 },
+            }}
+          >
+            {names[o] ?? o}
+          </ButtonBase>
+        )
+      })}
     </Box>
   )
 }
@@ -216,6 +275,8 @@ export function SpectrumPage({ group, active }: TestPageProps) {
   const { log } = useLog()
   const theme = useTheme()
   const appPal = useAppPalette()
+  const { mode } = useThemeMode()
+  const chartTheme = useChartTheme()
   const sa = useInstrumentValue('spectrum')
   const { connect, disconnect, setAddress, discover } = useInstrumentsActions()
 
@@ -445,7 +506,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
     shown.rbw_hz != null ? `RBW ${hzShort(shown.rbw_hz)}` : null,
   ].filter(Boolean).join(' · ')
 
-  const selectSx = { '& .MuiSelect-select': { fontFamily: MONO, fontSize: 12.5 } }
+  const selectSx = { '& .MuiSelect-select': { fontFamily: MONO, fontSize: TEXT.dense.fontSize } }
   const fieldLabelSx = { ...TEXT.label, mb: 0.5 }
 
   return (
@@ -461,7 +522,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
               variant="outlined"
               disabled={!can}
               onClick={() => void markerAction('peak', 'to peak')}
-              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
+              sx={actionSx(ACTION_W.default)}
             >
               Peak search
             </Button>
@@ -469,18 +530,21 @@ export function SpectrumPage({ group, active }: TestPageProps) {
               variant="outlined"
               disabled={!can}
               onClick={() => void sweepOnce()}
-              sx={{ minWidth: ACTION_W.default, height: CONTROL_H.md }}
+              sx={actionSx(ACTION_W.default)}
             >
               Sweep once
             </Button>
-            {/* Go live and Stop are one button, as on the analyzer's own panel:
-                red while the page is reading, so it is obvious how to stop. */}
+            {/* Go live and Stop are one button, as on the analyzer's own panel,
+                and as Power Meter's: the filled key starts reading, the
+                outlined Stop with its glyph ends it. Not red: reading a trace
+                keys nothing, and red is kept for the bench hazards. One fixed
+                width, so the label swaps in place. */}
             <Button
-              variant={live ? 'contained' : 'outlined'}
-              color={live ? 'error' : 'primary'}
+              variant={live ? 'outlined' : 'contained'}
               disabled={!connected}
+              startIcon={live ? <StopRoundedIcon /> : <PlayArrowRoundedIcon />}
               onClick={() => void setLiveOn(!live)}
-              sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+              sx={actionSx(ACTION_W.default)}
             >
               {live ? 'Stop' : 'Go live'}
             </Button>
@@ -501,7 +565,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
           onDisconnect={() => void onDisconnect()}
           config={
             <Box>
-              <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>Address</Typography>
+              <Typography sx={{ ...TEXT.label, color: 'text.secondary', mb: 0.75 }}>Address</Typography>
               <Autocomplete
                 size="small"
                 freeSolo
@@ -511,7 +575,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                 onChange={(_e, v) => setAddress('spectrum', typeof v === 'string' ? v : (v ?? ''))}
                 onInputChange={(_e, v) => setAddress('spectrum', v ?? '')}
                 renderInput={(p) => (
-                  <TextField {...p} placeholder="172.16.10.1:5555" sx={{ '& input': { fontFamily: MONO, fontSize: 12.5 } }} />
+                  <TextField {...p} placeholder="172.16.10.1:5555" sx={{ '& input': { fontFamily: MONO, fontSize: TEXT.dense.fontSize } }} />
                 )}
               />
             </Box>
@@ -525,30 +589,44 @@ export function SpectrumPage({ group, active }: TestPageProps) {
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: 'minmax(280px, 340px) minmax(0, 1fr)',
-            gap: 1,
-            // A height of its own, so the side column scrolls inside it rather
-            // than stretching the page and carrying the screen away with it.
-            // The page above it -- top bar, header, instrument bar -- is about
-            // 240 px now that the DUT row is gone from Components pages; at
-            // the old 380 the Trace panel was cut off with blank page below.
-            height: 'calc(100vh - 240px)',
+            // 300 px is the least the side column's two-up FieldGrids need to
+            // actually go two-up; at 280-340 they never did.
+            gridTemplateColumns: 'minmax(300px, 360px) minmax(0, 1fr)',
+            // One row that is exactly the grid's height, so each column
+            // scrolls inside it rather than an auto row growing to the side
+            // column's content and carrying the screen away with it.
+            gridTemplateRows: 'minmax(0, 1fr)',
+            gap: `${GRID_GAP}px`,
+            // The height PageBody's `grow` hands down, rather than a guess at
+            // what the top bar, header and instrument bar take
+            // (`calc(100vh - 240px)` was cut off or left blank page below
+            // whenever that guess was wrong). Basis 0, so the side column's
+            // content cannot set the height.
+            flex: '1 1 0',
             minHeight: 560,
-            // Both columns scroll within the grid's height: the side when the
-            // settings are long, the main one when the marker table is.
             // The side column scrolls when the settings are long. The main one
             // never does: the screen fills whatever the marker panel leaves.
             '& > .spectrum-side': { minHeight: 0, overflowY: 'auto', pr: 0.5, pb: 0.5 },
             '& > .spectrum-main': { minHeight: 0, overflow: 'hidden' },
             // Too narrow for both: stack, and let the page scroll as usual.
-            '@container (max-width: 700px)': {
+            // 600 rather than 700, so 1280 with the inspector open stays
+            // two-column. Stacked, every limit that made the columns scroll
+            // within the grid has to come off: left on, the grid kept its
+            // flex height and the Screen was drawn over Amplitude with the
+            // Markers clipped. The main column gets a height of its own, as
+            // the screen inside it fills what the marker panel leaves and
+            // needs something definite to fill.
+            '@container (max-width: 600px)': {
               gridTemplateColumns: 'minmax(0, 1fr)',
-              height: 'auto',
-              '& > .spectrum-side, & > .spectrum-main': { overflowY: 'visible' },
+              gridTemplateRows: 'auto',
+              flex: '0 0 auto',
+              minHeight: 'auto',
+              '& > .spectrum-side, & > .spectrum-main': { minHeight: 'auto', overflow: 'visible' },
+              '& > .spectrum-main': { height: showTable ? markersH + 420 : 460 },
             },
           }}
         >
-          <Stack spacing={1} className="spectrum-side">
+          <Stack spacing={`${GRID_GAP}px`} className="spectrum-side">
             <Section title="Frequency" panel>
               <FieldGrid columns={2}>
                 <SettingField label="Center" hint="MHz" value={st.center_hz == null ? null : st.center_hz / 1e6} digits={6}
@@ -574,14 +652,34 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                   disabled={!can} onApply={(v) => void send({ op: 'ref_offset', db: v }, `Reference offset ${v} dB`)} />
                 <SettingField label="Attenuation" hint="dB" value={st.atten_db} digits={0}
                   disabled={!can} onApply={(v) => void send({ op: 'attenuation', db: v }, `Attenuation ${v} dB`)} />
-                <LabeledField label="Display range" hint="dB" value={st.range_db == null ? '' : fmt(st.range_db, 0)}
-                  placeholder={DASH} disabled sx={{ '& input': { fontFamily: MONO } }} />
+                {/* Read-only, so shown as a value rather than an input that
+                    is permanently disabled, which read as broken. The same
+                    label row and control height as the fields beside it. */}
+                <Stack spacing={0.5}>
+                  <Box>
+                    <Typography component="span" sx={{ ...TEXT.label, color: 'text.primary' }}>
+                      Display range
+                    </Typography>
+                    <Typography component="span" sx={{ ml: 1, ...TEXT.hint, color: 'text.secondary' }}>
+                      dB
+                    </Typography>
+                  </Box>
+                  <Typography
+                    sx={{
+                      height: CONTROL_H.md, display: 'flex', alignItems: 'center',
+                      fontFamily: MONO, fontSize: 14,
+                      color: st.range_db == null ? 'text.secondary' : 'text.primary',
+                    }}
+                  >
+                    {st.range_db == null ? DASH : fmt(st.range_db, 0)}
+                  </Typography>
+                </Stack>
               </FieldGrid>
             </Section>
 
             <Section title="Trace" panel>
               <Typography sx={fieldLabelSx}>Mode</Typography>
-              <ChoiceButtons
+              <ChoiceGrid
                 value={st.trace_mode}
                 options={info?.trace_modes ?? Object.keys(TRACE_MODE_NAMES)}
                 names={TRACE_MODE_NAMES}
@@ -589,7 +687,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                 onPick={(m) => void send({ op: 'trace_mode', mode: m }, `Trace ${TRACE_MODE_NAMES[m] ?? m}`)}
               />
               <Typography sx={{ ...fieldLabelSx, mt: 2 }}>Detector</Typography>
-              <ChoiceButtons
+              <ChoiceGrid
                 value={st.detector}
                 options={info?.detectors ?? Object.keys(DETECTOR_NAMES)}
                 names={DETECTOR_NAMES}
@@ -618,7 +716,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                     action={
                       <Button
                         size="small" variant="outlined" disabled={!can || autoOff} onClick={auto}
-                        sx={{ height: 28, minWidth: 48, px: 1, fontSize: 12 }}
+                        sx={{ height: CONTROL_H.sm, minWidth: 48, px: 1, fontSize: 12 }}
                       >
                         Auto
                       </Button>
@@ -627,45 +725,45 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                 ))}
               </Stack>
               <Typography sx={{ ...fieldLabelSx, mt: 2 }}>Sweep</Typography>
-              <ChoiceButtons
-                value={st.continuous == null ? undefined : st.continuous ? 'cont' : 'single'}
-                options={['cont', 'single']}
-                names={{ cont: 'Continuous', single: 'Single' }}
+              <SegmentedChoice
+                text
+                fullWidth
+                aria-label="Sweep"
+                // Nothing raised until the analyzer has said which it is in.
+                value={(st.continuous == null ? '' : st.continuous ? 'cont' : 'single') as 'cont' | 'single'}
+                options={[{ value: 'cont', label: 'Continuous' }, { value: 'single', label: 'Single' }]}
                 disabled={!can}
-                onPick={(v) => void send({ op: 'continuous', on: v === 'cont' }, v === 'cont' ? 'Continuous sweep' : 'Single sweep')}
+                onChange={(v) => void send({ op: 'continuous', on: v === 'cont' }, v === 'cont' ? 'Continuous sweep' : 'Single sweep')}
               />
             </Section>
 
-            <Section title="Markers" panel>
+            <Section title="Marker controls" panel>
               <Typography sx={fieldLabelSx}>Active</Typography>
               {/* How many markers are on, 1..6 (they switch on in order), with
-                  All off at the end of the same row. */}
+                  All off at the end of the same row. A count, so a segmented
+                  pick of one number rather than a row of blue keys. */}
               <Stack direction="row" spacing={1} alignItems="center">
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 0.5, flexGrow: 1 }}>
-                  {MARKER_COUNTS.map((c) => (
-                    <Button
-                      key={c}
-                      size="small"
-                      variant={c <= markerCount ? 'contained' : 'outlined'}
-                      disabled={!can}
-                      onClick={() => {
-                        if (c === markerCount) return
-                        setSel((s) => Math.min(s, c))
-                        void send({ op: 'markers', count: c }, `${c} marker${c > 1 ? 's' : ''} on`)
-                      }}
-                      sx={{ minWidth: 0, px: 0, fontFamily: MONO }}
-                    >
-                      {c}
-                    </Button>
-                  ))}
+                <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                  <SegmentedChoice
+                    fullWidth
+                    aria-label="Markers on"
+                    // Nothing raised while every marker is off.
+                    value={String(markerCount)}
+                    options={MARKER_COUNTS.map((c) => ({ value: c, label: c }))}
+                    disabled={!can}
+                    onChange={(v) => {
+                      const c = Number(v)
+                      setSel((s) => Math.min(s, c))
+                      void send({ op: 'markers', count: c }, `${c} marker${c > 1 ? 's' : ''} on`)
+                    }}
+                  />
                 </Box>
                 <Button
                   size="small"
                   variant="outlined"
-                  color="inherit"
                   disabled={!can || markerCount === 0}
                   onClick={() => void send({ op: 'markers', count: 0 }, 'Markers off')}
-                  sx={{ whiteSpace: 'nowrap', borderColor: 'divider' }}
+                  sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
                 >
                   All off
                 </Button>
@@ -680,7 +778,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                     sx={selectSx}
                   >
                     {Array.from({ length: Math.max(markerCount, 1) }, (_, i) => i + 1).map((n) => (
-                      <MenuItem key={n} value={n} sx={{ fontFamily: MONO, fontSize: 12.5 }}>M{n}</MenuItem>
+                      <MenuItem key={n} value={n} sx={{ fontFamily: MONO, fontSize: TEXT.dense.fontSize }}>M{n}</MenuItem>
                     ))}
                   </Select>
                 </Box>
@@ -703,14 +801,14 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                 <Button size="small" variant="outlined" disabled={!can} onClick={() => void markerAction('next', 'to next peak')}>Next peak</Button>
                 <Button size="small" variant="outlined" disabled={!can} onClick={() => void markerAction('min', 'to minimum')}>Min</Button>
                 <Button size="small" variant="outlined" disabled={!can || zero} title="Move the center frequency to the selected marker"
-                  onClick={() => void markerAction('center', 'to center')}>Mkr → center</Button>
+                  onClick={() => void markerAction('center', 'to center')}>Marker to center</Button>
                 <Button size="small" variant="outlined" disabled={!can || sel > markerCount}
                   onClick={() => void markerOff(sel)}>M{sel} off</Button>
               </Box>
             </Section>
           </Stack>
 
-          <Stack spacing={1} className="spectrum-main">
+          <Stack spacing={`${GRID_GAP}px`} className="spectrum-main">
             {/* Fills what the marker panel leaves, with a floor: shrunk under the
                 chart, the chart spilled over the panel below. */}
             <Box sx={{ flex: '1 1 0', minHeight: 300, display: 'flex', flexDirection: 'column' }}>
@@ -731,7 +829,13 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                       size="small"
                       value={periodS}
                       onChange={(e) => setPeriodS(Number(e.target.value))}
-                      sx={{ height: 28, '& .MuiSelect-select': { fontFamily: MONO, fontSize: 12 } }}
+                      // "Every 1 s", not a bare "1 s" that said nothing about
+                      // what it set. Fixed width, so 0.3 and 1 do not resize it.
+                      renderValue={(v) => `Every ${v} s`}
+                      sx={{
+                        height: CONTROL_H.sm, width: 112, flexShrink: 0,
+                        '& .MuiSelect-select': { fontFamily: MONO, fontSize: 12 },
+                      }}
                     >
                       {PERIODS.map((p) => (
                         <MenuItem key={p} value={p} sx={{ fontFamily: MONO, fontSize: 12 }}>{p} s</MenuItem>
@@ -745,35 +849,41 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                 sx={{
                   flexGrow: 1, minHeight: 0, position: 'relative',
                   // A recessed well, like the log drawer, rather than a lighter
-                  // patch than the panel around it.
-                  border: 1, borderColor: 'divider', borderRadius: 1, bgcolor: appPal.logBg,
+                  // patch than the panel around it. In Light the log's fill is
+                  // the card's own, so the well vanished; the page ground
+                  // recesses it there.
+                  border: 1, borderColor: 'divider', borderRadius: 1,
+                  bgcolor: mode === 'light' ? 'background.default' : appPal.logBg,
                 }}
               >
                 {chart ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chart.data} margin={{ top: 24, right: 20, bottom: 24, left: 8 }}>
-                      <CartesianGrid stroke={theme.palette.divider} strokeOpacity={0.6} />
+                      <CartesianGrid stroke={chartTheme.grid} />
                       <XAxis
                         dataKey="x"
                         type="number"
                         domain={chart.domain}
                         ticks={niceTicks(chart.domain[0], chart.domain[1])}
                         tickFormatter={(v: number) => trim(v.toFixed(3))}
-                        tick={{ fontSize: 12, fontFamily: MONO, fontWeight: 600 }}
+                        tick={{ ...chartTheme.tick, fontFamily: MONO, fontWeight: 600 }}
                         axisLine={false}
                         tickLine={false}
-                        stroke={theme.palette.text.secondary}
-                        label={{ value: chart.zero ? 'ms' : 'MHz', position: 'insideBottomRight', offset: -16, fontSize: 12 }}
+                        stroke={chartTheme.axisStroke}
+                        label={{
+                          value: chart.zero ? 'ms' : 'MHz', position: 'insideBottomRight', offset: -16,
+                          ...chartTheme.labelStyle,
+                        }}
                       />
                       <YAxis
                         domain={yDomain}
                         ticks={yTicks}
                         allowDataOverflow
                         tickFormatter={(v: number) => v.toFixed(1)}
-                        tick={{ fontSize: 12, fontFamily: MONO, fontWeight: 600 }}
+                        tick={{ ...chartTheme.tick, fontFamily: MONO, fontWeight: 600 }}
                         axisLine={false}
                         tickLine={false}
-                        stroke={theme.palette.text.secondary}
+                        stroke={chartTheme.axisStroke}
                         width={52}
                       />
                       <Area
@@ -782,9 +892,9 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                         baseValue={typeof yDomain[0] === 'number' ? yDomain[0] : 'dataMin'}
                         isAnimationActive={false}
                         // Series 1, not success green: green means PASS here.
-                        stroke={appPal.chart.series[0]}
+                        stroke={chartTheme.seriesColor(0)}
                         strokeWidth={1.25}
-                        fill={appPal.chart.series[0]}
+                        fill={chartTheme.seriesColor(0)}
                         fillOpacity={0.07}
                         dot={false}
                         activeDot={false}
@@ -825,11 +935,21 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                   </Stack>
                 )}
               </Box>
-              {problems.length > 0 && (
-                <Typography sx={{ ...TEXT.micro, color: 'warning.main', mt: 1.25, fontFamily: MONO }}>
-                  Rejected by the analyzer: {problems.join(' · ')}
-                </Typography>
-              )}
+              {/* Always laid out, hidden when empty: mounting it took its
+                  height from the chart, which jumped every time the analyzer
+                  refused a setting. One line, cut with the full text on
+                  hover, so a long refusal cannot grow it either. */}
+              <Typography
+                noWrap
+                title={problems.length ? problems.join(' · ') : undefined}
+                sx={{
+                  ...TEXT.micro, color: 'warning.main', mt: 1.25, fontFamily: MONO,
+                  minHeight: 18, flexShrink: 0,
+                  visibility: problems.length ? 'visible' : 'hidden',
+                }}
+              >
+                {problems.length ? `Rejected by the analyzer: ${problems.join(' · ')}` : ' '}
+              </Typography>
             </Section>
             </Box>
 
@@ -845,29 +965,33 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                 <Typography
                   sx={{ ...TEXT.sectionTitle, color: 'text.secondary', flexGrow: 1 }}
                 >
-                  Markers
+                  Marker readings
                 </Typography>
                 <Button size="small" onClick={() => setShowTable(true)}>Show table</Button>
               </Stack>
             ) : (
             <Box sx={{ height: markersH, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
             <Section
-              title="Markers"
+              title="Marker readings"
               panel
               grow
               action={
-                <Button size="small" onClick={() => setShowTable(false)}>Hide table</Button>
+                // Disabled rather than removed with no markers, so the
+                // heading row keeps its slot.
+                <Button size="small" disabled={markerCount === 0} onClick={() => setShowTable(false)}>Hide table</Button>
               }
             >
-              {trace && trace.markers.length > 0 ? (
+              {/* The table is always there, header and an empty body until a
+                  trace carries markers -- no "no markers" sentence in its place. */}
+              {(
                 <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto' }}>
                 <Table size="small" stickyHeader sx={{ '& td, & th': { fontFamily: MONO, fontSize: 12 } }}>
                   <TableHead>
                     <TableRow>
                       <HeadCell label="Marker" sx={{ fontFamily: 'inherit' }} />
                       <HeadCell
-                        label={trace.zero_span ? 'Time' : 'Frequency'}
-                        unit={trace.zero_span ? 'ms' : 'MHz'}
+                        label={trace?.zero_span ? 'Time' : 'Frequency'}
+                        unit={trace?.zero_span ? 'ms' : 'MHz'}
                         numeric
                       />
                       <HeadCell label="Level" unit="dBm" numeric />
@@ -875,13 +999,13 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {trace.markers.map((m) => (
+                    {(trace?.markers ?? []).map((m) => (
                       <TableRow key={m.n} hover selected={m.n === sel} onClick={() => setSel(m.n)} sx={{ cursor: 'pointer' }}>
                         <TableCell>M{m.n}</TableCell>
-                        <TableCell align="right">
-                          {m.x == null ? DASH : trace.zero_span ? fmt(m.x * 1000, 3) : fmt(m.x / 1e6, 6)}
+                        <TableCell>
+                          {m.x == null ? DASH : trace?.zero_span ? fmt(m.x * 1000, 3) : fmt(m.x / 1e6, 6)}
                         </TableCell>
-                        <TableCell align="right">{fmt(m.y, 2)}</TableCell>
+                        <TableCell>{fmt(m.y, 2)}</TableCell>
                         <TableCell align="right" sx={{ py: 0 }}>
                           <Button
                             size="small"
@@ -897,10 +1021,6 @@ export function SpectrumPage({ group, active }: TestPageProps) {
                   </TableBody>
                 </Table>
                 </Box>
-              ) : (
-                <Typography sx={{ ...TEXT.dense, color: 'text.secondary' }}>
-                  {markerCount === 0 ? 'No markers on. Add them under Markers in the settings.' : 'Marker readings appear with the next trace.'}
-                </Typography>
               )}
             </Section>
             </Box>

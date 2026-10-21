@@ -8,11 +8,13 @@ const TRACK = {
   'Run/Send key': 'main button:has-text("Run"), main button:has-text("Send"), main button:has-text("Needs")',
   'check rail': '[aria-label^="Instruments:"]:not(header *)',
   'tabs': '[role="tablist"]',
-  'results/transmit panel': 'main .MuiTable-root, main [role="tablist"] ~ * >> nth=0',
-  'DUT Connect key': 'header button:has-text("Connect"), header button:has-text("Disconnect"), body > div button:has-text("Disconnect"), body > div button:has-text("Connect")',
-  'MAC field': 'input[placeholder^="MAC"]',
+  'results/transmit panel': 'main .MuiTabs-root ~ *',
+  'DUT Connect key': '.MuiDrawer-paperAnchorRight button:has-text("Connect"), .MuiDrawer-paperAnchorRight button:has-text("Disconnect")',
+  'DUT status row': 'section[aria-label="Device under test"] > div > div:first-child',
+  'MAC field': 'input[placeholder*="MAC"]',
   'DC supply key': 'button[aria-pressed]',
-  'Instruments lamp': 'button[aria-label^="Instruments:"]',
+  'Instruments group': 'section[aria-label^="Instruments"]',
+  'toolbar': 'main > header',
   'sidebar footer': 'text=DC supply',
 }
 ;(async () => {

@@ -1,20 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { alpha } from '@mui/material/styles'
 import {
-  Box, Drawer, IconButton, Stack, Tooltip, Typography, useMediaQuery, type Theme,
+  Box, Button, Drawer, IconButton, Stack, Tooltip, Typography, type Theme,
 } from '@mui/material'
-import ArticleIcon from '@mui/icons-material/Article'
-import CloseIcon from '@mui/icons-material/Close'
-import ScienceIcon from '@mui/icons-material/Science'
-import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
-import { BenchLamps } from './components/BenchLamps'
+import CloseIcon from '@mui/icons-material/CloseRounded'
+import ScienceIcon from '@mui/icons-material/ScienceRounded'
+import MenuOpenIcon from '@mui/icons-material/MenuOpenRounded'
+import { BenchPane } from './components/BenchInspector'
 import { DutLinkProvider } from './context/DutLinkContext'
-import { DutControls, PathLossField } from './components/ConnectionPanel'
 import { LogPanel } from './components/LogPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { useChat } from './context/ChatContext'
 import { InstrumentsModal } from './components/InstrumentsModal'
-import { LiveOutputPills } from './components/LiveOutputPills'
 import { useConnection } from './context/ConnectionContext'
 import {
   useCapabilities, useInstrumentsUnavailableReason,
@@ -24,16 +21,16 @@ import { getAppPalette } from './theme'
 import { testRegistry } from './tests/registry'
 import { Sidebar, TOP_BAR_H } from './components/Sidebar'
 import { SHELL_NARROW_W } from './ui/tokens'
-import { DutGateContext, useShellLayout } from './ui'
-
-/** Band at the bottom of the window owned by the fixed copyright footer.
- *  Anything that paints under it has to stop short by this much. */
-const FOOTER_CLEARANCE = 26
+import {
+  DutGateContext, PageActiveContext, SegmentedChoice, ToolbarSlotContext, useShellLayout,
+} from './ui'
 import { STORAGE_KEYS, usePersistedState } from './store'
 
-const LOG_MIN_W = 240
+/** The inspector's width range. Its floor is the bench's: the DUT's MAC field
+ *  and its two keys need 280 px to sit on their lines without clipping. */
+const LOG_MIN_W = 280
 const LOG_MAX_W = 720
-const LOG_DEFAULT_W = 340
+const LOG_DEFAULT_W = 320
 
 /** How much of a narrow window the floating dock may cover. It overlays the
  *  page rather than sharing the row with it, so it can afford to be wider
@@ -60,6 +57,11 @@ function NoInstrumentsNotice({ label, reason }: { label: string; reason: string 
     </Stack>
   )
 }
+
+/** Everything the DUT gate dims: the topmost elements that neither are nor
+ *  contain an ungated panel (see TestArea). */
+const GATE_DIMMED = `& > :not([data-ungated]):not(:has([data-ungated])),
+  & :has([data-ungated]) > :not([data-ungated]):not(:has([data-ungated]))`
 
 function TestArea({ activeId }: { activeId: string }) {
   const { status } = useConnection()
@@ -108,13 +110,13 @@ function TestArea({ activeId }: { activeId: string }) {
         // elements that neither are nor contain an ungated panel: the children
         // of the gate, and of any box on the path down to an ungated panel.
         ...(gated ? {
-          [`& > :not([data-ungated]):not(:has([data-ungated])),
-            & :has([data-ungated]) > :not([data-ungated]):not(:has([data-ungated]))`]: {
-            opacity: 0.6,
-          },
+          [GATE_DIMMED]: { opacity: 0.6 },
           '& [data-ungated]': { pointerEvents: 'auto' },
         } : null),
-        '& > *': { transition: 'opacity 0.15s' },
+        // The fade sits on the same selector list as the dim, gated or not, so
+        // it runs on the way in and the way out -- on `& > *` alone the
+        // elements dimmed through the second branch snapped.
+        [GATE_DIMMED]: { transition: 'opacity 0.15s' },
         display: 'flex',
         flexDirection: 'column',
         flexGrow: 1,
@@ -149,7 +151,9 @@ function TestArea({ activeId }: { activeId: string }) {
             {/* Send and Run read the gate to say what they are waiting for
                 (see ui/gate.ts). Only the page on screen can be gated. */}
             <DutGateContext.Provider value={isActive && gated}>
-              <Page protocol={mod.protocol} group={mod.group} active={isActive} />
+              <PageActiveContext.Provider value={isActive}>
+                <Page protocol={mod.protocol} group={mod.group} active={isActive} />
+              </PageActiveContext.Provider>
             </DutGateContext.Provider>
           </Box>
         )
@@ -165,17 +169,17 @@ function isNarrowWindow() {
   return window.matchMedia(NARROW_QUERY).matches
 }
 
-/** Which panel the right-hand dock is showing. */
-type DockTab = 'log' | 'chat'
+/** Which pane the inspector is showing. */
+type DockTab = 'bench' | 'log' | 'chat'
 
 export default function App() {
-  const { narrow, sidebarW } = useShellLayout()
+  const { narrow } = useShellLayout()
   // Read the query directly for the initial value rather than leaning on
   // `narrow` plus an effect: an effect runs after the first paint, so these
   // would flash open and shove the page sideways on every reload at half
   // width. Both open by default on a window wide enough to hold them, as
   // before.
-  const [logOpen, setLogOpen] = useState(() => !isNarrowWindow())
+  const [paneOpen, setPaneOpen] = useState(() => !isNarrowWindow())
   const [navOpen, setNavOpen] = useState(() => !isNarrowWindow())
   /**
    * The menu only folds away on a window too narrow to carry it.
@@ -186,9 +190,6 @@ export default function App() {
    * sign it is hiding any.
    */
   const navVisible = narrow ? navOpen : true
-  // Below this the top bar's right-hand status goes to its short form so the
-  // DUT controls keep their room.
-  const tightBar = useMediaQuery('(max-width:1599px)')
 
   /**
    * Dismiss the floating menu on a click anywhere else, and on Escape.
@@ -222,17 +223,47 @@ export default function App() {
     }
   }, [narrow, navOpen])
   /**
+   * The same for the inspector while it floats: a click anywhere else, or
+   * Escape, puts it away. Docked it has its own column and stays put.
+   *
+   * Clicks inside what the inspector opens are not "elsewhere": the
+   * Instruments dialog, the path-loss table, a select's menu and the MAC
+   * list all render in portals outside the panel, and closing the inspector
+   * under them would pull the bench out from under the operator. Escape is
+   * left to an open dialog or menu first, for the same reason.
+   */
+  useEffect(() => {
+    if (!narrow || !paneOpen) return
+    const PORTALS = '.MuiModal-root, .MuiPopover-root, .MuiPopper-root, .MuiAutocomplete-popper'
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el?.closest(`[data-app-inspector],[data-inspector-toggle],${PORTALS}`)) return
+      setPaneOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (document.querySelector('.MuiModal-root:not(.MuiModal-hidden), .MuiPopper-root')) return
+      setPaneOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [narrow, paneOpen])
+  /**
    * One-shot nudge after the menu folds itself away.
    *
    * The fold happens as a side effect of dragging the window narrower, not of
    * anything the operator clicked, so without this the menu simply vanishes
-   * and the logo gives no sign it has taken it. Shown only on that crossing,
+   * and the toggle gives no sign it has taken it. Shown only on that crossing,
    * and only until it is acknowledged or times out -- a tooltip that reappears
    * every time the pointer nears the corner is worse than no hint at all.
    */
   const [navHint, setNavHint] = useState(false)
-  const [logoHover, setLogoHover] = useState(false)
-  const [dockTab, setDockTab] = usePersistedState<DockTab>(STORAGE_KEYS.dockTab, 'log')
+  const [toggleHover, setToggleHover] = useState(false)
+  const [dockTab, setDockTab] = usePersistedState<DockTab>(STORAGE_KEYS.dockTab, 'bench')
   const [logW, setLogW] = usePersistedState<number>(STORAGE_KEYS.logWidth, LOG_DEFAULT_W)
   /**
    * The test page on screen, remembered across reloads.
@@ -265,7 +296,7 @@ export default function App() {
         setNavHint(false)
         return
       }
-      setLogOpen(false)
+      setPaneOpen(false)
       setNavOpen(false)
       setNavHint(true)
     }
@@ -288,6 +319,22 @@ export default function App() {
   const p = getAppPalette(mode)
   const s = p.sidebar
   const dragging = useRef(false)
+  // The toolbar is the page's to fill (see ui/toolbarSlot.ts); a callback ref
+  // in state, so pages re-render into it once it exists.
+  const [barEl, setBarEl] = useState<HTMLElement | null>(null)
+  const [titleEl, setTitleEl] = useState<HTMLElement | null>(null)
+  const [actionsEl, setActionsEl] = useState<HTMLElement | null>(null)
+  const toolbarSlots = useMemo(
+    () => ({ bar: barEl, title: titleEl, actions: actionsEl }),
+    [barEl, titleEl, actionsEl],
+  )
+  // A stored "chat" tab from a session that had the assistant on falls back to
+  // the bench rather than leaving the inspector showing nothing.
+  const tab: DockTab = dockTab === 'chat' && !chatOn ? 'bench' : dockTab
+  const { status: dutStatus } = useConnection()
+  const activeMod = testRegistry.find((m) => m.id === activeId)
+  const gatedHere = !!activeMod?.requiresConnection
+    && !(dutStatus?.connected && dutStatus?.transport_ready)
 
   const onDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -316,216 +363,23 @@ export default function App() {
     }
   }, [setLogW])
 
-  /**
-   * Tab strip and close button for the dock.
-   *
-   * Lives in the top bar while the dock is docked, so its title sits on the
-   * same line as the app title and the search box. Once the dock floats there
-   * is no column in the bar to put it in -- the bar belongs to the page
-   * underneath -- so it moves inside the panel instead.
-   */
-  const dockHeader = (
-    <Stack
-      direction="row"
-      alignItems="center"
-      justifyContent="space-between"
-      sx={{ width: '100%', minWidth: 0 }}
-    >
-      <Stack direction="row" spacing={1.5} sx={{ minWidth: 0, overflow: 'hidden' }}>
-        {(chatOn ? (['log', 'chat'] as DockTab[]) : (['log'] as DockTab[])).map((tab) => (
-          <Typography
-            key={tab}
-            onClick={() => setDockTab(tab)}
-            sx={{
-              fontSize: 14,
-              fontWeight: 700,
-              whiteSpace: 'nowrap',
-              cursor: 'pointer',
-              color: s.text,
-              opacity: dockTab === tab ? 1 : 0.45,
-              borderBottom: dockTab === tab ? `2px solid ${s.text}` : '2px solid transparent',
-              transition: 'opacity 0.15s',
-            }}
-          >
-            {tab === 'log' ? 'Log' : 'Assistant'}
-          </Typography>
-        ))}
-      </Stack>
-      <IconButton size="small" onClick={() => setLogOpen(false)} aria-label="Close panel">
-        <CloseIcon sx={{ fontSize: 16 }} />
-      </IconButton>
-    </Stack>
-  )
+  const tabs = [
+    { value: 'bench' as const, label: 'Bench' },
+    { value: 'log' as const, label: 'Log' },
+    ...(chatOn ? [{ value: 'chat' as const, label: 'Assistant' }] : []),
+  ]
 
   return (
     <DutLinkProvider>
+    <ToolbarSlotContext.Provider value={toolbarSlots}>
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden', bgcolor: 'background.default' }}>
-      {/* Unified top bar across whole window */}
-      <Box
-        sx={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: TOP_BAR_H,
-          // A material rather than a slab: the page scrolls under the bar, and
-          // a light blur keeps it a layer above the content instead of a strip
-          // cut out of it. A hairline in place of the drop shadow. Solid again
-          // for people who ask for less transparency.
-          bgcolor: alpha(s.bg, 0.82),
-          backdropFilter: 'blur(18px) saturate(160%)',
-          borderBottom: `1px solid ${alpha(p.appBarBorder, 0.7)}`,
-          '@media (prefers-reduced-transparency: reduce)': {
-            bgcolor: s.bg,
-            backdropFilter: 'none',
-          },
-          display: 'flex',
-          zIndex: (t) => t.zIndex.drawer + 2,
-        }}
-      >
-        {/* On a narrow window the logo doubles as the menu toggle: it already
-            sits in the corner the menu belongs to, and a hamburger beside it
-            would have spent on a second control the width the sidebar just
-            gave back. Inert on a wide window, where the menu never folds and a
-            clickable logo would only invite a click that does nothing.
-
-            Only as wide as the sidebar while the sidebar is actually holding
-            that column open; once it folds away or starts floating, the bar
-            closes up and the search box re-centres. */}
-        <Tooltip
-          placement="bottom-start"
-          // Controlled, because the hint has to appear without the pointer
-          // going anywhere near the logo. Hover and focus still drive it
-          // through `onOpen`/`onClose`, which MUI fires either way.
-          open={narrow && (navHint || logoHover)}
-          onOpen={() => setLogoHover(true)}
-          onClose={() => { setLogoHover(false); setNavHint(false) }}
-          // One line, same length as the ordinary labels. A sentence
-          // explaining itself sat across the first two fields of the page and
-          // read as an error, which is a lot of weight for a hint.
-          title={navHint ? 'Menu hidden - click to show' : (navOpen ? 'Hide menu' : 'Show menu')}
-          slotProps={{ tooltip: { sx: { whiteSpace: 'nowrap', maxWidth: 'none' } } }}
-        >
-          <Box
-            component={narrow ? 'button' : 'div'}
-            type={narrow ? 'button' : undefined}
-            data-nav-toggle=""
-            aria-label={narrow ? (navOpen ? 'Hide menu' : 'Show menu') : undefined}
-            aria-expanded={narrow ? navOpen : undefined}
-            onClick={narrow ? () => { setNavHint(false); setNavOpen((v) => !v) } : undefined}
-            sx={{
-              // Only as wide as the logo below 1600 px, where the top bar needs
-              // the room for the DUT controls; the sidebar's own width above.
-              width: navVisible && !narrow && !tightBar ? sidebarW : 'auto',
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1.25,
-              pl: 2.2,
-              pr: 1.5,
-              minWidth: 0,
-              overflow: 'hidden',
-              border: 0,
-              bgcolor: 'transparent',
-              font: 'inherit',
-              textAlign: 'left',
-              ...(narrow
-                ? {
-                    cursor: 'pointer',
-                    '&:hover .app-logo-mark': { opacity: 0.82 },
-                    '&:focus-visible': {
-                      outline: `2px solid ${s.text}`, outlineOffset: -2,
-                    },
-                  }
-                : null),
-            }}
-          >
-            <Box
-              className="app-logo-mark"
-              sx={{
-                width: 34, height: 34, borderRadius: 1.25,
-                bgcolor: s.text,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0,
-                transition: 'opacity 0.15s',
-              }}
-            >
-              <ScienceIcon sx={{ fontSize: 20, color: s.bg }} />
-            </Box>
-            <Typography
-              noWrap
-              sx={{ fontWeight: 700, fontSize: 18, color: s.text, lineHeight: 1.15 }}
-            >
-              Test Console
-            </Typography>
-          </Box>
-        </Tooltip>
-
-        {/* The DUT connection and path loss, on every page and always open:
-            the operator wants the link and its settings in view rather than
-            behind a step that opens and closes. They took the place of the
-            page search. Left-aligned, so status appearing on the right (a live
-            pill) takes room from the gap between them and never moves them. */}
-        <Box
-          sx={{
-            flexGrow: 1,
-            minWidth: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.5,
-            px: 2,
-          }}
-        >
-          {/* A definite basis: with an "auto" one the MAC field, sized in
-              percent of it, collapsed to its minimum and left the bar empty. */}
-          <Box sx={{ flex: '0 1 720px', minWidth: 0 }}>
-            <DutControls compact />
-          </Box>
-          <PathLossField compact label={tightBar ? 'Loss' : 'Path loss'} />
-          <Box sx={{ flex: '1 1 0', minWidth: 8 }} />
-          {/* Live-output pills sit with the dock buttons on the right of the
-              bar, and stay there when the dock is open: an RF source keyed on
-              another page is exactly what the operator cannot otherwise see. */}
-          <Stack
-            direction="row"
-            spacing={0.75}
-            alignItems="center"
-            justifyContent="flex-end"
-            sx={{ flexShrink: 0 }}
-          >
-            <BenchLamps compact={tightBar} />
-            <LiveOutputPills
-              compact={tightBar}
-              onSelect={(id) => {
-                setActiveId(id)
-                window.scrollTo({ top: 0, behavior: 'smooth' })
-              }}
-            />
-            {/* Always shown, open or not: buttons that came and went with the
-                dock moved the lamps beside them. */}
-            <Tooltip title="Log">
-              <IconButton size="small" aria-label="Open log" onClick={() => { setDockTab('log'); setLogOpen(true) }}>
-                <ArticleIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            {chatOn && (
-              <Tooltip title="Assistant">
-                <IconButton size="small" aria-label="Open assistant" onClick={() => { setDockTab('chat'); setLogOpen(true) }}>
-                  <SmartToyOutlinedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
-          </Stack>
-        </Box>
-      </Box>
-
       <Sidebar
         open={navVisible}
         floating={narrow}
+        onClose={() => setNavOpen(false)}
         activeId={activeId}
         onSelect={(id) => {
           setActiveId(id)
-          window.scrollTo({ top: 0, behavior: 'smooth' })
           // A floating menu covers the page it just navigated to, so getting
           // out of the way is part of the selection.
           if (narrow) setNavOpen(false)
@@ -537,20 +391,13 @@ export default function App() {
         sx={{
           flexGrow: 1,
           minWidth: 0,
-          // 32px of side gutter is a luxury on a half-width window -- it is
-          // two number fields' worth of room taken from the page to leave
-          // white space at the edges.
-          px: 2,
-          [`@media (min-width:${SHELL_NARROW_W}px)`]: { px: 4 },
-          pt: `${TOP_BAR_H + 24}px`,
-          pb: 3,
           display: 'flex',
           flexDirection: 'column',
           height: '100vh',
           // Pages that own the remaining height still scroll inside
           // themselves; this is for the case they cannot cover -- a window
-          // short enough that the connection row and the page header alone
-          // overflow it. That used to be clipped with no way to reach it.
+          // short enough that the page header alone overflows it. That used to
+          // be clipped with no way to reach it.
           //
           // No scrollbar: it would appear and disappear with the window
           // height, and a gutter opening and closing down the side of the page
@@ -563,53 +410,140 @@ export default function App() {
           '&::-webkit-scrollbar': { display: 'none' },
         }}
       >
-        {/* No DUT row here any more: the DUT controls live in each test page's
-            check course and in the top bar's DUT lamp. A row above every page
-            pushed Components pages -- which never talk to the DUT -- below the
-            fold for nothing. */}
-        <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        {/* The window toolbar: the page's title and header keys (portalled in
+            by PageHeader), the live-output pills, and the inspector toggle. A
+            material rather than a slab: the page scrolls under it, and a light
+            blur keeps it a layer above the content instead of a strip cut out
+            of it. Solid again for people who ask for less transparency. */}
+        <Box
+          component="header"
+          ref={setBarEl}
+          sx={{
+            position: 'sticky',
+            top: 0,
+            zIndex: (t) => t.zIndex.appBar,
+            flexShrink: 0,
+            height: TOP_BAR_H,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            px: 2,
+            [`@media (min-width:${SHELL_NARROW_W}px)`]: { px: 3 },
+            bgcolor: alpha(p.contentBg, 0.8),
+            backdropFilter: 'blur(20px) saturate(180%)',
+            borderBottom: `1px solid ${alpha(p.appBarBorder, 0.8)}`,
+            '@media (prefers-reduced-transparency: reduce)': {
+              bgcolor: p.contentBg,
+              backdropFilter: 'none',
+            },
+          }}
+        >
+          {narrow && (
+            <Tooltip
+              placement="bottom-start"
+              // Controlled, because the hint has to appear without the pointer
+              // going anywhere near the toggle. Hover and focus still drive it
+              // through `onOpen`/`onClose`, which MUI fires either way.
+              open={navHint || toggleHover}
+              onOpen={() => setToggleHover(true)}
+              onClose={() => { setToggleHover(false); setNavHint(false) }}
+              title={navHint ? 'Menu hidden - click to show' : (navOpen ? 'Hide menu' : 'Show menu')}
+              slotProps={{ tooltip: { sx: { whiteSpace: 'nowrap', maxWidth: 'none' } } }}
+            >
+              <IconButton
+                data-nav-toggle=""
+                aria-label={navOpen ? 'Hide menu' : 'Show menu'}
+                aria-expanded={navOpen}
+                onClick={() => { setNavHint(false); setNavOpen((v) => !v) }}
+                aria-pressed={navOpen}
+                sx={{ ml: -0.5 }}
+              >
+                {/* The app's logo, the same mark the sidebar opens with: on a
+                    narrow window it is what the folded sidebar leaves behind,
+                    and clicking it brings the sidebar back. */}
+                <Box
+                  sx={{
+                    width: 26, height: 26, borderRadius: '7px',
+                    bgcolor: s.text, color: s.bg,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <ScienceIcon sx={{ fontSize: 16 }} />
+                </Box>
+              </IconButton>
+            </Tooltip>
+          )}
+          <Box ref={setTitleEl} sx={{ flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center' }} />
+          {/* No live-output pills: the operator removed them. The badge
+              ("DC ON 3.60 V") read as a key with no clear purpose, and each
+              page already shows its own output's state. This slot sits between
+              the title and the keys, so what it holds takes its room from the
+              title and never moves a key (see ToolbarSlots). */}
+          <Box sx={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden', display: 'flex', gap: 0.5 }}>
+            {/* With the inspector closed (the default below 1200 px) a gated
+                page dimmed with its only Connect control out of sight behind
+                an unlabelled glyph. This names the missing step and opens the
+                bench. */}
+            {gatedHere && !paneOpen && (
+              <Button
+                size="small"
+                variant="outlined"
+                data-inspector-toggle=""
+                onClick={() => { setDockTab('bench'); setPaneOpen(true) }}
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap', borderRadius: 999, px: 1.5 }}
+              >
+                Connect DUT
+              </Button>
+            )}
+          </Box>
+          <Box ref={setActionsEl} sx={{ flexShrink: 0, display: 'flex', alignItems: 'center' }} />
+          <Tooltip title={paneOpen ? 'Hide inspector' : 'Show inspector'} placement="bottom-end">
+            <IconButton
+              data-inspector-toggle=""
+              aria-label={paneOpen ? 'Hide inspector' : 'Show inspector'}
+              aria-pressed={paneOpen}
+              onClick={() => setPaneOpen((v) => !v)}
+              sx={{ color: paneOpen ? s.text : s.textDim, mr: -0.5 }}
+            >
+              {/* Its own glyph: the same sidebar mark as the menu toggle, only
+                  mirrored, made the two corners of the toolbar look alike. The
+                  arrow points the way the panel will go: in from the right
+                  while closed, back out while open. */}
+              <MenuOpenIcon sx={{ fontSize: 20, transform: paneOpen ? 'scaleX(-1)' : 'none' }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
+        <Box
+          sx={{
+            flexGrow: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
+            // 32px of side gutter is a luxury on a half-width window -- it is
+            // two number fields' worth of room taken from the page to leave
+            // white space at the edges.
+            px: 2,
+            [`@media (min-width:${SHELL_NARROW_W}px)`]: { px: 3 },
+            pt: 2.5,
+            pb: 3,
+          }}
+        >
           <TestArea activeId={activeId} />
         </Box>
       </Box>
 
       <InstrumentsModal />
 
-      {/* Global footer — bottom-right, always visible regardless of log drawer. */}
-      <Box
-        component="footer"
-        sx={{
-          position: 'fixed',
-          bottom: 6,
-          right: 12,
-          fontSize: 12,
-          color: p.sidebar.textDim,
-          pointerEvents: 'none',
-          zIndex: (t) => t.zIndex.drawer + 3,
-        }}
-      >
-        © {new Date().getFullYear()}{' '}
-        <Box
-          component="a"
-          href="https://github.com/YossiAbutbul"
-          target="_blank"
-          rel="noopener noreferrer"
-          sx={{
-            color: p.sidebar.text,
-            textDecoration: 'none',
-            fontWeight: 600,
-            pointerEvents: 'auto',
-            '&:hover': { textDecoration: 'underline' },
-          }}
-        >
-          Yossi Abutbul
-        </Box>
-        {' · '}All rights reserved
-      </Box>
-
+      {/* The inspector: the bench on every page, with the log and the
+          assistant as its other panes. It took over the top bar's DUT row,
+          its Instruments lamp and the log dock, which said the same things in
+          three places. */}
       <Drawer
         anchor="right"
-        open={logOpen}
-        onClose={() => setLogOpen(false)}
+        // Marks the paper for the click-away above.
+        PaperProps={{ 'data-app-inspector': '' } as Record<string, string>}
+        open={paneOpen}
+        onClose={() => setPaneOpen(false)}
         variant="persistent"
         sx={{
           // Zero while floating: `persistent` reserves its width by sizing the
@@ -618,8 +552,15 @@ export default function App() {
           // so dropping the root's width is all it takes to turn a column into
           // an overlay -- no modal, no backdrop, and the page underneath stays
           // clickable, which a `temporary` drawer would have taken away.
-          width: logOpen && !narrow ? logW : 0,
+          width: paneOpen && !narrow ? logW : 0,
           flexShrink: 0,
+          // The column eases on the paper's own curve, so page and panel move
+          // as one. It used to flip in a single frame while the paper slid:
+          // the page snapped 320 px and painted over the panel on its way out.
+          transition: (t: Theme) => t.transitions.create('width', {
+            easing: t.transitions.easing.sharp,
+            duration: paneOpen ? t.transitions.duration.enteringScreen : t.transitions.duration.leavingScreen,
+          }),
           '& .MuiDrawer-paper': {
             width: narrow
               ? `min(${logW}px, ${Math.round(LOG_OVERLAY_MAX_FRAC * 100)}vw)`
@@ -627,26 +568,21 @@ export default function App() {
             boxSizing: 'border-box',
             bgcolor: p.logBg,
             border: 0,
-            // Floating over the page rather than beside it, so it needs an
-            // edge of its own; docked, the page's own background provides it.
-            // The paper is fixed, but the docked root that carries MUI's own
-            // z-index is statically positioned, so the rule never applies and
-            // the page painted straight over the top of the panel. Docked that
-            // never showed, because the panel had its own column to sit in.
+            borderLeft: `1px solid ${p.appBarBorder}`,
+            // Floating over the page rather than beside it, so it needs a
+            // shadow of its own; docked, the hairline is enough. The paper is
+            // fixed, but the docked root that carries MUI's own z-index is
+            // statically positioned, so the rule never applies and the page
+            // painted straight over the top of the panel. Docked that never
+            // showed, because the panel had its own column to sit in.
             ...(narrow
               ? {
                   zIndex: (t: Theme) => t.zIndex.drawer + 1,
-                  borderLeft: `1px solid ${p.appBarBorder}`,
                   boxShadow: '-8px 0 24px rgba(0,0,0,0.18)',
                 }
               : null),
-            top: TOP_BAR_H,
-            height: `calc(100vh - ${TOP_BAR_H}px)`,
-            // The global footer is fixed to the bottom-right of the window and
-            // paints over this drawer. Inset the paper's content so nothing is
-            // ever rendered in that band — at any scroll position — while the
-            // drawer's own background still reaches the bottom of the screen.
-            paddingBottom: `${FOOTER_CLEARANCE}px`,
+            top: 0,
+            height: '100vh',
           },
         }}
       >
@@ -661,7 +597,7 @@ export default function App() {
             cursor: 'col-resize',
             zIndex: 1,
             '&:hover': { bgcolor: p.appBarBorder },
-            '&:active': { bgcolor: s.accent ?? p.appBarBorder },
+            '&:active': { bgcolor: s.accent },
             transition: 'background-color 0.15s',
           }}
         />
@@ -670,34 +606,40 @@ export default function App() {
             height on a child of it resolves against nothing -- the panel
             collapsed to zero and its chips and input row overflowed on top of
             each other rather than the transcript giving up the space. */}
-        <Stack sx={{ p: 2, flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          {/* In the panel at every width now: the top bar's right-hand column
-              went to the DUT controls. */}
-          <Box sx={{ display: 'flex', mb: 1, flexShrink: 0 }}>{dockHeader}</Box>
-          {/* Both stay mounted: switching tabs must not lose the log's scroll
+        <Stack sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <Stack direction="row" alignItems="center" sx={{ height: TOP_BAR_H, px: 2, gap: 1, flexShrink: 0 }}>
+            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+              <SegmentedChoice
+                text
+                fullWidth
+                size="md"
+                aria-label="Inspector pane"
+                value={tab}
+                options={tabs}
+                onChange={setDockTab}
+              />
+            </Box>
+            {narrow && (
+              <IconButton size="small" onClick={() => setPaneOpen(false)} aria-label="Close panel">
+                <CloseIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            )}
+          </Stack>
+          {/* All stay mounted: switching panes must not lose the log's scroll
               position or a half-typed question. */}
-          <Box
-            sx={{
-              // Falls back to the log when the assistant is off, so a stored
-              // "chat" tab from a session that had it on cannot leave the dock
-              // showing nothing.
-              display: dockTab === 'log' || !chatOn ? 'flex' : 'none',
-              flexDirection: 'column', flex: 1, minHeight: 0,
-            }}
-          >
+          <Box sx={{ display: tab === 'bench' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+            <BenchPane />
+          </Box>
+          <Box sx={{ display: tab === 'log' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, px: 2, pb: 2 }}>
             <LogPanel embedded />
           </Box>
-          <Box
-            sx={{
-              display: chatOn && dockTab === 'chat' ? 'flex' : 'none',
-              flexDirection: 'column', flex: 1, minHeight: 0,
-            }}
-          >
+          <Box sx={{ display: tab === 'chat' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, px: 2, pb: 2 }}>
             {chatOn && <ChatPanel embedded />}
           </Box>
         </Stack>
       </Drawer>
     </Box>
+    </ToolbarSlotContext.Provider>
     </DutLinkProvider>
   )
 }

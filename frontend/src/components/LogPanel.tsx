@@ -1,6 +1,6 @@
 import { Box, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material'
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineRounded'
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadRounded'
 import { useRef } from 'react'
 import { useLog } from '../context/LogContext'
 import { MONO } from '../ui'
@@ -30,18 +30,19 @@ export function LogPanel({ embedded = false }: Props) {
     <>
       <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1}>
         {!embedded && <Typography variant="h6">Log</Typography>}
+        {/* An empty slot keeps the download and clear keys on the right. */}
         {embedded && <Box />}
         <Stack direction="row" spacing={0.5}>
           <Tooltip title="Download as .txt">
             <span>
-              <IconButton size="small" onClick={download} disabled={entries.length === 0}>
+              <IconButton size="small" aria-label="Download log as text" onClick={download} disabled={entries.length === 0}>
                 <FileDownloadOutlinedIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </span>
           </Tooltip>
           <Tooltip title="Clear log">
             <span>
-              <IconButton size="small" onClick={clear} disabled={entries.length === 0}>
+              <IconButton size="small" aria-label="Clear log" onClick={clear} disabled={entries.length === 0}>
                 <DeleteOutlineIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </span>
@@ -63,6 +64,12 @@ export function LogPanel({ embedded = false }: Props) {
           border: 0,
         }}
       >
+        {entries.length === 0 && (
+          // An empty pane said nothing about what would appear in it.
+          <Typography sx={{ fontFamily: (t) => t.typography.fontFamily, fontSize: 13, color: 'text.secondary', mt: 1 }}>
+            Nothing logged yet. Instrument and DUT traffic appears here, newest first.
+          </Typography>
+        )}
         {view.map((e, i) => (
           <Box
             key={entries.length - 1 - i}

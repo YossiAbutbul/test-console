@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Box, Button, MenuItem, Select, Stack, Typography } from '@mui/material'
-import RefreshIcon from '@mui/icons-material/Refresh'
+import { Box, Button, MenuItem, Select, Stack, Tooltip, Typography } from '@mui/material'
+import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import {
@@ -16,9 +16,8 @@ import { usePublishLiveOutput } from '../../context/liveOutput'
 import { DASH, fmt } from '../../lib/format'
 import {
   FieldGrid, InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
-  HazardGlyph, hazardRingSx,
-  InstrumentError,
-  CONTROL_H,
+  InstrumentError, LatchingKey,
+  ACTION_W, actionSx,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import {
@@ -56,7 +55,7 @@ const numOrNull = (s: string): number | null => {
  * is read back from the generator rather than remembered from the last write,
  * because it has a front panel and the operator may well have turned a knob.
  *
- * The RF button is the one control here that changes the world: it keys a
+ * The RF key is the one control here that changes the world: it keys a
  * source into a live bench. Switching on sends the typed frequency and level
  * with it in a single request, which the backend orders so both land before
  * the output does — pressing it can then never key the previous setting.
@@ -71,6 +70,9 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
   const [st, setSt] = useState<SignalGeneratorState | null>(null)
   const [busy, setBusy] = useState(false)
   const [fault, setFault] = useState<string | null>(null)
+  // A failed Scan is reported in the Config dialog, where Scan was pressed:
+  // routed to `fault` it landed under the Instrument card, behind the dialog.
+  const [scanError, setScanError] = useState<string | null>(null)
 
   const [freqMhz, setFreqMhz] = useState(
     () => signalGeneratorPageSnapshot.freqMhz ?? '',
@@ -101,10 +103,11 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
 
   const scan = useCallback(async () => {
     setScanning(true)
+    setScanError(null)
     try {
       setPorts(await discover('signal-generator'))
     } catch (e) {
-      setFault((e as Error).message)
+      setScanError((e as Error).message)
     } finally {
       setScanning(false)
     }
@@ -226,6 +229,13 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
 
   const rfOn = st?.rf_on === true
   const canSend = connected && !busy
+  // The frequency and level fields start blank, so they show the instrument's
+  // read-back as their placeholder: blank fields beside a live generator read
+  // as "nothing set". Display only -- a blank field still sends nothing.
+  const freqPlaceholder = !connected ? 'not read'
+    : liveFreqMhz == null ? 'reading…' : fmt(liveFreqMhz, 3)
+  const levelPlaceholder = !connected ? 'not read'
+    : st?.level_dbm == null ? 'reading…' : fmt(st.level_dbm, 1)
 
   // Into the top bar, so a keyed source is visible from every page. Taken from
   // this page's own read-back rather than a poll of its own: the generator is
@@ -239,8 +249,8 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
       st?.level_dbm == null ? null : `${fmt(st.level_dbm, 1)} dBm`,
     ].filter(Boolean).join(' · ') || undefined,
     pageId: 'signal-generator',
-    note: 'Signal generator output, as last read on its page. '
-      + 'It is only re-read while that page is open.',
+    // Said plainly: the reading can be stale, since only the page re-reads it.
+    note: 'As last read on the Signal Generator page.',
   } : null)
 
   return (
@@ -249,22 +259,30 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
         group={group}
         label="Signal Generator"
         actions={
-          <Button
-            variant={rfOn ? 'outlined' : 'contained'}
-            color={rfOn ? 'error' : 'primary'}
-            disabled={!canSend}
-            startIcon={<HazardGlyph kind="tx" />}
-            // Switching on carries the typed settings so they land first; the
-            // backend keys the output last. Switching off carries nothing —
-            // the only thing wanted then is for the output to stop.
-            onClick={() => void send(
-              rfOn ? { rf_on: false } : { ...typed, rf_on: true },
-              rfOn ? 'RF off' : 'RF on',
-            )}
-            sx={[{ width: 130, height: 36 }, hazardRingSx(rfOn ? null : 'tx')]}
-          >
-            {rfOn ? 'RF Off' : 'RF On'}
-          </Button>
+          // Disabled says why: a greyed key with no reason reads as broken.
+          <Tooltip title={!connected ? 'Connect the generator first' : ''}>
+            <span>
+              {/* State-labelled, as the RF ON pill beside it is: an action
+                  label ("RF Off") next to a state pill ("RF ON") read as a
+                  contradiction. Switching on carries the typed settings so
+                  they land first; the backend keys the output last. Switching
+                  off carries nothing -- the only thing wanted then is for the
+                  output to stop. */}
+              <LatchingKey
+                value={rfOn}
+                kind="tx"
+                offLabel="RF off"
+                onLabel="RF on"
+                pending={busy}
+                disabled={!connected}
+                width={ACTION_W.wide}
+                onChange={(next) => void send(
+                  next ? { ...typed, rf_on: true } : { rf_on: false },
+                  next ? 'RF on' : 'RF off',
+                )}
+              />
+            </span>
+          </Tooltip>
         }
       />
 
@@ -282,7 +300,7 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
           config={
             <>
               <Box>
-                <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>Port</Typography>
+                <Typography sx={{ ...TEXT.label, color: 'text.secondary', mb: 0.75 }}>Port</Typography>
                 <Stack direction="row" spacing={1} alignItems="center">
                   <Select
                     size="small"
@@ -291,44 +309,55 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
                     displayEmpty
                     disabled={connected}
                     onChange={(e) => setAddress('signal-generator', String(e.target.value))}
-                    sx={{ '& .MuiSelect-select': { fontSize: 12.5 } }}
+                    sx={{ '& .MuiSelect-select': { fontFamily: MONO, fontSize: TEXT.dense.fontSize } }}
                   >
                     <MenuItem value="" disabled>
                       {scanning ? 'Scanning…' : 'Select a port'}
                     </MenuItem>
                     {portOptions.map((p) => (
-                      <MenuItem key={p.resource} value={p.resource} sx={{ fontSize: 12.5 }}>
+                      <MenuItem key={p.resource} value={p.resource} sx={{ fontFamily: MONO, fontSize: TEXT.dense.fontSize }}>
                         {p.resource}
                         {p.detail && (
-                          <Typography component="span" sx={{ ml: 1, fontSize: 12, color: 'text.secondary' }}>
+                          <Typography component="span" sx={{ ml: 1, ...TEXT.hint, color: 'text.secondary' }}>
                             {p.detail}
                           </Typography>
                         )}
                       </MenuItem>
                     ))}
                   </Select>
+                  {/* Default size: a 28 px key beside the 32 px select sat
+                      short of it. */}
                   <Button
-                    size="small"
                     onClick={() => void scan()}
                     disabled={scanning || connected}
-                    startIcon={<RefreshIcon sx={{ fontSize: 15 }} />}
-                    sx={{ minWidth: 0 }}
+                    startIcon={<RefreshRoundedIcon />}
+                    sx={{ minWidth: 0, flexShrink: 0 }}
                   >
                     Scan
                   </Button>
                 </Stack>
+                {/* Reserved whether or not a scan failed, so a failure never
+                    grows the dialog under the operator's pointer. */}
+                <Typography
+                  sx={{
+                    ...TEXT.micro, color: 'error.main', mt: 0.75, minHeight: 18,
+                    visibility: scanError ? 'visible' : 'hidden',
+                  }}
+                >
+                  {scanError ? `Scan failed: ${scanError}` : ' '}
+                </Typography>
               </Box>
               <Box>
-                <Typography sx={{ ...TEXT.dense, color: 'text.secondary', mb: 0.75 }}>Baud</Typography>
+                <Typography sx={{ ...TEXT.label, color: 'text.secondary', mb: 0.75 }}>Baud</Typography>
                 <Select
                   size="small"
                   value={baud}
                   disabled={connected}
                   onChange={(e) => setChannel('signal-generator', Number(e.target.value))}
-                  sx={{ width: 120, '& .MuiSelect-select': { fontFamily: MONO, fontSize: 12.5 } }}
+                  sx={{ width: 120, '& .MuiSelect-select': { fontFamily: MONO, fontSize: TEXT.dense.fontSize } }}
                 >
                   {BAUD_RATES.map((b) => (
-                    <MenuItem key={b} value={b} sx={{ fontFamily: MONO, fontSize: 12.5 }}>{b}</MenuItem>
+                    <MenuItem key={b} value={b} sx={{ fontFamily: MONO, fontSize: TEXT.dense.fontSize }}>{b}</MenuItem>
                   ))}
                 </Select>
                 <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 0.75 }}>
@@ -339,83 +368,80 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
           }
         />
 
-        <Box>
-          <Section title="Output" panel>
-            <FieldGrid columns={2}>
-              <LabeledField
-                label="Frequency" hint="MHz" type="number"
-                value={freqMhz}
-                // Filled from the instrument once it is read; blank before that.
-                placeholder={connected ? undefined : 'not read'}
-                onChange={(e) => setFreqMhz(e.target.value)}
-                inputProps={{ step: 0.1, min: FREQ_MIN_MHZ, max: FREQ_MAX_MHZ }}
-                sx={{ '& input': { fontFamily: MONO } }}
-              />
-              <LabeledField
-                label="Level" hint="dBm" type="number"
-                value={levelDbm}
-                placeholder={connected ? undefined : 'not read'}
-                onChange={(e) => setLevelDbm(e.target.value)}
-                inputProps={{ step: 0.5, min: LEVEL_MIN_DBM, max: LEVEL_MAX_DBM }}
-                sx={{ '& input': { fontFamily: MONO } }}
-              />
-            </FieldGrid>
-            <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mt: 2 }}>
-              <Button
-                variant={pending ? 'contained' : 'outlined'}
-                disabled={!canSend || (typed.freq_hz == null && typed.level_dbm == null)}
-                onClick={() => void send(typed, 'Applied frequency and level')}
-                sx={{ minWidth: 120, height: CONTROL_H.md }}
-              >
-                Apply
-              </Button>
-              {/* Named rather than implied: the fields hold what was typed, and
-                  the instrument holds what was sent. Without this the two look
-                  like one value that has quietly failed to take. */}
-              {pending && (
-                <Typography sx={{ ...TEXT.micro, color: 'warning.main', fontWeight: 600 }}>
-                  not sent yet
-                </Typography>
-              )}
-              {rfOn && (
-                <Typography sx={{ ...TEXT.micro, color: 'error.main', fontWeight: 600 }}>
-                  RF is live
-                </Typography>
-              )}
-            </Stack>
-          </Section>
-        </Box>
-
-        <Box sx={{ mt: 2 }}>
-          <Section title="Instrument" panel flush>
-            <StatRow>
-              <StatTile
-                label="Frequency"
-                value={liveFreqMhz == null ? DASH : fmt(liveFreqMhz, 3)}
-                unit="MHz"
-                sub={connected ? undefined : 'not connected'}
-                off={!connected}
-              />
-              <StatTile
-                label="Level"
-                value={fmt(st?.level_dbm ?? null, 2)}
-                unit="dBm"
-                sub={connected ? undefined : 'not connected'}
-                off={!connected}
-              />
-              <StatTile
-                label="RF output"
-                value={st?.rf_on == null ? DASH : rfOn ? 'ON' : 'OFF'}
-                tone={rfOn ? 'bad' : undefined}
-                sub={connected ? undefined : 'not connected'}
-                off={!connected}
-              />
-            </StatRow>
-            {(st?.error || fault) && (
-              <InstrumentError message={(st?.error ?? fault) as string} raw />
+        <Section title="Output" panel>
+          <FieldGrid columns={2}>
+            <LabeledField
+              label="Frequency" hint="MHz" type="number"
+              value={freqMhz}
+              // Blank until typed; the placeholder carries the read-back.
+              placeholder={freqPlaceholder}
+              onChange={(e) => setFreqMhz(e.target.value)}
+              inputProps={{ step: 0.1, min: FREQ_MIN_MHZ, max: FREQ_MAX_MHZ }}
+              sx={{ '& input': { fontFamily: MONO } }}
+            />
+            <LabeledField
+              label="Level" hint="dBm" type="number"
+              value={levelDbm}
+              placeholder={levelPlaceholder}
+              onChange={(e) => setLevelDbm(e.target.value)}
+              inputProps={{ step: 0.5, min: LEVEL_MIN_DBM, max: LEVEL_MAX_DBM }}
+              sx={{ '& input': { fontFamily: MONO } }}
+            />
+          </FieldGrid>
+          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mt: 2 }}>
+            <Button
+              variant={pending ? 'contained' : 'outlined'}
+              disabled={!canSend || (typed.freq_hz == null && typed.level_dbm == null)}
+              onClick={() => void send(typed, 'Applied frequency and level')}
+              sx={actionSx(ACTION_W.default)}
+            >
+              Apply
+            </Button>
+            {/* Named rather than implied: the fields hold what was typed, and
+                the instrument holds what was sent. Without this the two look
+                like one value that has quietly failed to take. (RF being live
+                is not repeated here: the key, the pill and the RF output tile
+                already say it.) */}
+            {pending && (
+              <Typography sx={{ ...TEXT.micro, color: 'warning.main', fontWeight: 600 }}>
+                not sent yet
+              </Typography>
             )}
-          </Section>
-        </Box>
+          </Stack>
+        </Section>
+
+        <Section title="Instrument" panel>
+          {(st?.error || fault) && (
+            <InstrumentError message={(st?.error ?? fault) as string} raw />
+          )}
+          {/* In the card rather than framed inside it: the strip runs to the
+              card's edges, so the tiles are not a box in a box. */}
+          <StatRow inCard>
+            <StatTile
+              label="Frequency"
+              value={liveFreqMhz == null ? DASH : fmt(liveFreqMhz, 3)}
+              unit="MHz"
+              sub={connected ? undefined : 'not connected'}
+              off={!connected}
+            />
+            <StatTile
+              label="Level"
+              // 1 dp, as the top-bar pill shows it: the same reading in two
+              // places on screen must agree.
+              value={fmt(st?.level_dbm ?? null, 1)}
+              unit="dBm"
+              sub={connected ? undefined : 'not connected'}
+              off={!connected}
+            />
+            <StatTile
+              label="RF output"
+              value={st?.rf_on == null ? DASH : rfOn ? 'ON' : 'OFF'}
+              tone={rfOn ? 'bad' : undefined}
+              sub={connected ? undefined : 'not connected'}
+              off={!connected}
+            />
+          </StatRow>
+        </Section>
       </PageBody>
     </Box>
   )

@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import SsidChartIcon from '@mui/icons-material/SsidChart'
+import StackedLineChartIcon from '@mui/icons-material/StackedLineChartRounded'
 import type { TestModule } from '../types'
 import { PowerSweepPage } from './PowerSweepPage'
 
@@ -8,7 +8,7 @@ export const powerSweepModule: TestModule = {
   label: 'Mode Sweep',
   protocol: 'LoRa',
   group: 'TX',
-  icon: createElement(SsidChartIcon, { fontSize: 'small' }),
+  icon: createElement(StackedLineChartIcon, { fontSize: 'small' }),
   Page: PowerSweepPage,
   requiresConnection: true,
   requiresInstruments: true,

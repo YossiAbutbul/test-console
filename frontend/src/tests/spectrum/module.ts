@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import SsidChartIcon from '@mui/icons-material/SsidChart'
+import WaterfallChartIcon from '@mui/icons-material/WaterfallChartRounded'
 import type { TestModule } from '../types'
 import { SpectrumPage } from './SpectrumPage'
 
@@ -12,7 +12,7 @@ export const spectrumModule: TestModule = {
   protocol: 'LoRa',
   root: true,
   group: 'Components',
-  icon: createElement(SsidChartIcon, { fontSize: 'small' }),
+  icon: createElement(WaterfallChartIcon, { fontSize: 'small' }),
   Page: SpectrumPage,
   // Talks to the analyzer over LAN; nothing here talks to the DUT.
   requiresConnection: false,
