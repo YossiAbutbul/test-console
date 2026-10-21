@@ -88,13 +88,39 @@ Screenshots are in `docs/design/shots/simplify/`: `before` is e4b66d5 and
 `after` is this pass, each at 1920 px and in `*-1280`. The layout-shift
 check still measures 0 px.
 
+## Inspector pass (apple-design, October 2026)
+
+A full redesign on top of the passes above, which are kept as history: some of
+what they added (the check course, the bench lamps, the live-output pills, the
+hazard rings, units on a second header line) is gone again. DESIGN.md is
+rewritten for this system.
+
+| Area | Now |
+|---|---|
+| Shell | Full-height sidebar with foldable sections (Components too) and the DC supply in its footer; a translucent window toolbar that pages portal their title and keys into; a right **inspector** (Bench, Log, Assistant). Below 1200 px the sidebar and inspector float and close on click-outside or Escape. |
+| Status | Each fact said once: the DUT, path loss and instruments live in the inspector's Bench tab. No live-output pills, no bench lamp, no check course; Load Pull keeps a compact "N of 6 connected" checklist. |
+| Colour | One accent, system blue (`#0071E3` fill in every theme); grey secondary keys; the hazard ring retired, the glyph kept; E-Stop a red-tinted labelled key. |
+| Controls | 32 px controls; filled field wells with a half-strength accent edge on focus; LatchingKey off in a translucent grey that reads on any surface; macOS-style menus, switches and sliders; press feedback; reduced motion honoured by the theme. |
+| Tables | Units inline in `[brackets]`, everything left-aligned, a narrow `#` column, an empty table drawn blank; PASS / FAIL tally counts filter the rows. |
+| Instruments dialog | One panel per group with hairline rows, status dots, a one-line status with model and serial, Re-scan inside the address field, one key per row. |
+| Load Pull | The trombone step as three cards — Move trombone, Controls, Sweep bounds — with the shared JogPad. |
+| Trombone page | Travel bar removed; hold-to-jog with Slow / Medium / Fast added (its own hook, so soft limits set elsewhere are not touched). |
+| LTE | MHz is the default channel unit and listed first; RB fields named "Number of RB allocation" and "Position of RB allocation". |
+| Settings | "Select text on focus", off by default. |
+
+The only behaviour changes were the ones the operator asked for: the tally
+filter, the hold-to-jog on the Trombone page, the select-on-focus setting
+(and its default), and MHz as the default LTE unit. Checks at the end:
+`tsc -b`, the 275 unit tests, pytest, and ESLint at its 33-error / 2-warning
+baseline.
+
 ## Recommended but not done
 
 - **Sweep rows at 1280 px with the log docked** still scroll sideways inside the panel. The fix is either a two-line row under a container query or floating the log on laptop widths. The second needs a decision, because the current shell breakpoint would also hide the sidebar.
 - **Results graph:** a y = x reference line and a ± tolerance band, with failing points marked. This is new chart content, so it was out of scope for a presentation pass.
 - **Smith chart:** efficiency uses a fixed 3.6 V. Using the measured supply voltage is a data change.
 - **Fonts:** done in the simplify pass — the stack now starts at `system-ui`, with no named-but-missing Inter.
-- **Log drawer:** it docks open and empty on wide windows. Making it start closed is a behaviour default, so I left it.
+- **Log drawer:** superseded — the log is a tab of the inspector now.
 - **Accessibility:** a screen-reader pass and 200 % zoom were not done (see `audit.md`).
 - **Testing Guide and manual:** the text and the images in `docs/manual/img/` still describe the old design. Sections to rewrite:
   - "The row along the top of every page is for the DUT" (1.4);

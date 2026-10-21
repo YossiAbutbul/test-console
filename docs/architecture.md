@@ -79,7 +79,7 @@ backend/
 frontend/
   src/
     main.tsx              QueryClient + provider chain + root render
-    App.tsx               Top bar + sidebar + log drawer + TestArea
+    App.tsx               Shell: sidebar + window toolbar + inspector + TestArea
     theme.ts              MUI palette + component overrides per theme mode
 
     api/                  Typed fetch clients, one file per backend resource
@@ -95,23 +95,33 @@ frontend/
 
     ui/                   Shared UI kit — pages compose from these
       tokens.ts             sizes, type scale, layout constants
-      Section.tsx           Section (titled block) + Card
-      PageBody.tsx          standard content container below PageHeader
+      feel.ts               press feedback, focus ring, reduced motion
+      toolbarSlot.ts        portal slots pages fill in the window toolbar
+      Section.tsx           Section (titled card) + Card
+      PageBody.tsx          content container below PageHeader, TwoCol
+      FieldGrid.tsx         responsive grid of labelled fields
       Readout.tsx           Eyebrow / Readout / StatusChip / StatusDot / MonoText
-      controls.tsx          ConnectButton / RunControls / SendStopControls /
-                            PathLossChip / FrameDump
+      StatTile.tsx          StatRow / StatTile readouts
+      SegmentedChoice.tsx   segmented control
+      LatchingKey.tsx       a key that holds its state (Modem, DC supply)
+      JogPad.tsx            trombone press-and-hold jog (Load Pull, Trombone)
+      ModalShell.tsx        the one dialog frame
+      table.tsx             HeadCell, verdict tally, table helpers
+      controls.tsx          RunControls / SendStopControls / E-Stop /
+                            MiniAction / KeySpinner / FrameDump
       index.ts              the import surface — `from '../../ui'`
 
     components/           App-level widgets (not generic enough for ui/)
-      ConnectionPanel.tsx  Top BLE/device-type/path-loss inputs
+      BenchInspector.tsx   Inspector's Bench tab: DUT, path loss, instruments
+      ConnectionPanel.tsx  DUT device-type/MAC/scan/connect + path-loss field
       InstrumentsModal.tsx Connect every instrument from one screen
       LabeledField.tsx     Standard label-above-input field with history
-      LogPanel.tsx         Right-side log drawer
+      LogPanel.tsx         Inspector's Log tab
       MeasurementCard.tsx  Power + current display, polls /instruments/measure
-      Sidebar.tsx          Protocol tree + Instruments shortcut + Settings
-      PageHeader.tsx       Section breadcrumb + action slot per page
+      Sidebar.tsx          Page sections + Settings popover + DC supply
+      PageHeader.tsx       Page title + keys, portalled into the toolbar
       ValidationAdornment.tsx  Inline field-validation tooltip
-      SearchBar.tsx StatusBadge.tsx TopProgress.tsx ProgressRow.tsx
+      StatusBadge.tsx TopProgress.tsx ProgressRow.tsx
       NicknameModal.tsx
 
     context/              React providers — each owns one slice of state
