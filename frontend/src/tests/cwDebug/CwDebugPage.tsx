@@ -7,16 +7,18 @@ import { MeasurementCard } from '../../components/MeasurementCard'
 import { useMutation } from '@tanstack/react-query'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
-import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
 import {
-  FieldGrid, LastFrameSection, PageBody, Section, SendStopControls, TEXT,
+  FieldGrid, LastFrameSection, MeasureOptions, PageBody, Section, SendStopControls, TEXT,
+  measuresAnything, requiredInstruments, type MeasureSelection,
 } from '../../ui'
 
-/** This page measures what it transmits, so the readings need these up. */
-const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
+/** What Send reads back by default: everything, as it always did. The
+ *  operator can drop either, or both, as on the CW page -- and only the
+ *  instruments for what is ticked are asked for. */
+const DEFAULT_MEASURE: MeasureSelection = { power: true, current: true }
 
 export function CwDebugPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
@@ -29,7 +31,9 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
   const [paMode, setPaMode] = useState(0)
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
-  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
+  const [measure, setMeasure] = useState<MeasureSelection>(DEFAULT_MEASURE)
+  const willMeasure = measuresAnything(measure)
+  const preflight = useInstrumentPreflight(requiredInstruments(measure), { verb: 'send' })
   // Display only: a Send the preflight called off. It returns no error, so
   // without this the page showed nothing and the reason was only in the log.
   const [cancelled, setCancelled] = useState(false)
@@ -53,8 +57,9 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
         log('DUT', `${protocol} Debug: no backend wired yet`, 'warn')
         return null
       }
-      // Connect before keying the PA — see PowerPage.send.
-      if (!(await preflight.run())) {
+      // Connect before keying the PA — see PowerPage.send. Skipped when
+      // nothing is measured, for the same reason it is there.
+      if (willMeasure && !(await preflight.run())) {
         log('DUT', 'Send cancelled — instruments not ready', 'warn')
         setCancelled(true)
         return null
@@ -65,7 +70,7 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
       if (!r) return
       setLast(r)
       log('DUT', `CW sent: ok=${r.ok} status=${r.status}`)
-      if (r.ok) setMeasureTrigger((n) => n + 1)
+      if (r.ok && willMeasure) setMeasureTrigger((n) => n + 1)
     },
     onError: (e: Error) => log('DUT', `CW failed: ${e.message}`, 'error'),
   })
@@ -166,11 +171,21 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
           </FieldGrid>
         </Section>
 
-        <MeasurementCard
-          freqHz={Math.round(freqMhz * 1_000_000)}
-          triggerId={measureTrigger}
-          targetDbm={power}
-        />
+        {/* What to read back after the send, as on the CW page. */}
+        <Section title="Measure" panel>
+          <MeasureOptions value={measure} onChange={setMeasure} disabled={busy} />
+        </Section>
+
+        {/* Hidden when nothing is measured: a strip of dashes reads as a
+            failed read rather than one that was never asked for. */}
+        {willMeasure && (
+          <MeasurementCard
+            freqHz={Math.round(freqMhz * 1_000_000)}
+            triggerId={measureTrigger}
+            targetDbm={power}
+            wants={measure}
+          />
+        )}
 
         <LastFrameSection result={last} />
       </PageBody>
