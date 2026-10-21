@@ -15,7 +15,9 @@
     a release that cannot say what changed is not one.
 
     Then it commits "release: vX.Y.Z" and makes an annotated tag vX.Y.Z.
-    Nothing leaves the machine unless -Push is given.
+    Nothing leaves the machine unless -Push is given. With -Push it also
+    creates the GitHub Release page from the changelog section
+    (scripts/publish-release.ps1); add -Bundle to attach the DUT-only zip.
 
     Run the checks first (see CLAUDE.md); this script does not.
 
@@ -36,8 +38,11 @@ param(
     [Parameter(ParameterSetName = 'Exact', Mandatory)]
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$Version,
-    # Also push the commit to main and the tag to origin.
-    [switch]$Push
+    # Also push the commit to main and the tag to origin, and create the
+    # GitHub Release page.
+    [switch]$Push,
+    # With -Push: build the DUT-only zip and attach it to the release.
+    [switch]$Bundle
 )
 
 $ErrorActionPreference = 'Stop'
@@ -120,6 +125,8 @@ if ($Push) {
     git push origin $tag
     if ($LASTEXITCODE) { Fail "push of $tag failed." }
     Write-Host "release: pushed main and $tag." -ForegroundColor Green
+    # A tag is not a GitHub Release; the Releases panel lists only these.
+    & (Join-Path $PSScriptRoot 'publish-release.ps1') -Tag $tag -Bundle:$Bundle
 } else {
-    Write-Host "release: not pushed. When ready: git push origin HEAD:main; git push origin $tag"
+    Write-Host "release: not pushed. When ready: git push origin HEAD:main; git push origin $tag; .\scripts\publish-release.ps1 -Tag $tag"
 }

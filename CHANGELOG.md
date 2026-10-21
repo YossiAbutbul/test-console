@@ -10,6 +10,11 @@ turns that heading into the version and date.
 
 ## [Unreleased]
 
+### Added
+- `scripts/publish-release.ps1` creates the GitHub Release page from the
+  changelog; `release.ps1 -Push` runs it, and `-Bundle` attaches the
+  DUT-only zip.
+
 ## [1.0.0] - 2026-10-21
 
 The first versioned release.

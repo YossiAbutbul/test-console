@@ -33,11 +33,15 @@ Versions are semantic (`major.minor.patch`); the current one is in `VERSION`.
   `CHANGELOG.md` (Added / Changed / Fixed). Do this in the same commit as the
   change.
 - To cut a release, run the checks, then
-  `scriptselease.ps1 -Bump patch|minor|major` (or `-Version x.y.z`). It
+  `scripts
+elease.ps1 -Bump patch|minor|major` (or `-Version x.y.z`). It
   refuses a dirty tree or an empty Unreleased section, writes the version into
   `VERSION`, `backend/main.py` and `frontend/package.json`, dates the
   changelog, commits `release: vX.Y.Z` and tags `vX.Y.Z`.
 - It pushes only with `-Push`. Push only when asked, as for any commit.
+  With `-Push` it also creates the GitHub Release page from that version's
+  changelog section (`scripts/publish-release.ps1`, needs `gh` signed in);
+  `-Bundle` attaches the DUT-only zip. A pushed tag alone is not a Release.
 - `backend/tests/test_version.py` fails if the three version strings drift.
 
 ## Running the app
