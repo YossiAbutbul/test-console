@@ -326,7 +326,7 @@ install it into the venv on a new machine:
 
 ## Assistant
 
-The right-hand dock has an **Assistant** tab beside the log: a chat that reads
+The right-hand inspector has an **Assistant** tab beside **Bench** and **Log**: a chat that reads
 the results on the page you are on, or a workbook you attach, and answers
 questions about them ("where does the power flatten out?", "which points look
 wrong?").
@@ -338,7 +338,7 @@ machine.
 ### Switching it on
 
 **Off by default.** With `CHAT_ENABLED` unset there is no Assistant tab in the
-dock and the routes refuse, so the app is exactly what it was before the feature
+inspector and the routes refuse, so the app is exactly what it was before the feature
 existed. To turn it on, set the variable and restart the backend:
 
 ```powershell
@@ -532,8 +532,8 @@ ports without pulsing DTR/RTS, so connecting will not reset the Arduino.
 
 **Connect fails with an empty address field.** The `dc_power_analyzer` wrapper's
 built-in default is a placeholder serial (`MY00000000`) that will not match a
-real unit. Always hit **Discover** first — it auto-fills the true resource
-string, which carries an extra interface field the default lacks:
+real unit. Always press **Re-scan** (↻, at the end of the address field in the
+Instruments panel) first — it auto-fills the true resource string, which carries an extra interface field the default lacks:
 
 ```
 USB0::0x0957::0x0F07::MY50000200::0::INSTR

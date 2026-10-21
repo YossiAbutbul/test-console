@@ -359,16 +359,17 @@ browser profile on that PC.
 | Key | Holds | Default |
 |---|---|---|
 | `app-theme-pref` | Theme: `dark` / `mid` / `light` / `system` | `mid` |
-| `active-page-v1` | Last page opened | LoRa › TX › CW |
+| `select-on-focus-v1` | Settings → Select text on focus | off |
+| `active-page-v1` | Last page opened | LoRa › CW |
 | `path-loss-db-v1` | Default path loss (dB) | 0 |
 | `path-loss-table-v1` | Per-frequency path-loss table | empty |
 | `device-type-v1` | BLE scan name filter | Sonata 2 IL |
 | `mac-nicknames-v1` | MAC → nickname | empty |
-| `dc-supply-voltage-v1` | DC supply voltage in Settings | 3.6 V |
-| `dc-supply-enabled-v1` | DC supply switch. **Always reset to off on load.** | off |
-| `log-panel-width-v1`, `dock-tab-v1` | Right-hand dock width and tab | 340 px, Log |
-| `lte-bands-v1`, `lte-channel-unit-v1` | LTE bands in use, EARFCN/MHz | 2, 4, 12; EARFCN |
-| `*-page-snapshot-v1/v2` | Each page's form values and automation results (CW, Modulated, LTE CW, LTE Modulated, Load Pull, Power Meter, Signal Generator) | — |
+| `dc-supply-voltage-v1` | DC supply voltage in the sidebar footer | 3.6 V |
+| `dc-supply-enabled-v1` | DC supply key. **Always reset to off on load.** | off |
+| `log-panel-width-v1`, `dock-tab-v1` | Right-hand inspector width and tab | 320 px, Bench |
+| `lte-bands-v1`, `lte-channel-unit-v1` | LTE bands in use, MHz/EARFCN | 2, 4, 12; MHz |
+| `*-page-snapshot-v1/v2` | Each page's form values and automation results (CW, Modulated, LTE CW, LTE Modulated, Mode Sweep, Load Pull, Power Meter, Signal Generator, DC Analyzer, Spectrum Analyzer) | — |
 
 These live in sessionStorage, which survives a reload but is lost when the
 tab closes: the **Log** (`log-entries-v1`) and the **Assistant conversation**
@@ -378,8 +379,7 @@ tab closes: the **Log** (`log-entries-v1`) and the **Assistant conversation**
 
 - instrument addresses and the DC analyzer channel (discovery refills them);
 - the scan duration and scan results;
-- the RF-path confirmation on Load Pull;
-- Mode Sweep form settings.
+- the RF-path confirmation on Load Pull.
 
 ### On disk
 

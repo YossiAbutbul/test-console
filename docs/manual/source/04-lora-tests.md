@@ -14,8 +14,8 @@
 ## 4.1 Before any LoRa TX test
 
 1. **Cable the rig** as in [setup A](02-hardware-and-connections.md#a-lora--lte-tx-tests-cw-modulated-debug-mode-sweep).
-2. **Power the DUT.** Connect the DC analyzer and switch on its supply in
-   **Settings** (3.6 V by default).
+2. **Power the DUT.** Connect the DC analyzer and press the **DC supply**
+   key in the sidebar footer (3.6 V by default).
 3. **Connect the DUT** over BLE ([3.2](03-using-the-console.md#32-connecting-the-dut)).
 4. **Enter the path loss** for the frequencies you will use
    ([3.4](03-using-the-console.md#34-path-loss)).
@@ -60,11 +60,17 @@ The CW and Modulated pages share the same automation panel.
 - **Plan order:** each row expands to every frequency × every power, in row
   order.
 - **Invalid rows:** a row with an invalid or blank Freq simply adds no points.
-  Check each row's *N steps* count.
+  Check each row's *N points* count.
 - **Time limit:** each point is limited to Settle + 30 s. A point that times
   out is recorded with its error, and the run carries on.
 - **Stop:** ends the run at once, sends StopTest, and discards the point that
   was interrupted.
+- **Results table:** units are in the column headings in square brackets,
+  e.g. **Measured [dBm]**. **Δ [dB]** is Measured − Set. A failed point's row
+  is tinted red. Above the table, the **pass** and **fail** counts are
+  filters: press **N fail** to show only those rows, and press it again to
+  show them all. A count of zero cannot be pressed. Beside them the panel
+  shows the N/A count and how many points are measured.
 - **Results:** kept across navigation and reload. **Import** replaces the
   table with a previously exported CSV; it does not merge. **Graph** plots the
   results. **Export** writes a CSV.
@@ -76,7 +82,7 @@ The CW and Modulated pages share the same automation panel.
 
 ## 4.2 CW
 
-*LoRa › TX › CW.* This page keys an unmodulated LoRa carrier at the frequency,
+*LoRa › CW.* This page keys an unmodulated LoRa carrier at the frequency,
 power and PA mode you set, then reads the RF power and the DUT's current.
 
 ### Manual tab
@@ -87,7 +93,7 @@ power and PA mode you set, then reads the RF power and the DUT's current.
 |---|---|---|---|
 | **Frequency** | MHz | 902.3 | step 0.1 |
 | **Power** | dBm | 14 | whole number, 0–255 |
-| **PA Mode** | — | Auto | Auto / On / Off |
+| **PA mode** | — | Auto | Auto / On / Off |
 | **Measure power** | ☑ | on | read the power sensor after sending |
 | **Measure CC** | ☑ | on | read the DC analyzer after sending |
 
@@ -97,7 +103,7 @@ read, and the measurement card is hidden.
 
 **Procedure**
 
-1. Set **Frequency**, **Power** and **PA Mode**, and tick what to measure.
+1. Set **Frequency**, **Power** and **PA mode**, and tick what to measure.
 2. Press **Send**. The page then:
    - runs the preflight, if anything is ticked;
    - sends `LoRa Power` (`17 50`);
@@ -118,7 +124,7 @@ takes long enough that the DUT would otherwise transmit with nobody reading.
 |---|---|---|
 | **Freq** (MHz) | rows 902.3, 915.0, 927.5 | range syntax |
 | **Power** (dBm) | 14 | range syntax; blank means 14 |
-| **PA Mode** | Auto | Off / On / Auto |
+| **PA mode** | Auto | Off / On / Auto |
 | **Tolerance** (± dB) | 1 | blank means N/A |
 | **Settle** (panel header) | 400 ms | minimum 400; saved |
 
@@ -146,12 +152,13 @@ takes long enough that the DUT would otherwise transmit with nobody reading.
 | Result column | Meaning |
 |---|---|
 | **#** | point number |
-| **Freq (MHz)** | frequency |
-| **Set (dBm)** | requested power |
+| **Freq [MHz]** | frequency |
+| **Set [dBm]** | requested power |
 | **PA** | PA mode |
-| **Measured (dBm)** | sensor reading + path loss |
-| **CC (mA)** | supply current |
-| **Verdict** | **PASS** / **FAIL** / grey **N/A** |
+| **Measured [dBm]** | sensor reading + path loss |
+| **Δ [dB]** | Measured − Set |
+| **CC [mA]** | supply current |
+| **Verdict** | ✓ **PASS** / ✕ **FAIL** / grey **N/A** |
 | **Status** | `ok` or the error text |
 
 ### Results graph
@@ -189,7 +196,7 @@ CC [mA], V [V], Margin [dB], Min [dBm], Max [dBm], Verdict, Status, DUT status`
 
 ## 4.3 Modulated
 
-*LoRa › TX › Modulated.* This page transmits **LoRa** (bandwidth and spreading
+*LoRa › Modulated.* This page transmits **LoRa** (bandwidth and spreading
 factor) or **FSK** (bit rate) modulation, and measures power and current.
 **The power sensor and DC analyzer are always used on this page**; there are
 no Measure boxes.
@@ -225,8 +232,8 @@ no Measure boxes.
 | **Datarate** | 7 | LoRa: SF 6–12. FSK: 1–300,000 bit/s. An invalid value blocks Run. |
 | **Tolerance** | 1 | ± dB; blank means N/A |
 
-**Results columns:** #, Freq, Set, Modem, BW (`—` for FSK), DR, Measured, CC,
-Verdict, Status.
+**Results columns:** #, Freq, Set, Modem, BW (`—` for FSK), DR, Measured, Δ,
+CC, Verdict, Status.
 
 **CSV columns:** the CW columns, with `Modem, BW, Datarate` in place of
 `PA mode`.
@@ -238,7 +245,7 @@ so rows that differ only in those settings are no longer merged.
 
 ## 4.4 Debug
 
-*LoRa › TX › Debug.* A low-level CW transmit (`CW Debug`, `28 50`) that also
+*LoRa › Debug.* A low-level CW transmit (`CW Debug`, `28 50`) that also
 sets the radio's **PA duty cycle** and **HP max** registers directly. It has no
 automation and no export. The power sensor and DC analyzer are used.
 
@@ -248,22 +255,22 @@ automation and no export. The power sensor and DC analyzer are used.
 |---|---|---|
 | **Frequency** (MHz) | 902.3 | |
 | **Power** (dBm) | 14 | 0–255 |
-| **PA Duty Cycle** | 1 | **1–7** |
-| **HP Max** | 7 | **1–7** |
-| **PA Mode** | **Off** | Auto / On / Off |
+| **PA duty cycle** | 1 | **1–7** |
+| **HP max** | 7 | **1–7** |
+| **PA mode** | **Off** | Auto / On / Off |
 
-**Send** stays disabled until PA Duty Cycle and HP Max are both within 1–7.
+**Send** stays disabled until PA duty cycle and HP max are both within 1–7.
 **0 hangs the DUT** rather than being refused, and this check on the page is
 the only protection against it. Nothing on this page is saved.
 
-> **PA Mode defaults to Off here, but to Auto on the CW page.** Check it
+> **PA mode defaults to Off here, but to Auto on the CW page.** Check it
 > before comparing results from the two pages.
 
 ---
 
 ## 4.5 Mode Sweep
 
-*LoRa › TX › Mode Sweep.* This test measures the PA across **every combination
+*LoRa › Mode Sweep.* This test measures the PA across **every combination
 of Power × PA Duty Cycle × HP Max** at one frequency. Its purpose is to find,
 for each output power the DUT actually reaches, **the combination that draws
 the least current**.
@@ -280,8 +287,8 @@ can run at a time.
 | Axis | Range | Default |
 |---|---|---|
 | **Power** | 1–22 dBm | 1–22 (22 steps) |
-| **PA Duty Cycle** | 1–4 | 1–4 (4 steps) |
-| **HP Max** | 1–7 | 1–7 (7 steps) |
+| **PA duty cycle** | 1–4 | 1–4 (4 steps) |
+| **HP max** | 1–7 | 1–7 (7 steps) |
 
 - **Steps:** every integer in each span is swept. The default plan is
   22 × 4 × 7 = **616 steps**. The live step count is shown in the panel
@@ -337,9 +344,9 @@ on. For example, *DUT rejected the command (status=N)*.
 | Column | Meaning |
 |---|---|
 | **#** | step number (the same in the workbook) |
-| **Power Set (dBm)**, **PA DC**, **HP Max** | the combination |
-| **Measured (dBm)** | reading + path loss |
-| **CC (mA)**, **V (V)** | current and voltage |
+| **Power Set [dBm]**, **PA DC**, **HP Max** | the combination |
+| **Measured [dBm]** | reading + path loss |
+| **CC [mA]**, **V [V]** | current and voltage |
 | **Status** | `ok` or the error |
 
 **Graph** opens **Best settings**:
@@ -379,7 +386,7 @@ sheet. Starting a run also closes the file.
 
 ## 4.6 Load Pull Test
 
-*LoRa › Other › Load Pull Test.* This test measures how the PA performs as the
+*LoRa › Load Pull Test.* This test measures how the PA performs as the
 **load impedance** it drives changes. At each trombone position it records:
 
 - the load (R + jX, S11), read by the VNA;
@@ -393,43 +400,48 @@ The results are plotted on a Smith chart.
 switch and the trombone, cabled as in
 [setup B](02-hardware-and-connections.md#b-load-pull).
 
-> ⚠ **This page moves the trombone and flips the RF switch.** The round red
-> **Emergency stop** in the header is always enabled, even when no run is in
-> progress, for example during a jog. It halts the motor first, then aborts
-> the run and turns off the DUT's transmitter.
+> ⚠ **This page moves the trombone and flips the RF switch.** The red-tinted
+> **E-Stop** key in the header, to the left of **Stop** (tooltip *Stops
+> motor, run and RF*), is always enabled, even when no run is in progress,
+> for example during a jog. It halts the motor first, then aborts the run and
+> turns off the DUT's transmitter.
 
 ![Load Pull Test](img/load-pull.png)
 
-**Header tiles:** **Live position** (mm and pulses), **Zero**, **End**, and
-**Plan** (the number of points).
-
 **Before running:** the **Run** button stays disabled until every
-precondition is met. A **Before running** notice lists whatever is still
-missing.
+precondition is met, and names the first one still missing, e.g. **Needs
+DUT** or **Needs RF path**; its tooltip says which step blocks it. A row of checks along the top of the page shows each precondition with
+its state: **Instruments**, **RF path**, **Path loss**, **Test point** and
+**Trombone**. Click a check to scroll to the section that settles it;
+**Path loss** opens the per-frequency table instead.
 
-### Step 1 · Instruments
+### Step 1 · Connections
 
-This step shows whether each instrument is ready: Power sensor, DC analyzer,
-VNA, Switch, Trombone, and BLE DUT. Connect the instruments from the
-Instruments panel, and the DUT from the connection row.
+The **Connections** card is a checklist of pills for everything a run needs:
+Power sensor, DC analyzer, VNA, Switch, Trombone and DUT. A connected one is
+grey with a tick; a missing one is amber. The card's header reads *N of 6
+connected*, or *all connected*. Connect the instruments from the Instruments
+panel, and the DUT from the Bench tab of the inspector.
 
 ### Step 2 · RF path
 
 1. Press **View setup** and compare the bench with the diagram.
-2. Press **Confirm path**.
+2. Press **Confirm path**. The header then reads *confirmed*, and the key
+   becomes **Unconfirm**.
 
 The confirmation is **never saved**. Cabling is the one thing the app cannot
 check, so you confirm it again each session.
 
-The path-loss chip turns amber if any planned frequency is uncalibrated.
+The **Path loss** check at the top of the page turns amber if any planned
+frequency is uncalibrated.
 
 ### Step 3 · Test point
 
 | Field | Default | Notes |
 |---|---|---|
 | **Frequency** (MHz) | 902.3 | range syntax, e.g. `900-930:5` |
-| **DUT Power** (dBm) | 14 | range syntax |
-| **PA Mode** | Auto | |
+| **DUT power** (dBm) | 14 | range syntax |
+| **PA mode** | Auto | |
 | **Settle** (ms) | 400 | minimum 400 |
 | **Attenuator** | Off | **Sweep** pauses at each setting and asks you to dial it in |
 | **Att max** (dB) | 20 | 0–20, in 1 dB steps from 0 |
@@ -442,10 +454,18 @@ numbers multiply quickly, so check the total.
 At 400 pulses/mm, one full circle on the Smith chart is a fixed length of
 travel. You find that length by jogging and watching the VNA.
 
+This step is three cards in a row (stacked on a narrow page):
+
+| Card | Holds |
+|---|---|
+| **Move trombone** | The live position in mm (hover it for pulses) and the motor state, **Idle**, **Moving** or **Offline**, in its header. **Jog**: the hold-to-jog pad (**←** / **→**). **Speed**: **Slow** 400, **Medium** 800 (default) or **Fast** 1500 pulses/s, for the jog only. |
+| **Controls** | **RF path**: **VNA** / **PCB**. **Go to**: **Zero** / **End**. |
+| **Sweep bounds** | **Zero** and **End**, each with its captured position (or *not set*), **Capture** (**Recapture** once set) and a bin icon to clear it; **Delta X** in mm. Once both ends are captured, the header shows the plan: *N points over L mm · ≈ time*. |
+
 1. Press **VNA** (RF path) to put the analyzer on the trombone path.
-2. Choose a **Speed**: Slow 400, Medium 800 (default), or Fast 1500
-   pulses/s.
-3. **Jog:** press and hold ← or → while watching the Smith chart on the VNA.
+2. Choose a **Speed**.
+3. **Jog:** press and hold ← or → on the pad while watching the Smith chart
+   on the VNA.
    - You can also click the jog pad and hold the arrow keys.
    - The motor stops as soon as you release, move the pointer off the button,
      or the pad loses focus.
@@ -454,10 +474,11 @@ travel. You find that length by jogging and watching the VNA.
    - **The soft limits now apply:** no move or jog can leave the Zero–End
      range.
    - Before both ends are captured, **there are no limits at all**.
-5. Set **Delta X** (mm between points; default 1). The page shows *N points
-   over L mm*.
+5. Set **Delta X** (mm between points; default 1). The **Sweep bounds**
+   header shows *N points over L mm* and the estimated run time.
 6. **Go to › Zero / End** moves to a captured end at full speed (5000
-   pulses/s, about 12.5 mm/s). Use it to check both ends.
+   pulses/s, about 12.5 mm/s). Use it to check both ends. Each key is
+   disabled until its end is captured.
 
 To go beyond the range, clear Zero or End first (bin icon). This also lifts
 the limits.
@@ -502,8 +523,8 @@ attenuator**:
 
 *Example data.*
 
-**Result columns:** #, Pos (mm), Freq, Set, Att, **Power (dBm)**, CC (mA),
-R (Ω), X (Ω), S11 (dB), VSWR, Status.
+**Result columns:** #, Pos [mm], Freq [MHz], Set [dBm], Att [dB],
+**Power [dBm]**, CC [mA], R [Ω], X [Ω], S11 [dB], VSWR, Status.
 
 **Power confidence:** the Power cell is coloured by where the **raw** sensor
 reading sat in the sensor's range:

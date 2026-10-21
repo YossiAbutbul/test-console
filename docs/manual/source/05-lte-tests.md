@@ -20,7 +20,7 @@ the same path loss, and the same preflight.
 
 The LTE modem is **off at rest** and takes **about 10 s to boot**. You control
 it with the latching **Modem off / Modem on** key in the page header. The key
-shows a green lamp when the modem is on.
+is grey while off and fills with the accent colour while on.
 
 - **Send turns the modem on for you** if the page believes it is off. A
   **Turning on modem** dialog shows while it boots.
@@ -40,7 +40,9 @@ shows a green lamp when the modem is on.
 
 ### EARFCN or MHz
 
-The **EARFCN | MHz** switch chooses how you enter the channel.
+The **MHz | EARFCN** switch, in the header of the **Transmit** card (and of
+the automation panel), chooses how you enter the channel. **MHz** is the
+default.
 
 - **EARFCN → frequency** always has exactly one answer, using the uplink
   formula *F = F_low + 0.1 × (N − N_offset)*.
@@ -93,16 +95,16 @@ guess a frequency for it.
 
 ## 5.2 LTE CW
 
-*LTE › TX › CW.* This page transmits an unmodulated tone on an uplink channel
+*LTE › CW.* This page transmits an unmodulated tone on an uplink channel
 and, optionally, reads power and current.
 
 ![LTE CW, Manual](img/lte-cw-manual.png)
 
 | Field | Unit | Default | Range |
 |---|---|---|---|
-| **EARFCN** / **Frequency** | — / MHz | 18900 / 1880 | must fall in a known band (see [5.1](#51-concepts-modem-key-earfcn-bands)) |
-| **Tx Power** | dBm | 23 | **0–23**, step 0.01 (sent in 0.01 dB units) |
-| **Time** | s | 200 | 0–4,294,967 |
+| **Frequency** / **EARFCN** | MHz / — | 1880 / 18900 | must fall in a known band (see [5.1](#51-concepts-modem-key-earfcn-bands)) |
+| **Power** | dBm | 23 | **0–23**, step 0.01 (sent in 0.01 dB units) |
+| **Duration** | s | 200 | 0–4,294,967 |
 | **Offset from centre** | Hz | 0 | signed 32-bit |
 | **Measure power** / **Measure CC** | ☑ | on | with both off, Send only transmits |
 
@@ -111,8 +113,8 @@ example *1880.0 MHz · Band 2*.
 
 **Procedure**
 
-1. Choose EARFCN or MHz and enter the channel. Set **Tx Power**, **Time** and
-   **Offset**.
+1. Choose MHz or EARFCN and enter the channel. Set **Power**, **Duration**
+   and **Offset from centre**.
 2. Optionally press **Modem off** to boot the modem ahead of time.
 3. Press **Send**. The page:
    1. runs the preflight;
@@ -127,7 +129,7 @@ example *1880.0 MHz · Band 2*.
 
 ## 5.3 LTE Modulated
 
-*LTE › TX › Modulated.* This page transmits a modulated uplink with a chosen
+*LTE › Modulated.* This page transmits a modulated uplink with a chosen
 bandwidth, MCS and resource-block allocation. **The power sensor and DC
 analyzer are always used on this page.**
 
@@ -135,13 +137,13 @@ analyzer are always used on this page.**
 
 | Field | Default | Range |
 |---|---|---|
-| **EARFCN** / **Frequency** | 18900 / 1880 | |
-| **Tx Power** (dBm) | 23 | 0–23 |
-| **Time** (s) | 200 | |
+| **Frequency** / **EARFCN** | 1880 / 18900 | |
+| **Power** (dBm) | 23 | 0–23 |
+| **Duration** (s) | 200 | |
 | **Bandwidth** | **5 MHz** | 1.4 (6 RB), 3 (15), 5 (25), 10 (50), 15 (75), 20 MHz (100 RB) |
 | **MCS** | 5 | 0–28 (29–31 are reserved for retransmissions) |
-| **Resource blocks** | 6 | 1 to the channel's maximum |
-| **First block** | 0 | the allocation must fit: first + count ≤ maximum |
+| **Number of RB allocation** | 6 | 1 to the channel's maximum |
+| **Position of RB allocation** | 0 | the allocation must fit: position + number ≤ maximum |
 
 Changing **Bandwidth** clamps the RB fields so the allocation still fits the
 channel. Send and Stop work as on LTE CW (Modulated opcode `23 50`).
@@ -158,15 +160,15 @@ channel. Send and Stop work as on LTE CW (Modulated opcode `23 50`).
 
 | Page | Columns |
 |---|---|
-| **CW** | EARFCN (or Frequency) · Power (dBm) · Tolerance (± dB) |
+| **CW** | Frequency (MHz) or EARFCN (uplink) · Power (dBm) · Tolerance (± dB) |
 | **Modulated** | the same, plus Bandwidth · MCS · RB |
 
 **Range syntax:**
 
 | Mode | Examples |
 |---|---|
-| EARFCN | `18900`, `18900-18910`, `18900-18910:5`, `18900,20175` |
 | MHz | `1880`, `1850-1910`, `1850-1910:0.5`, `1850,1880,1909.9` |
+| EARFCN | `18900`, `18900-18910`, `18900-18910:5`, `18900,20175` |
 
 - **Blank Power** means 23 dBm.
 - **Blank Tolerance** means N/A (no verdict). A negative tolerance, or an
@@ -178,7 +180,7 @@ channel. Send and Stop work as on LTE CW (Modulated opcode `23 50`).
 - transmit time is 20 s, a backstop only, since each point is aborted as soon
   as it has been measured;
 - CW offset is 0 Hz;
-- Modulated first block and NB index are 0.
+- Modulated RB position and NB index are 0.
 
 **Estimate:** the page shows *≈ duration · plus ~10 s to restart the modem*.
 
@@ -206,8 +208,12 @@ channel. Send and Stop work as on LTE CW (Modulated opcode `23 50`).
 
 | Page | Table columns |
 |---|---|
-| CW | #, EARFCN, Freq (MHz) + band, Set, Measured, CC, Verdict, Status |
+| CW | #, EARFCN, Freq [MHz] + band, Set [dBm], Measured [dBm], Δ [dB], CC [mA], Verdict, Status |
 | Modulated | the same, plus **Signal** (e.g. *5 MHz · MCS 5 · 6 RB*) |
+
+As on the LoRa pages ([4.1](04-lora-tests.md#41-before-any-lora-tx-test)),
+units are in the headings in square brackets, Δ is Measured − Set, and the
+**pass** / **fail** counts above the table filter it.
 
 **CSV columns:**
 
@@ -240,4 +246,4 @@ where `<test>` is `lte-cw-automation` or `lte-modulated-automation`.
   locked.
 - **Unresolvable channels are dropped silently.** A channel entry that is
   invalid (red) does not block Run as long as another row is valid. Check each
-  row's *N steps* count.
+  row's *N points* count.

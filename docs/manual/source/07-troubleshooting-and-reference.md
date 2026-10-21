@@ -41,8 +41,8 @@
 | **DUT stops answering mid-sweep** | The DUT needs 1.5 s after a StopTest. The backend enforces this; if it still happens, disconnect, power-cycle the DUT, and reconnect. |
 | **LTE: "modem on rejected"** | The page thought the modem was off, but it was on. Turn the key **off**, then **on**. |
 | **LTE: the channel did not change** | A START sent during a live test is silently dropped. Press **Stop**, then Send again. |
-| **Measured power is off by a fixed amount** | The path loss is wrong or uncalibrated at that frequency (the chip is amber). Add a table point for that frequency. |
-| **Load Pull: Run is disabled** | Read the **Before running** notice. It usually means the path is not confirmed, or Zero/End are not captured. |
+| **Measured power is off by a fixed amount** | The path loss is wrong or uncalibrated at that frequency (the measurement card says *uncalibrated* in amber). Add a table point for that frequency. |
+| **Load Pull: Run is disabled** | The Run key names the first missing step (e.g. **Needs RF path**), and the checks along the top of the page show which are still open. It usually means the path is not confirmed, or Zero/End are not captured. |
 | **Load Pull: motor refuses to jog** | It is at a soft limit ("already at max/min soft limit"). Clear Zero or End to go further. |
 | **Mode Sweep results vanished** | They are held in backend memory and are lost on a backend restart. Export after every run. |
 | **A route answers 404/405/422 after a code update** | The backend is stale. Restart it. |

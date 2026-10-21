@@ -51,8 +51,8 @@ The frequency and power boxes on the Automation tabs accept a list:
 | `902.3,915,927.5` | exactly these values |
 
 Each row tests every frequency with every power. The number at the end of the
-row (*N steps*) shows how many points it adds; a row with a mistake adds
-**0 steps**, so check it before you press Run.
+row (*N points*) shows how many points it adds; a row with a mistake adds
+**0 points**, so check it before you press Run.
 
 ## 2.5 Tolerance and verdict
 
@@ -68,7 +68,6 @@ While a run is going:
 
 - a **progress bar** runs along the top of the panel;
 - the panel shows **time elapsed** and **time left**;
-- a **Run** tag shows in the top bar, so you can see it from any page;
 - the results table fills in point by point.
 
 Before you press Run, the panel shows an estimate of how long the run will
@@ -87,7 +86,15 @@ When the run ends, a box tells you how it went:
 > "Complete" means every point was **measured**, not that every point
 > passed. Always check the **Verdict** column.
 
-## 2.7 Pages remember your work
+## 2.7 Reading the results table
+
+- Units are in the column headings, in square brackets: **Measured [dBm]**.
+- **Δ [dB]** is how far the point missed: Measured minus Set.
+- A failed point's row is tinted red.
+- Above the table, the **pass** and **fail** counts are also filters. Press
+  **N fail** to see only the failed points; press it again to see them all.
+
+## 2.8 Pages remember your work
 
 You can move between pages during a run; nothing is lost. Settings and
 results are also kept if you reload the page. A run in progress keeps going

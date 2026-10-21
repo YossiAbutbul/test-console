@@ -22,7 +22,7 @@ needs the DUT.
 
 | Page | Moves hardware / changes the RF path | Emits RF / powers the DUT |
 |---|---|---|
-| Trombone | **Move**, **Step up/down**, **Go min/max**. Connecting energises the motor. | no |
+| Trombone | **Move**, the jog pad, **−8 mm / +8 mm**, **Go min/max**. Connecting energises the motor. | no |
 | Switch | **Go VNA**, **Go PCB**, **Move**. The store buttons overwrite the presets. | no, but it redirects the RF path |
 | Network Analyzer | — | **yes**: the stimulus runs the whole time it is connected |
 | Power Meter | — | no |
@@ -42,7 +42,7 @@ Every Components page opens with the same connection bar.
 |---|---|
 | **Status chip** | **Connected**, **Connecting**, **Disconnected** or **Error**. The trombone shows **Idle** or **Moving** instead of Connected. |
 | **Name and model** | e.g. *DC analyzer · Keysight N6705B* |
-| **Second line** | While disconnected: the address the next Connect will use. While connected: the instrument's identity string. *not configured — open Config* means there is nothing to connect to yet. |
+| **Second line** | While disconnected: the address the next Connect will use. While connected: the instrument's identity string. *Not configured — open Config* means there is nothing to connect to yet. |
 | **Config** | Opens the connection settings for that instrument: address, port, channel or baud rate. They are read-only while connected. The dialog has its own **Connect** button. |
 | **Connect / Disconnect** | Disabled until Config holds an address |
 
@@ -68,7 +68,9 @@ The status chip reads **Idle** or **Moving**, and is polled every 0.5 s.
 | Control | Effect |
 |---|---|
 | **Target** + **Move** | Absolute move, in mm (400 pulses = 1 mm; the pulse count it will send is shown under the box). The target must lie within the soft limits, or within ±1,000,000 pulses if none are set. |
-| **Step down** / **Step up** | ±8 mm (3,200 pulses, one revolution), stopping short at a soft limit |
+| **Jog** pad (*Hold to jog*) | In the **Step** card. Press and hold **←** or **→** to run the motor; it stops when you release. You can also click the pad and hold the arrow keys. |
+| **Slow** / **Medium** / **Fast** | Jog speed: 400, 800 (default) or 1500 pulses/s. It applies to the jog only. |
+| **−8 mm** / **+8 mm** | One step of 8 mm (3,200 pulses, one revolution), stopping short at a soft limit |
 | **Go min** / **Go max** | Move to the lower or upper soft limit. Disabled when no limits are set. |
 | **Stop** (header) | Immediate stop, with no deceleration. It also cancels a jog. |
 
@@ -77,8 +79,7 @@ The status chip reads **Idle** or **Moving**, and is polled every 0.5 s.
 | Readout | Shows |
 |---|---|
 | **Position** | mm, with pulses underneath, and *N% of travel* when soft limits are set |
-| **Room below** / **Room above** | mm left to each limit, or *no soft limit*. Load Pull's captured Zero and End are shown when set. |
-| **Travel bar** | shown only when limits exist; turns orange while the motor is moving |
+| **Room below** / **Room above** | mm left to each limit, or *no soft limit*. Load Pull's captured Zero and End are shown under the Target box when set. |
 
 ### Behaviour to know
 
@@ -87,8 +88,8 @@ The status chip reads **Idle** or **Moving**, and is polled every 0.5 s.
   are not limited at all.**
 - **"Complete" does not mean arrived.** A move reports complete as soon as
   the controller *accepts* it. Wait for the chip to return to **Idle**.
-- **Speed is fixed** at 5,000 pulses/s here. Reduced-speed jogging is only
-  available on Load Pull.
+- **Speed:** **Move**, the steps and **Go min/max** run at 5,000 pulses/s.
+  Only the hold-to-jog uses the Slow / Medium / Fast speed.
 - **Disconnect releases the holding torque.**
 - **No devices found?** *"no Performax USB devices found"* or *"device_index
   out of range"* means: check the USB cable and the index, and check the
@@ -220,7 +221,7 @@ statistics.
 | Tile | Shows |
 |---|---|
 | **At sensor** | the raw reading. *under range - no signal* (amber) means ≤ −100 dBm: the sensor sees nothing. |
-| **Correction** | the **default** path loss from the connection row. The per-frequency table is not used here, because this page has no frequency. |
+| **Correction** | the **default** path loss from the Bench tab. The per-frequency table is not used here, because this page has no frequency. |
 | **Result** | at sensor + correction, in dBm and mW |
 | **Min / Max / Mean** | statistics of the result, over up to 500 samples |
 | **Recent** | the last 10 samples |
@@ -336,8 +337,9 @@ conflict") is left out.
 
 ### Behaviour to know
 
-- **The Settings menu controls the same output.** Its **DC ANALYZER SUPPLY**
-  switch (see [3.5](03-using-the-console.md#35-settings)) works on the same
+- **The sidebar's DC supply key controls the same output.** The **DC
+  supply** key in the sidebar footer (see
+  [3.1](03-using-the-console.md#31-screen-layout)) works on the same
   channel. This page reads back whatever either of them set.
 - **Voltage scaling:** this rig's hardware doubles the programmed voltage, so
   the app halves the setpoint on its way out and doubles it on its way back.

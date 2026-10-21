@@ -23,11 +23,13 @@ chapter 3.
 
 ## 1.2 Connect the instruments
 
-1. Click **Instruments** at the top of the left-hand menu.
-2. The panel finds the instruments by itself and fills in their addresses.
-   Wait a few seconds for it to finish.
-3. Press **Connect all**, or **Connect** on each instrument you need. A green
-   dot means connected.
+1. In the panel on the right, on the **Bench** tab, press **Manage** next
+   to **Instruments**. (If the panel is hidden, click the panel button at the
+   top right of the window.)
+2. The **Instruments** window finds the instruments by itself and fills in
+   their addresses. Wait a few seconds for it to finish.
+3. Press **Connect all** at the bottom, or **Connect** on each instrument you
+   need. A green dot means connected; the Bench tab shows the same dots.
 
 ![The Instruments panel](img/instruments-modal.png)
 
@@ -39,15 +41,20 @@ console connects whatever the test needs on its own (see 1.6).
 | Message | What to do |
 |---|---|
 | No response | Check the instrument is on and its cable is plugged in, then try again. |
-| Not found at that address | Press the re-scan arrow on that row and pick it again. |
+| Not found at that address | Press the re-scan arrow (↻) at the end of that row's address box and pick it again. |
 | Already in use | Another program has it open. Close that program and try again. |
 
 ## 1.3 Power the DUT
 
 1. Make sure the DC analyzer is connected.
-2. Open **Settings** (the gear at the bottom of the left-hand menu).
-3. Check the voltage (3.6 V by default) and turn the **DC analyzer supply**
-   switch on.
+2. At the bottom of the left-hand menu, under **DC supply**, check the
+   voltage (3.6 V by default).
+3. Press the **Off** key beside it. It changes to **On**.
+
+**Settings** (the gear next to *Test Console* at the top of the left-hand
+menu) holds the DUT scan time, the **Select text on focus** switch (off: a
+click in a box places the cursor; on: it selects the whole value) and the
+theme.
 
 ![Settings](img/settings.png)
 
@@ -56,14 +63,15 @@ For a current limit or to watch the current continuously, use the
 
 ## 1.4 Connect the DUT
 
-The row along the top of every page is for the DUT.
+The **Device under test** group, at the top of the **Bench** tab in the
+panel on the right, is for the DUT. It is the same on every page.
 
 1. Choose the **Device type** (for example *Sonata 2 IL*).
 2. Press **Scan**. Units appear as they are found, strongest first.
 3. Pick your unit from the list. You can type part of its MAC address, its
    name or its nickname to find it.
-4. Press **Connect**. The bottom of the left-hand menu turns green and shows
-   the unit's name.
+4. Press **Connect**. The group shows the unit's name, a green dot and
+   **Connected**.
 
 > **Connect only works for a unit found in the current scan.** If you reload
 > the page, press **Scan** again first.
@@ -78,9 +86,10 @@ Tips:
 
 ## 1.5 Enter the path loss
 
-The **Path loss (dB)** box at the top left is the default loss between the
-DUT and the sensor. The tune icon inside it opens a **table of losses per
-frequency**.
+On the **Bench** tab, the **Default** box under **Path loss, DUT to sensor**
+is the default loss between the DUT and the sensor. The button at the right
+end of the box opens a **table of losses per frequency**. The frequencies in
+the table are listed under the box with their loss.
 
 ![The path loss table](img/path-loss-table.png)
 

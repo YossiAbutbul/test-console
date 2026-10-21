@@ -61,6 +61,6 @@ Files exported by older versions of the console still import.
 
 ## 5.4 The log
 
-The **Log** (icon at the top right) lists everything that happened, newest at
-the top. Errors are red, warnings amber. Its download button saves it as a
+The **Log** (a tab of the panel on the right, beside **Bench**) lists
+everything that happened, newest at the top. Errors are red, warnings amber. Its download button saves it as a
 text file — useful to attach to a fault report.

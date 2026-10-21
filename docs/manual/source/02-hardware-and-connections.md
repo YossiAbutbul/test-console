@@ -52,7 +52,7 @@ Each device's rows in the Instruments panel are shown in
   is shown). Default channel is **3**.
 - **Supply control:** the output is switched from the **DC Analyzer** page
   (see [6.7](06-component-pages.md#67-dc-analyzer)), which also sets the
-  voltage and current limit. The **Settings → DC ANALYZER SUPPLY** switch
+  voltage and current limit. The **DC supply** key in the sidebar footer
   controls the same output. The app never turns it on by itself.
 - **Voltage scaling:** the backend halves the programmed voltage and doubles
   the read-back (`DC_VOLTAGE_SCALE = 2.0`), because this rig's hardware
@@ -189,7 +189,7 @@ default reply timeout is 5 s.
 
 ### Meter information
 
-The **(i)** button in the connection row reads these from the unit: Device
+The **(i)** button in the DUT controls on the Bench tab reads these from the unit: Device
 ID, firmware, MAC, App Mode, and the primary and secondary channel. It can
 also write App Mode and the channels. See
 [3.2](03-using-the-console.md#32-connecting-the-dut).
@@ -208,7 +208,7 @@ signals (USB, serial, BLE) back to the PC.
 
 > **Path loss.** On every setup, the loss between the DUT's RF port and the
 > power sensor (cables, attenuator, coupler, switch) is entered as **path
-> loss** in the connection row. The app adds it to every sensor reading.
+> loss** on the Bench tab of the inspector. The app adds it to every sensor reading.
 > Calibrate it at each test frequency, as described in
 > [3.4](03-using-the-console.md#34-path-loss).
 
