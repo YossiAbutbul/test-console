@@ -367,7 +367,7 @@ browser profile on that PC.
 | `mac-nicknames-v1` | MAC → nickname | empty |
 | `dc-supply-voltage-v1` | DC supply voltage in the sidebar footer | 3.6 V |
 | `dc-supply-enabled-v1` | DC supply key. **Always reset to off on load.** | off |
-| `log-panel-width-v1`, `dock-tab-v1` | Right-hand inspector width and tab | 320 px, Bench |
+| `log-panel-width-v1` | Right-hand inspector width (it always opens on the Bench tab) | 320 px |
 | `lte-bands-v1`, `lte-channel-unit-v1` | LTE bands in use, MHz/EARFCN | 2, 4, 12; MHz |
 | `*-page-snapshot-v1/v2` | Each page's form values and automation results (CW, Modulated, LTE CW, LTE Modulated, Mode Sweep, Load Pull, Power Meter, Signal Generator, DC Analyzer, Spectrum Analyzer) | — |
 

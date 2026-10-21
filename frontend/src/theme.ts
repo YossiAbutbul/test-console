@@ -449,13 +449,14 @@ export function makeTheme(mode: ThemeMode): Theme {
               cursor: 'default',
             },
           },
-          // A disabled primary is a faint wash of the accent with accent ink:
-          // still legible ("Needs DUT" is information), but plainly not the
-          // grey of a live secondary key, which it used to match exactly.
+          // A disabled primary is the same faded grey as any disabled key,
+          // with greyed words. The accent wash it had read as a live,
+          // pressable blue key ("Needs DUT" looked like an action); the words
+          // still say why it waits, and the fade says it cannot be pressed.
           contained: {
             '&.Mui-disabled, &.Mui-disabled:hover, &:disabled, &:disabled:hover': {
-              backgroundColor: alpha(p.sidebar.accent, isLight ? 0.1 : 0.14),
-              color: p.sidebar.accent,
+              backgroundColor: alpha(p.actions.scan.bg, 0.5),
+              color: p.textDisabled,
               boxShadow: 'none',
               borderColor: 'transparent',
             },

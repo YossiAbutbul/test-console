@@ -263,7 +263,10 @@ export default function App() {
    */
   const [navHint, setNavHint] = useState(false)
   const [toggleHover, setToggleHover] = useState(false)
-  const [dockTab, setDockTab] = usePersistedState<DockTab>(STORAGE_KEYS.dockTab, 'bench')
+  // Always opens on Bench, not on whichever tab was last left up: Bench is
+  // where a session starts (DUT, path loss, instruments), and coming back to
+  // the Log after a reload hid the DUT connection behind a tab.
+  const [dockTab, setDockTab] = useState<DockTab>('bench')
   const [logW, setLogW] = usePersistedState<number>(STORAGE_KEYS.logWidth, LOG_DEFAULT_W)
   /**
    * The test page on screen, remembered across reloads.

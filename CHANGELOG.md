@@ -15,6 +15,15 @@ turns that heading into the version and date.
   changelog; `release.ps1 -Push` runs it, and `-Bundle` attaches the
   DUT-only zip.
 
+### Changed
+- A disabled primary key ("Needs DUT") is the faded grey of any disabled key,
+  not a blue wash that looked pressable, and no longer shows a tooltip.
+- The inspector always opens on the Bench tab.
+
+### Fixed
+- Stop on the LoRa CW, Modulated and Debug pages is disabled while no DUT is
+  connected, as Send is; it stayed pressable with nothing to stop.
+
 ## [1.0.0] - 2026-10-21
 
 The first versioned release.

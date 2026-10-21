@@ -124,7 +124,10 @@ export function RunControls({
       >
         Stop
       </Button>
-      {blocker ? (
+      {/* A tooltip only when the key cannot name its blocker itself: on a
+          plain "Needs DUT" it made a disabled key answer the pointer, which
+          read as one that could be pressed. */}
+      {blocker && blockedLabel === 'Not ready' ? (
         <Tooltip title={`${runLabel} is blocked until the ${blocker} step is done`}>
           <span>{primary}</span>
         </Tooltip>
@@ -251,14 +254,20 @@ export function SendStopControls({
       <Button
         variant="outlined"
         startIcon={stopping ? <KeySpinner /> : <StopRoundedIcon />}
-        disabled={busy || !canStop}
+        // With no DUT there is nothing to stop, and a live Stop beside a
+        // greyed "Needs DUT" read as the one key that still did something.
+        // Once the DUT is up it is never held back by the gate, so the safe
+        // way out stays available.
+        disabled={busy || !canStop || gated}
         onClick={onStop}
         sx={actionSx(ACTION_W.default)}
       >
         Stop
       </Button>
-      {gated || (!canSend && sendDisabledReason) ? (
-        <Tooltip title={gated ? 'Send is blocked until the DUT step is done' : sendDisabledReason}>
+      {/* No tooltip on "Needs DUT", which says it already (see RunControls);
+          one only for a reason the key cannot show. */}
+      {!gated && !canSend && sendDisabledReason ? (
+        <Tooltip title={sendDisabledReason}>
           <span>{send}</span>
         </Tooltip>
       ) : send}
