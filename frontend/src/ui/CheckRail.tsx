@@ -119,7 +119,7 @@ export function CheckStep({ state, label, summary, selected, onClick }: CheckSte
     >
       <CheckMark state={state} />
       <Box sx={{ minWidth: 0 }}>
-        <Typography noWrap sx={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, color: 'text.primary' }}>
+        <Typography noWrap sx={{ fontSize: 14, fontWeight: 600, lineHeight: '19px', height: 19, color: 'text.primary' }}>
           {label}
         </Typography>
         {summary != null && (
@@ -128,7 +128,10 @@ export function CheckStep({ state, label, summary, selected, onClick }: CheckSte
             className="check-summary"
             // The rail truncates at seven steps; the whole line is one hover away.
             title={typeof summary === 'string' ? summary : undefined}
-            sx={{ fontSize: 12.5, lineHeight: 1.3, color: summaryColor }}
+            // A fixed line box: the summary switches face (a mono MAC once the
+            // DUT connects) and text, and a line that is a pixel taller in one
+            // face moved the whole page below the rail on connect.
+            sx={{ fontSize: 12.5, lineHeight: '17px', height: 17, overflow: 'hidden', color: summaryColor }}
           >
             {summary}
           </Typography>

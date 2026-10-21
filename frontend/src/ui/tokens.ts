@@ -36,9 +36,15 @@ export const SIDEBAR_W_NARROW = 232
  *  buttons on the same row line up; `lg` is for standalone action rows. */
 export const CONTROL_H = { md: 36, lg: 40 } as const
 
-/** Minimum widths for header actions, so buttons don't resize as their
- *  label changes ("Run" → "Running 3/40"). */
-export const ACTION_W = { compact: 96, default: 120, wide: 148 } as const
+/**
+ * Widths for header actions. Fixed, not minimum: a button must not change
+ * size when its state does ("Run" → "Running 312/616" → "Needs DUT",
+ * "Stop" → "Stopping…", "Connect" → "Disconnect"). A key that grows or
+ * shrinks under the pointer moves its neighbours, and on this rig the
+ * neighbour of Stop is Run. Each width holds the longest label its control
+ * ever shows, with its icon.
+ */
+export const ACTION_W = { compact: 96, default: 120, wide: 148, run: 176 } as const
 
 /** Content column widths. Pages pick one instead of inventing a number.
  *  `grid` is the wide dashboard layout; `fluid` fills whatever the content

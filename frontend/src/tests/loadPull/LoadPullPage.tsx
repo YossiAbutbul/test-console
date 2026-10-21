@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Box, Button, Divider, IconButton, MenuItem, Stack, Table, TableBody,
+  Box, Button, CircularProgress, Divider, IconButton, MenuItem, Stack, Table, TableBody,
   TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
   Tooltip, Typography,
 } from '@mui/material'
@@ -45,6 +45,7 @@ import {
   ACTION_W, CONTROL_H, EmergencyStop, FieldGrid, MONO, PageBody, PathLossChip,
   RunControls, Section, StatRow, StatTile, StatusChip, TEXT, TwoCol,
   HeadCell, NUM_CELL_SX,
+  HazardGlyph, hazardRingSx,
 } from '../../ui'
 import { useAppPalette } from '../../context/ThemeModeContext'
 import type { TestPageProps } from '../types'
@@ -1143,7 +1144,14 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               of as three rows that read as one undifferentiated pile. */}
           <TwoCol stretch minCol={280}>
             <Box>
-              <SubHead>Drive the trombone</SubHead>
+              <SubHead>
+                Drive the trombone
+                {/* The keys under this heading move the motor or the RF
+                    switch, and say so here as well as in their red rings. */}
+                <Box component="span" sx={{ ml: 1, color: 'error.main', display: 'inline-flex', alignItems: 'center', gap: 0.4, textTransform: 'none', letterSpacing: 0 }}>
+                  <HazardGlyph kind="move" sx={{ fontSize: 15 }} />moves hardware
+                </Box>
+              </SubHead>
               {/* Same label-and-control grid as the bounds on the right, so
                   the two halves of the step read alike. Loose rows of mixed
                   button sizes made four unrelated widgets out of what is one
@@ -1165,7 +1173,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     size="small" variant="outlined"
                     onClick={() => switchM.mutate('VNA')}
                     disabled={!swConnected || switchM.isPending || running}
-                    sx={DRIVE_BTN_SX}
+                    sx={[DRIVE_BTN_SX, hazardRingSx('path')]}
                   >
                     VNA
                   </Button>
@@ -1173,7 +1181,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     size="small" variant="outlined"
                     onClick={() => switchM.mutate('PCB')}
                     disabled={!swConnected || switchM.isPending || running}
-                    sx={DRIVE_BTN_SX}
+                    sx={[DRIVE_BTN_SX, hazardRingSx('path')]}
                   >
                     PCB
                   </Button>
@@ -1201,6 +1209,9 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     outline: 'none',
                     bgcolor: jogFocused ? 'action.hover' : 'transparent',
                     opacity: motorConnected && !running ? 1 : 0.5,
+                    // The hazard ring of the other keys that move the motor.
+                    boxShadow: (t) => (motorConnected && !running
+                      ? `inset 0 0 0 2px ${t.palette.error.main}` : 'none'),
                     userSelect: 'none',
                     transition: 'border-color 0.15s, background-color 0.15s',
                   }}
@@ -1243,7 +1254,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     onClick={() => goMinM.mutate()}
                     disabled={!motorConnected || motorJogBusy || running || travelMin == null}
                     title={travelMin == null ? 'Capture zero first' : undefined}
-                    sx={DRIVE_BTN_SX}
+                    sx={[DRIVE_BTN_SX, hazardRingSx('move')]}
                   >
                     Zero
                   </Button>
@@ -1252,7 +1263,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     onClick={() => goMaxM.mutate()}
                     disabled={!motorConnected || motorJogBusy || running || travelMax == null}
                     title={travelMax == null ? 'Capture end first' : undefined}
-                    sx={DRIVE_BTN_SX}
+                    sx={[DRIVE_BTN_SX, hazardRingSx('move')]}
                   >
                     End
                   </Button>
@@ -1358,12 +1369,16 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               </Button>
               <Button
                 size="small" variant="text"
-                startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
+                // The label stays "Export" while the workbook builds and the
+                // icon turns into a spinner, so the action row does not shift.
+                startIcon={exportXlsx.isPending
+                  ? <CircularProgress size={13} color="inherit" />
+                  : <DownloadIcon sx={{ fontSize: 15 }} />}
                 onClick={() => exportXlsx.mutate()}
                 disabled={results.length === 0 || exportXlsx.isPending}
                 sx={RESULT_ACTION_SX}
               >
-                {exportXlsx.isPending ? 'Building…' : 'Export'}
+                Export
               </Button>
               <Button
                 size="small" variant="text"

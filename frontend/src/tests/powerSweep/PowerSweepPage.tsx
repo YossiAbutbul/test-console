@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import {
-  Box, Button, Divider, FormControlLabel, MenuItem, Stack, Switch, Tooltip, Typography,
+  Box, Button, CircularProgress, Divider, FormControlLabel, MenuItem, Stack, Switch, Tooltip, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DownloadIcon from '@mui/icons-material/Download'
@@ -706,12 +706,15 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
               <Button
                 size="small"
                 variant="text"
-                startIcon={<UploadFileIcon sx={{ fontSize: 15 }} />}
+                // Label fixed, spinner in the icon's place: see Load Pull's Export.
+                startIcon={importXlsx.isPending
+                  ? <CircularProgress size={13} color="inherit" />
+                  : <UploadFileIcon sx={{ fontSize: 15 }} />}
                 onClick={() => fileInput.current?.click()}
                 disabled={running || importXlsx.isPending}
                 sx={resultActionSx}
               >
-                {importXlsx.isPending ? 'Reading…' : 'Import'}
+                Import
               </Button>
               {/* Clear last and apart, in the same order as every results
                   panel: it is the one action here that throws results away. */}

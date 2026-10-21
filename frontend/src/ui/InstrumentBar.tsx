@@ -81,11 +81,15 @@ export function InstrumentBar({
   return (
     <Box sx={{ ...PANEL_SX, px: 2, py: 1.25, mb: 2 }}>
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minWidth: 0 }}>
+        {/* One width for every state ("Disconnected", "Connected", a failure
+            title): the chip changing size slid the name beside it about. */}
+        <Box sx={{ width: 160, flexShrink: 0, display: 'flex', '& .MuiChip-root': { maxWidth: '100%' } }} title={chip.label}>
         <StatusChip
           label={chip.label}
           tone={chip.tone}
           spinning={status === 'connecting' || (connected && liveTone === 'busy')}
         />
+        </Box>
         <Box sx={{ minWidth: 0, flexGrow: 1 }}>
           <Typography sx={{ ...TEXT.dense, fontWeight: 700, lineHeight: 1.3 }} noWrap>
             {name}

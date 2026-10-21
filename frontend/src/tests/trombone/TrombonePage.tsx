@@ -17,6 +17,7 @@ import { loadPullPageSnapshot } from '../../store/loadPullPageStore'
 import {
   ACTION_W, CONTROL_H, InstrumentBar, MONO, PageBody, Section,
   StatRow, StatTile, TEXT, TwoCol,
+  hazardRingSx,
 } from '../../ui'
 import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
@@ -158,7 +159,7 @@ export function TrombonePage({ group }: TestPageProps) {
               startIcon={<StopIcon />}
               onClick={() => stopM.mutate()}
               disabled={!connected || stopM.isPending}
-              sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+              sx={{ width: ACTION_W.default, minWidth: ACTION_W.default, height: CONTROL_H.md }}
             >
               {stopM.isPending ? 'Stopping…' : 'Stop'}
             </Button>
@@ -302,7 +303,7 @@ export function TrombonePage({ group }: TestPageProps) {
                 variant="contained"
                 onClick={() => moveM.mutate()}
                 disabled={!connected || busy || !targetInRange}
-                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md, mt: '22px', flexShrink: 0 }}
+                sx={[{ minWidth: ACTION_W.compact, height: CONTROL_H.md, mt: '22px', flexShrink: 0 }, hazardRingSx('move')]}
               >
                 Move
               </Button>
@@ -329,7 +330,7 @@ export function TrombonePage({ group }: TestPageProps) {
                 startIcon={<ArrowBackIcon />}
                 onClick={() => jogNegM.mutate()}
                 disabled={!connected || busy}
-                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+                sx={[{ minWidth: ACTION_W.compact, height: CONTROL_H.md }, hazardRingSx('move')]}
               >
                 Step down
               </Button>
@@ -338,7 +339,7 @@ export function TrombonePage({ group }: TestPageProps) {
                 endIcon={<ArrowForwardIcon />}
                 onClick={() => jogPosM.mutate()}
                 disabled={!connected || busy}
-                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+                sx={[{ minWidth: ACTION_W.compact, height: CONTROL_H.md }, hazardRingSx('move')]}
               >
                 Step up
               </Button>
@@ -347,7 +348,7 @@ export function TrombonePage({ group }: TestPageProps) {
                 startIcon={<FirstPageIcon />}
                 onClick={() => goMinM.mutate()}
                 disabled={!connected || busy || !hasLimits}
-                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+                sx={[{ minWidth: ACTION_W.compact, height: CONTROL_H.md }, hazardRingSx('move')]}
               >
                 Go min
               </Button>
@@ -356,7 +357,7 @@ export function TrombonePage({ group }: TestPageProps) {
                 endIcon={<LastPageIcon />}
                 onClick={() => goMaxM.mutate()}
                 disabled={!connected || busy || !hasLimits}
-                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+                sx={[{ minWidth: ACTION_W.compact, height: CONTROL_H.md }, hazardRingSx('move')]}
               >
                 Go max
               </Button>

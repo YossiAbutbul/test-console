@@ -1,6 +1,7 @@
 import { Box, ButtonBase } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import { useAppPalette } from '../context/ThemeModeContext'
+import { HazardGlyph } from './HazardGlyph'
 
 interface Props {
   value: boolean
@@ -78,6 +79,9 @@ export function LatchingKey({
           transition: 'background-color .18s ease, box-shadow .18s ease',
         }}
       />
+      {/* What the key powers, beside its state: it switches the modem on, and
+          in a header next to Stop and Send it read as a filter chip. */}
+      <HazardGlyph kind="power" sx={{ fontSize: 15, color: p.sidebar.textDim, ml: -0.25 }} />
       {value ? onLabel : offLabel}
     </ButtonBase>
   )

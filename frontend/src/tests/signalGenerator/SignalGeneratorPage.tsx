@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Box, Button, MenuItem, Select, Stack, Typography } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
 import {
@@ -17,6 +16,7 @@ import { usePublishLiveOutput } from '../../context/liveOutput'
 import { DASH, fmt } from '../../lib/format'
 import {
   FieldGrid, InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
+  HazardGlyph, hazardRingSx,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import {
@@ -251,7 +251,7 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
             variant={rfOn ? 'outlined' : 'contained'}
             color={rfOn ? 'error' : 'primary'}
             disabled={!canSend}
-            startIcon={<PowerSettingsNewIcon sx={{ fontSize: 16 }} />}
+            startIcon={<HazardGlyph kind="tx" />}
             // Switching on carries the typed settings so they land first; the
             // backend keys the output last. Switching off carries nothing —
             // the only thing wanted then is for the output to stop.
@@ -259,7 +259,7 @@ export function SignalGeneratorPage({ group, active }: TestPageProps) {
               rfOn ? { rf_on: false } : { ...typed, rf_on: true },
               rfOn ? 'RF off' : 'RF on',
             )}
-            sx={{ minWidth: 130, height: 36 }}
+            sx={[{ width: 130, height: 36 }, hazardRingSx(rfOn ? null : 'tx')]}
           >
             {rfOn ? 'RF Off' : 'RF On'}
           </Button>

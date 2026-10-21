@@ -13,6 +13,7 @@ import { DASH } from '../../lib/format'
 import {
   ACTION_W, CONTROL_H, InstrumentBar, MiniAction, MONO, PageBody, Section,
   StatRow, StatTile, TEXT, TwoCol,
+  HazardGlyph, hazardRingSx,
 } from '../../ui'
 import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
@@ -210,7 +211,8 @@ export function SwitchPage({ group }: TestPageProps) {
                 variant={path === 'VNA' ? 'contained' : 'outlined'}
                 onClick={() => gotoM.mutate('VNA')}
                 disabled={!connected || busy}
-                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+                startIcon={<HazardGlyph kind="path" />}
+                sx={[{ width: ACTION_W.default, height: CONTROL_H.md }, hazardRingSx('path')]}
               >
                 Go VNA
               </Button>
@@ -218,7 +220,8 @@ export function SwitchPage({ group }: TestPageProps) {
                 variant={path === 'PCB' ? 'contained' : 'outlined'}
                 onClick={() => gotoM.mutate('PCB')}
                 disabled={!connected || busy}
-                sx={{ minWidth: ACTION_W.compact, height: CONTROL_H.md }}
+                startIcon={<HazardGlyph kind="path" />}
+                sx={[{ width: ACTION_W.default, height: CONTROL_H.md }, hazardRingSx('path')]}
               >
                 Go PCB
               </Button>

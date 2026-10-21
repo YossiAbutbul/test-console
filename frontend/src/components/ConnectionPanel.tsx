@@ -18,18 +18,22 @@ import { useDutLink } from '../context/dutLink'
 import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
 
-function actionSx(c: { bg: string; bgHover: string; fg: string }) {
+function actionSx(
+  c: { bg: string; bgHover: string; fg: string },
+  disabled: { bg: string; fg: string },
+) {
   return {
     bgcolor: c.bg,
     color: c.fg,
     border: `1px solid ${c.bg}`,
     '&:hover': { bgcolor: c.bgHover, borderColor: c.bgHover },
+    // The theme's disabled look, not the button's own colour at half opacity:
+    // a 50 % green Connect read as a pale but working key.
     '&.Mui-disabled': {
-      bgcolor: c.bg,
-      color: c.fg,
-      opacity: 0.5,
+      bgcolor: disabled.bg,
+      color: disabled.fg,
+      borderColor: disabled.bg,
       pointerEvents: 'none',
-      '&:hover': { bgcolor: c.bg, borderColor: c.bg },
     },
   } as const
 }
@@ -61,7 +65,9 @@ export function DutControls() {
     toggleScan, isConnected, busy, isKnownDevice, canConnect, toggleConnect,
   } = useDutLink()
   const { mode } = useThemeMode()
-  const a = getAppPalette(mode).actions
+  const pal = getAppPalette(mode)
+  const a = pal.actions
+  const off = { bg: pal.appBarBorder, fg: pal.textDisabled }
   const nicknames = useNicknames()
   const [infoOpen, setInfoOpen] = useState(false)
   const [editMac, setEditMac] = useState<string | null>(null)
@@ -342,7 +348,7 @@ export function DutControls() {
           variant="contained"
           onClick={startScan}
           disabled={isConnected}
-          sx={{ minWidth: 96, height: 36, ...actionSx(scanning ? a.danger : a.scan) }}
+          sx={{ width: 96, minWidth: 96, height: 36, ...actionSx(scanning ? a.danger : a.scan, off) }}
         >
           {scanning ? 'Stop' : 'Scan'}
         </Button>
@@ -352,7 +358,8 @@ export function DutControls() {
           disabled={isConnected ? busy : !canConnect}
           onClick={toggle}
           endIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
-          sx={{ minWidth: 116, height: 36, ...actionSx(isConnected ? a.disconnect : a.connect) }}
+          // Fixed width: Connect, the spinner and Disconnect all fit one box.
+          sx={{ width: 124, minWidth: 124, height: 36, whiteSpace: 'nowrap', ...actionSx(isConnected ? a.disconnect : a.connect, off) }}
         >
           {isConnected ? 'Disconnect' : 'Connect'}
         </Button>

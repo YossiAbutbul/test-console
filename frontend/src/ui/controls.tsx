@@ -1,8 +1,7 @@
 import {
-  Box, Button, Chip, CircularProgress, Divider, IconButton, Stack, Tabs, Tooltip,
+  Box, Button, Chip, CircularProgress, Divider, Stack, Tabs, Tooltip,
   Typography, type ButtonProps, type TabsProps,
 } from '@mui/material'
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import PowerIcon from '@mui/icons-material/Power'
 import StopIcon from '@mui/icons-material/Stop'
@@ -10,10 +9,18 @@ import type { CommandResponse } from '../types/models'
 import { useAppPalette } from '../context/ThemeModeContext'
 import { Section } from './Section'
 import { useDutGated } from './gate'
+import { HazardGlyph } from './HazardGlyph'
+import { hazardRingSx, type HazardKind } from './hazardStyle'
 import { ACTION_W, CONTROL_H, MONO, TEXT } from './tokens'
 
-/** Shared sizing for every header action, so button rows line up page to page. */
-const actionSx = (minWidth: number) => ({ minWidth, height: CONTROL_H.md })
+/** Shared sizing for every header action, so button rows line up page to
+ *  page. A fixed width (see ACTION_W): the label may change, the box may not.
+ *  A label that would still not fit is cut with an ellipsis, never allowed to
+ *  widen the key. */
+const actionSx = (width: number) => ({
+  width, minWidth: width, height: CONTROL_H.md, flexShrink: 0,
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+} as const)
 
 interface ConnectButtonProps {
   connected: boolean
@@ -39,7 +46,7 @@ export function ConnectButton({
       startIcon={<PowerIcon sx={{ fontSize: 16 }} />}
       onClick={() => (connected ? onDisconnect() : onConnect())}
       disabled={disabled || pending}
-      sx={actionSx(ACTION_W.default)}
+      sx={actionSx(ACTION_W.wide)}
     >
       {pending ? '…' : connected ? 'Disconnect' : 'Connect'}
     </Button>
@@ -68,6 +75,9 @@ interface RunControlsProps {
    * fills this in on its own.
    */
   blockedBy?: string
+  /** What Run does to the bench; drawn as the key's glyph and ring. Every
+   *  run on this rig transmits, so `tx` unless a page says otherwise. */
+  hazard?: HazardKind
 }
 
 /**
@@ -79,23 +89,26 @@ interface RunControlsProps {
  */
 export function RunControls({
   running, starting, stopping, canRun = true, runLabel = 'Run', progress,
-  onRun, onStop, children, blockedBy,
+  onRun, onStop, children, blockedBy, hazard = 'tx',
 }: RunControlsProps) {
   const gated = useDutGated()
   const blocker = gated ? 'DUT' : (!canRun && !running ? blockedBy : undefined)
+  // The key keeps its width, so a blocker too long for it is named in the
+  // tooltip and on the page's check course rather than squeezed onto it.
+  const blockedLabel = blocker && blocker.length <= 11 ? `Needs ${blocker}` : 'Not ready'
   const primary = (
     <Button
       variant="contained"
       startIcon={
         starting
           ? <CircularProgress size={14} color="inherit" />
-          : <PlayArrowIcon />
+          : <HazardGlyph kind={hazard} />
       }
       disabled={running || starting || !canRun || gated}
       onClick={onRun}
-      sx={actionSx(ACTION_W.wide)}
+      sx={[actionSx(ACTION_W.run), hazardRingSx(hazard)]}
     >
-      {running && progress ? `Running ${progress}` : blocker ? `Needs ${blocker}` : runLabel}
+      {running && progress ? `Running ${progress}` : blocker ? blockedLabel : runLabel}
     </Button>
   )
   return (
@@ -106,7 +119,7 @@ export function RunControls({
         startIcon={<StopIcon />}
         disabled={!running || stopping}
         onClick={onStop}
-        sx={actionSx(ACTION_W.compact)}
+        sx={actionSx(ACTION_W.default)}
       >
         {stopping ? 'Stopping…' : 'Stop'}
       </Button>
@@ -134,9 +147,9 @@ interface EmergencyStopProps {
  *
  * In the header rather than floating over the page: `PageHeader` lives outside
  * the scrolling `PageBody`, so this is permanently on screen without covering
- * any content and without costing layout space. The divider and the round red
- * shape keep it from reading as a third ordinary button, and put a gap between
- * it and Run so neither is easy to hit by accident.
+ * any content and without costing layout space. The divider, the red fill and
+ * the "E-STOP" label keep it from reading as a third ordinary button, and the
+ * divider puts a gap between it and Run so neither is easy to hit by accident.
  *
  * Sized to `CONTROL_H.md` — the same height as every other header action — so
  * it sits on the shared baseline instead of standing proud of the row.
@@ -149,29 +162,35 @@ interface EmergencyStopProps {
 export function EmergencyStop({
   onStop, busy, title = 'Emergency stop',
 }: EmergencyStopProps) {
+  const p = useAppPalette()
   return (
     <Stack direction="row" alignItems="center" spacing={1}>
-      <Tooltip title={title} placement="bottom">
-        <IconButton
+      {/* A labelled key, not an icon in a red disc: under stress the
+          operator reads "E-STOP", and two square stop glyphs a divider apart
+          (this and the ordinary Stop) were the one thing on the page that
+          could be confused. Wider than Stop and filled, so it is also the
+          easiest of the two to hit. */}
+      <Tooltip title={`${title}: stops the motor, then the run, then the transmitter`} placement="bottom">
+        <Button
           aria-label={title}
+          variant="contained"
+          disableElevation
           onClick={onStop}
+          startIcon={busy
+            ? <CircularProgress size={16} color="inherit" />
+            : <StopIcon sx={{ fontSize: 20 }} />}
           sx={{
-            width: CONTROL_H.md,
-            height: CONTROL_H.md,
-            flexShrink: 0,
-            alignSelf: 'center',
-            p: 0,
+            ...actionSx(112),
             bgcolor: 'error.main',
-            color: 'common.white',
-            border: '2px solid',
-            borderColor: 'error.dark',
+            color: p.actions.danger.fg,
+            fontWeight: 800,
+            letterSpacing: 0.6,
+            boxShadow: (t) => `inset 0 0 0 2px ${t.palette.error.dark}`,
             '&:hover': { bgcolor: 'error.dark' },
           }}
         >
-          {busy
-            ? <CircularProgress size={18} color="inherit" />
-            : <StopIcon sx={{ fontSize: 20, display: 'block' }} />}
-        </IconButton>
+          E-STOP
+        </Button>
       </Tooltip>
       <Divider orientation="vertical" flexItem sx={{ my: 0.5 }} />
     </Stack>
@@ -204,9 +223,10 @@ export function SendStopControls({
   const send = (
     <Button
       variant="contained"
+      startIcon={<HazardGlyph kind="tx" />}
       disabled={busy || !canSend || gated}
       onClick={onSend}
-      sx={actionSx(ACTION_W.compact)}
+      sx={[actionSx(ACTION_W.default), hazardRingSx('tx')]}
     >
       {sending ? 'Sending…' : gated ? 'Needs DUT' : 'Send'}
     </Button>
@@ -217,7 +237,7 @@ export function SendStopControls({
         variant="outlined"
         disabled={busy || !canStop}
         onClick={onStop}
-        sx={actionSx(ACTION_W.compact)}
+        sx={actionSx(ACTION_W.default)}
       >
         {stopping ? 'Stopping…' : 'Stop'}
       </Button>

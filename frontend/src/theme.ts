@@ -343,6 +343,15 @@ export function makeTheme(mode: ThemeMode): Theme {
         defaultProps: { elevation: 0 },
         styleOverrides: { root: { boxShadow: 'none' } },
       },
+      MuiButtonBase: {
+        styleOverrides: {
+          // Keyboard focus on every button-like control: an outline outside
+          // the box, so focusing a key never changes its size or its row.
+          root: {
+            '&.Mui-focusVisible': { outline: `2px solid ${p.sidebar.text}`, outlineOffset: 2 },
+          },
+        },
+      },
       MuiButton: {
         defaultProps: { disableElevation: true },
         styleOverrides: {
@@ -377,6 +386,10 @@ export function makeTheme(mode: ThemeMode): Theme {
             backgroundColor: p.paper,
             '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: p.appBarBorder },
             '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: p.appBarBorder, borderWidth: 1 },
+            // A visible focus ring, drawn as a shadow so it adds nothing to the
+            // field's size. The focused border used to be the same hairline as
+            // an unfocused one, so keyboard focus on a field was invisible.
+            '&.Mui-focused': { boxShadow: `0 0 0 2px ${p.sidebar.accent}` },
             '&.Mui-disabled:hover .MuiOutlinedInput-notchedOutline': { borderColor: p.appBarBorder },
             '&.Mui-disabled .MuiOutlinedInput-notchedOutline': { borderColor: p.appBarBorder },
             // Single-line only. A multiline field grows by giving its box more

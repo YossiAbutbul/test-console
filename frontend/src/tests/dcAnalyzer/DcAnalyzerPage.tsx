@@ -18,6 +18,7 @@ import { usePublishLiveOutput } from '../../context/liveOutput'
 import { DASH, fmt } from '../../lib/format'
 import {
   FieldGrid, InstrumentBar, MONO, PageBody, Section, StatRow, StatTile, TEXT,
+  hazardRingSx,
 } from '../../ui'
 import type { TestPageProps } from '../types'
 import { dcAnalyzerPageSnapshot, persistDcAnalyzerPage } from '../../store/dcAnalyzerPageStore'
@@ -244,7 +245,9 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
               outputOn ? { output_on: false } : { ...typed, output_on: true },
               outputOn ? 'Output off' : 'Output on',
             )}
-            sx={{ minWidth: 140, height: 36 }}
+            // Fixed width: On and Off swap in place. The ring only while it
+            // would power the DUT; switching off is the safe way out.
+            sx={[{ width: 148, height: 36 }, hazardRingSx(outputOn ? null : 'power')]}
           >
             {outputOn ? 'Output Off' : 'Output On'}
           </Button>
@@ -371,7 +374,7 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
                 label="Output"
                 value={st?.output_on == null ? DASH : outputOn ? 'ON' : 'OFF'}
                 tone={outputOn ? 'bad' : undefined}
-                sub={st?.module ? `ch ${st.channel} · ${st.module}` : undefined}
+                sub={st?.module ? `ch ${st.channel} · ${st.module}` : connected ? undefined : 'not connected'}
                 off={!connected}
               />
               <StatTile
@@ -395,21 +398,27 @@ export function DcAnalyzerPage({ group, active }: TestPageProps) {
                 label="Voltage"
                 value={fmt(st?.voltage_v ?? null, 3)}
                 unit="V"
-                sub="measured"
+                // Why the dash: a reading that is missing because nothing is
+                // connected should not be captioned "measured".
+                sub={connected ? 'measured' : 'not connected'}
                 off={!connected}
               />
               <StatTile
                 label="Current"
                 value={st?.current_a == null ? DASH : fmt(st.current_a * 1000, 3)}
                 unit="mA"
-                sub="measured"
+                // Why the dash: a reading that is missing because nothing is
+                // connected should not be captioned "measured".
+                sub={connected ? 'measured' : 'not connected'}
                 off={!connected}
               />
               <StatTile
                 label="Power"
                 value={st?.power_w == null ? DASH : fmt(st.power_w * 1000, 2)}
                 unit="mW"
-                sub="measured"
+                // Why the dash: a reading that is missing because nothing is
+                // connected should not be captioned "measured".
+                sub={connected ? 'measured' : 'not connected'}
                 off={!connected}
               />
             </StatRow>

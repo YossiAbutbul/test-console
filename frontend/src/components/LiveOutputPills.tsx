@@ -144,7 +144,10 @@ function Pill({
         {!compact && detail && (
           <Box
             component="span"
-            sx={{ fontWeight: 500, opacity: 0.85, fontVariantNumeric: 'tabular-nums' }}
+            // The countdown changes length as it runs ("1m 05s" → "59s");
+            // a floor in characters keeps the pill, and the pills beside it,
+            // from shuffling every second.
+            sx={{ fontWeight: 500, opacity: 0.85, fontVariantNumeric: 'tabular-nums', minWidth: countdown ? '13ch' : undefined }}
           >
             {detail}
           </Box>

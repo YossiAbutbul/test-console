@@ -40,8 +40,8 @@ function listShort(values: string[], max = 3): string {
  * whichever check is open.
  *
  * Replaces the DUT connection row that sat above every page. The same
- * controls now live in the DUT step, which opens on its own while the DUT is
- * not connected and folds away once it is, so a connected bench costs one row.
+ * controls now live in the DUT step, open on first load while the DUT is not
+ * connected; closing it leaves a connected bench costing one row.
  *
  * Marked `data-ungated`: connecting the DUT, editing path loss and opening the
  * Instruments panel all have to work on a page that is waiting for the DUT --
@@ -58,14 +58,15 @@ export function BenchCourse({
 
   const dutReady = !!(status?.connected && status?.transport_ready)
 
-  // Which detail is open. Until the operator picks one, the DUT step opens
-  // itself while it is the thing in the way. A choice is remembered only for
-  // the connection state it was made in, so connecting folds the DUT step away
-  // and losing the link opens it again, whatever was clicked before.
-  const [picked, setPicked] = useState<{ id: string | null; dutReady: boolean } | null>(null)
-  const autoOpen = dut && !dutReady ? 'dut' : null
-  const openId = picked && picked.dutReady === dutReady ? picked.id : autoOpen
-  const toggle = (id: string) => setPicked({ id: openId === id ? null : id, dutReady })
+  // Which detail is open. Decided once, when the page first draws: the DUT
+  // step starts open if the DUT is not connected yet. After that only a click
+  // opens or closes a detail. It used to fold itself away on connect and open
+  // again when the link dropped, and a panel that changes height on its own
+  // moves everything under it -- the page jumped the moment Connect worked.
+  // Connecting now changes the panel's content (Scan / Connect become
+  // Disconnect) without changing its size.
+  const [openId, setOpenId] = useState<string | null>(() => (dut && !dutReady ? 'dut' : null))
+  const toggle = (id: string) => setOpenId((cur) => (cur === id ? null : id))
 
   const items: (CourseStep & { builtin?: boolean })[] = []
 
@@ -80,12 +81,13 @@ export function BenchCourse({
         : status?.connected ? 'Connecting…' : 'Not connected',
       detail: (
         <Stack spacing={1}>
-          {!dutReady && (
-            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-              Scan, pick the unit and connect. Send and Run wait for the DUT;
-              results, import and export already work.
-            </Typography>
-          )}
+          {/* Always one line, whichever state: a hint that vanished on
+              connect took the controls below it up with it. */}
+          <Typography noWrap sx={{ fontSize: 13, color: 'text.secondary' }}>
+            {dutReady
+              ? 'Connected. Disconnect here before swapping the unit on the bench.'
+              : 'Scan, pick the unit and connect. Send and Run wait for the DUT; results, import and export already work.'}
+          </Typography>
           <DutControls />
         </Stack>
       ),

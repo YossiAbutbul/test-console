@@ -272,7 +272,8 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
             color={connected ? 'inherit' : 'primary'}
             onClick={() => (connected ? disconnect(id) : connect(id))}
             disabled={inst.placeholder || (!connected && !inst.address.trim()) || busy}
-            sx={{ minWidth: 116, height: 32, fontSize: 12.5 }}
+            // Fixed: Connect, Connecting… and Disconnect share one box.
+            sx={{ width: 120, minWidth: 120, height: 32, fontSize: 12.5, whiteSpace: 'nowrap' }}
           >
             {busy ? 'Connecting…' : connected ? 'Disconnect' : 'Connect'}
           </Button>
@@ -478,7 +479,7 @@ export function InstrumentsModal() {
               color={mode === 'disconnect' ? 'inherit' : 'primary'}
               onClick={onClick}
               disabled={count === 0 || busyAll}
-              sx={{ minWidth: 180, height: 34, fontSize: 13 }}
+              sx={{ width: 188, minWidth: 188, height: 34, fontSize: 13, whiteSpace: 'nowrap' }}
             >
               {label}
             </Button>

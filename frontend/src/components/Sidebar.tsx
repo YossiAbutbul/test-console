@@ -262,7 +262,9 @@ function StatusFoot() {
                 the menu could have meant the backend, an instrument or the DUT. */}
             {connected ? 'DUT connected' : 'DUT not connected'}
           </Typography>
-          {connected && (
+          {/* The second line is always there, so the footer keeps its height
+              when the DUT connects or drops. */}
+          {connected ? (
             <Tooltip title={status?.address ?? ''} placement="top">
               <Typography
                 sx={{
@@ -277,6 +279,10 @@ function StatusFoot() {
                 {status?.name ?? status?.address}
               </Typography>
             </Tooltip>
+          ) : (
+            <Typography sx={{ fontSize: 12, color: s.textDim }} noWrap>
+              connect from a test page or the top bar
+            </Typography>
           )}
         </Box>
         <SettingsButton />

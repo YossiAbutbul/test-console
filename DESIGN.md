@@ -335,9 +335,27 @@ Emergency stop is the only round button in the app.
   button: "Needs DUT", "Needs RF path".
 - **MiniAction:** 24 px text button for panel-heading actions (Add, Apply).
 
+### Hazard keys
+Every control that acts on the bench -- Send, Run, RF On, Output On, the
+Modem key, Jog, Go to, Move/Step, VNA/PCB -- carries the glyph for what it
+does (antenna = transmits, power = powers, arrows = moves the trombone, route
+= switches the RF path) and, while enabled, a 2 px red ring drawn inside the
+key. Read-only actions (Graph, Export, Import, Read, Recapture) carry neither.
+The safe way out (Stop, Output Off, RF Off) has no ring.
+
 ### Emergency stop
-Round 36 px red button with a darker ring, behind a vertical divider at the
-left of the Load Pull header. Never disabled.
+A labelled "E-STOP" key, 112 px, red fill with a darker inner ring, behind a
+vertical divider at the left of the Load Pull header. Never disabled.
+
+### The No-Shift Rule
+**Nothing changes size when its state changes.** Header keys have fixed
+widths that hold their longest label ("Running 312/616", "Stopping…",
+"Disconnect"); a pending export keeps its label and swaps its icon for a
+spinner; lamps, status chips and countdowns have fixed or floor widths; the
+check course never opens or closes a detail on its own, only on a click;
+hint and footer lines are always present, with different words per state.
+`docs/design/tools/layout-shift-check.cjs` measures it: connect the DUT on a
+page and report any element that moved.
 
 ### LatchingKey
 A key that holds its state with a lamp beside it ("Modem off" / "Modem on").
@@ -415,6 +433,8 @@ Selected item: soft graphite tint and 600 weight. Footer shows DUT BLE status
 - **Do** set measurements in mono with tabular figures and a muted unit.
 - **Do** use bright fills with near-black glyphs in Mid and Dark.
 - **Do** separate panels with a hairline and a tonal step.
+- **Do** give a control one size for all its states (the No-Shift Rule).
+- **Do** mark every bench-acting control as a hazard key.
 
 ### Don't:
 - **Don't** introduce an accent hue for brand or decoration.

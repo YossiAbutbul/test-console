@@ -23,6 +23,10 @@ const lampSx = {
   whiteSpace: 'nowrap',
   cursor: 'pointer',
   minWidth: 0,
+  overflow: 'hidden',
+  // Each lamp keeps one width whatever it says (see the widths below): the
+  // text changes on connect, the bar must not move.
+  justifyContent: 'flex-start',
   '&:hover': { borderColor: 'text.secondary' },
   '&:focus-visible': { outline: 2, outlineColor: 'text.primary', outlineOffset: 1 },
 } as const
@@ -68,12 +72,15 @@ export function BenchLamps({ compact }: { compact?: boolean }) {
           type="button"
           onClick={(e: React.MouseEvent<HTMLElement>) => setAnchor(e.currentTarget)}
           aria-label={dutReady ? 'DUT connected. Open DUT controls.' : 'DUT not connected. Open DUT controls.'}
-          sx={lampSx}
+          sx={{ ...lampSx, width: compact ? 84 : 196 }}
         >
           <CheckMark size={18} state={dutState} />
           DUT
           {!compact && (
-            <Box component="span" sx={{ fontWeight: 400, color: 'text.secondary' }}>
+            <Box
+              component="span"
+              sx={{ fontWeight: 400, color: 'text.secondary', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            >
               {dutReady ? (dutName ?? 'connected') : status?.connected ? 'connecting' : 'not connected'}
             </Box>
           )}
@@ -90,7 +97,7 @@ export function BenchLamps({ compact }: { compact?: boolean }) {
           type="button"
           onClick={() => setOpen(true)}
           aria-label={`Instruments: ${up} of ${rig.length} connected${failed.length ? `, ${failed.length} with an error` : ''}. Open Instruments.`}
-          sx={lampSx}
+          sx={{ ...lampSx, width: compact ? 132 : 168 }}
         >
           <CheckMark size={18} state={instState} />
           Instruments

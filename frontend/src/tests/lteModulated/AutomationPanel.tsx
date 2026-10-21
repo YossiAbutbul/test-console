@@ -1145,7 +1145,9 @@ export function AutomationPanel({
           }}
         />
 
-        {results.length > 0 && (() => {
+        {/* Shown with zeros before the first result too, so the first row of
+            a run lands in a table that is already where it will stay. */}
+        {(() => {
           const t = tallyVerdicts(results)
           return (
             <VerdictTally
