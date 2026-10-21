@@ -260,7 +260,8 @@ function BoundRow({
         color={value == null ? 'primary' : 'inherit'}
         onClick={onCapture}
         disabled={captureDisabled}
-        sx={{ minWidth: 104, height: CONTROL_H.md }}
+        // Fixed: "Capture" and "Recapture" share one width.
+        sx={{ width: 112, minWidth: 112, height: CONTROL_H.md }}
       >
         {value == null ? 'Capture' : 'Recapture'}
       </Button>
@@ -286,7 +287,9 @@ function BoundRow({
                 disabled={clearDisabled}
                 aria-label={`Clear ${label.toLowerCase()}`}
                 sx={{
-                  p: 0.25,
+                  // 28 px: the 20 px it was is under the 24 px minimum target
+                  // (WCAG 2.5.8), on a key that throws a capture away.
+                  width: 28, height: 28, p: 0,
                   color: 'text.disabled',
                   '&:hover': { color: 'error.main', bgcolor: 'transparent' },
                 }}
@@ -1354,8 +1357,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           anchorId="lp-results"
           panel
           action={
-            <Stack direction="row" alignItems="center" spacing={0.75}>
-              <Typography sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5 }}>
+            <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
+              <Typography noWrap title="Power at the DUT = sensor reading + path loss" sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5, minWidth: 0 }}>
                 power at the DUT = sensor + path loss
               </Typography>
               <Button

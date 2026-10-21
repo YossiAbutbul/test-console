@@ -55,7 +55,8 @@ export function SegmentedChoice<T extends string>({
               letterSpacing: '0.06em',
               fontWeight: active ? 700 : 500,
               px: 1,
-              py: 0.35,
+              // 24 px: the 20 px toggle was under the minimum target size.
+              minHeight: 24,
               color: active ? p.sidebar.text : p.sidebar.textDim,
               bgcolor: active ? p.sidebar.accentSoftHover : 'transparent',
               cursor: active ? 'default' : 'pointer',

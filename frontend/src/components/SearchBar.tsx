@@ -105,7 +105,7 @@ export function SearchBar({ activeId, onSelect }: Props) {
     <ClickAwayListener onClickAway={() => setOpen(false)}>
       {/* Fills the slot the top bar gives it (at most 420 px); the bar decides
           how much room search gets beside the status lamps. */}
-      <Box sx={{ position: 'relative', width: '100%' }}>
+      <Box sx={{ position: 'relative', width: '100%', containerType: 'inline-size' }}>
         <Stack
           direction="row"
           alignItems="center"
@@ -117,7 +117,9 @@ export function SearchBar({ activeId, onSelect }: Props) {
             border: `1px solid ${p.appBarBorder}`,
             borderRadius: 1,
             color: p.sidebar.textDim,
-            '&:focus-within': { borderColor: p.sidebar.border },
+            // A visible focus ring like every other field; the border change
+            // alone was invisible.
+            '&:focus-within': { borderColor: p.sidebar.border, boxShadow: `0 0 0 2px ${p.sidebar.accent}` },
           }}
         >
           <SearchIcon sx={{ fontSize: 16 }} />
@@ -135,7 +137,13 @@ export function SearchBar({ activeId, onSelect }: Props) {
               '& input::placeholder': { color: p.sidebar.textDim, opacity: 1 },
             }}
           />
-          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flexShrink: 0 }}>
+          {/* The shortcut hint gives way first when the bar is tight (a
+              1280 px laptop with the log docked): it squeezed the field to
+              "Searcl". The shortcut still works without it. */}
+          <Stack
+            direction="row" alignItems="center" spacing={0.5}
+            sx={{ flexShrink: 0, '@container (max-width: 300px)': { display: 'none' } }}
+          >
             <Box
               component="kbd"
               sx={{

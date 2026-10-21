@@ -435,9 +435,10 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
                   height: 36,
                   borderRadius: 1.5,
                   cursor: 'pointer',
-                  color: protoActive ? s.text : s.textDim,
-                  '&:hover': { bgcolor: s.hover, color: s.text },
-                  opacity: empty ? 0.5 : 1,
+                  // A protocol with no pages yet is quiet by colour, not by 50 %
+                  // opacity: faded that way its label fell to 3.8:1 in Light.
+                  color: empty ? 'text.disabled' : protoActive ? s.text : s.textDim,
+                  '&:hover': { bgcolor: s.hover, color: empty ? 'text.disabled' : s.text },
                   gap: 1,
                 }}
               >
@@ -446,7 +447,7 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
                   {protocol}
                 </Typography>
                 {empty && (
-                  <Typography sx={{ fontSize: 12, color: s.textDim, fontStyle: 'italic' }}>
+                  <Typography sx={{ fontSize: 12, color: 'text.disabled', fontStyle: 'italic' }}>
                     coming soon
                   </Typography>
                 )}

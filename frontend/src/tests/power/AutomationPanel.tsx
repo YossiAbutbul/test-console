@@ -76,8 +76,11 @@ const PANEL_HEIGHT = 250
  * the panel without the five inputs becoming equal-width — a picker stretched
  * to match a text field reads as a form inflated to fill space.
  */
-const COLS = '20px minmax(150px, 1.6fr) minmax(150px, 1.6fr) 116px minmax(104px, 1fr) 56px 32px'
-const MIN_TABLE_W = 676
+// 120 px floors on the two spec columns (was 150): the rows then need 616 px,
+// which is what the panel has inside its padding on a 1280 px laptop with the
+// log docked, so the sweep no longer scrolls sideways there.
+const COLS = '20px minmax(120px, 1.6fr) minmax(120px, 1.6fr) 116px minmax(104px, 1fr) 56px 32px'
+const MIN_TABLE_W = 616
 
 const DEFAULT_ROW: SweepRow = {
   freq: '',
@@ -769,8 +772,8 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
         panel
         grow
         action={
-          <Stack direction="row" alignItems="center" spacing={0.75}>
-            <Typography sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5 }}>
+          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
+            <Typography noWrap title="Power at the DUT = sensor reading + path loss" sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5, minWidth: 0 }}>
               power at the DUT = sensor + path loss
             </Typography>
             <Button

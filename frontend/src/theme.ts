@@ -160,7 +160,7 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
   // near-black glyphs, as high-visibility controls do on real hardware: white
   // on these would not clear 4.5:1, dark does.
   mid: {
-    textDisabled: '#9DA3A9',
+    textDisabled: '#A6ACB2',
     appBar: '#2E3236',
     appBarBorder: '#41464B',
     contentBg: '#2E3236',
@@ -169,9 +169,10 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
     data: {
       ok: '#58C07A',
       warn: '#E2A63F',
-      // Lifted from #F07068, which was 4.0:1 on Mid paper: FAIL and error
-      // text is exactly the copy that must clear 4.5.
-      bad: '#F58A82',
+      // Lifted from #F07068, which was 4.0:1 on Mid paper, and again from
+      // #F58A82 after the audit: a FAIL row's red delta sits on the row's red
+      // wash, and has to clear 4.5 there too.
+      bad: '#F7968F',
       highlight: 'rgba(198,206,213,0.10)',
     },
     chart: {
@@ -185,8 +186,9 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
       border: '#41464B',
       text: '#E4E7EA',
       // Lifted from #949AA0 (4.1:1 on Mid paper) to clear 4.5 on paper, ground
-      // and rail alike: section titles and labels sit on all three.
-      textDim: '#A0A6AC',
+      // and rail alike -- and, after the audit, on a FAIL row's wash, where the
+      // Status and unit text of a failed point sit.
+      textDim: '#A9AFB5',
       accent: '#C6CED5',
       accentSoft: 'rgba(255,255,255,0.08)',
       accentSoftHover: 'rgba(255,255,255,0.13)',
@@ -206,7 +208,7 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
   // panels, and the graphite accent lifted nearly to white so selection is
   // still legible against the near-black ground.
   dark: {
-    textDisabled: '#80878D',
+    textDisabled: '#8A9197',
     appBar: '#141618',
     appBarBorder: '#24282B',
     contentBg: '#141618',
@@ -228,7 +230,9 @@ const PALETTES: Record<ThemeMode, AppPalette> = {
       bg2: '#0E1012',
       border: '#24282B',
       text: '#D8DCE0',
-      textDim: '#838A90',
+      // Lifted from #838A90, which fell to 4.0-4.3:1 on Dark's tinted
+      // surfaces (a FAIL row, a selected item) in the audit.
+      textDim: '#8E959B',
       accent: '#D6DDE3',
       accentSoft: 'rgba(255,255,255,0.06)',
       accentSoftHover: 'rgba(255,255,255,0.11)',

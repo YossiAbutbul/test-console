@@ -98,7 +98,9 @@ export function CheckStep({ state, label, summary, selected, onClick }: CheckSte
   const p = useAppPalette()
   const summaryColor = state === 'block' || state === 'warn'
     ? p.data.warn
-    : state === 'error' ? p.data.bad : 'text.secondary'
+    // On the open step's tint, secondary text measured 4.1:1 in Mid; the
+    // summary of the step being read takes the primary ink instead.
+    : state === 'error' ? p.data.bad : selected ? 'text.primary' : 'text.secondary'
   return (
     <ButtonBase
       disabled={!onClick}

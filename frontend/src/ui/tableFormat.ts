@@ -33,5 +33,7 @@ export function deltaText(measured: number | null | undefined, set: number | nul
  * never the only signal: the row also carries the ✕ FAIL mark.
  */
 export const FAIL_ROW_SX = {
-  '& > td': { bgcolor: (t: Theme) => alpha(t.palette.error.main, 0.09) },
+  // 6 %: at 9 % the red delta and the secondary text on the row fell
+  // under 4.5:1 in Mid.
+  '& > td': { bgcolor: (t: Theme) => alpha(t.palette.error.main, 0.06) },
 } as const

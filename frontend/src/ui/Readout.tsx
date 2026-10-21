@@ -72,13 +72,16 @@ export function StatusChip({ label, tone, detail, spinning }: StatusChipProps) {
   return (
     <Chip
       size="small"
+      // Outlined on the panel, not MUI's filled grey: coloured text on that
+      // fill measured 2.8-3.1:1 in Mid ("Disconnected", "Idle").
+      variant="outlined"
       icon={
         spinning
           ? <CircularProgress size={10} sx={{ color: `${color} !important`, ml: 0.75 }} />
           : <StatusDot color={color} />
       }
       label={detail ? `${label} · ${detail}` : label}
-      sx={{ ...TEXT.dense, color }}
+      sx={{ ...TEXT.dense, color, borderColor: 'divider' }}
     />
   )
 }

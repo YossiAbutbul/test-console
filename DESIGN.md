@@ -8,12 +8,12 @@ colors:
   log-well: "#26292D"
   hairline: "#41464B"
   ink: "#E4E7EA"
-  ink-dim: "#A0A6AC"
-  ink-quiet: "#9DA3A9"
+  ink-dim: "#A9AFB5"
+  ink-quiet: "#A6ACB2"
   brushed-graphite: "#C6CED5"
   lamp-ok: "#58C07A"
   lamp-warn: "#E2A63F"
-  lamp-bad: "#F58A82"
+  lamp-bad: "#F7968F"
   lamp-off: "#5D646A"
   connect-fill: "#4CC17C"
   glyph-on-bright: "#1B1F23"
@@ -391,7 +391,8 @@ apart.
 
 ### Status chip / dot
 Dot + label chip used for every instrument and connection state: ok green,
-busy amber (with spinner), off disabled grey, error red.
+busy amber (with spinner), off disabled grey, error red. Outlined on the
+panel, never MUI's filled grey (coloured text on that fill failed AA).
 
 ### Live-output pills
 30 px capsules (13 px bold) in the top bar for every live output (RF ON, DC

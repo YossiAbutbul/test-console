@@ -283,7 +283,8 @@ export function DutControls() {
                         <IconButton
                           size="small"
                           onClick={() => setEditMac(selectedAddr)}
-                          sx={{ p: 0.5, '&:hover': { bgcolor: 'transparent' } }}
+                          aria-label="Edit nickname"
+                          sx={{ width: 26, height: 26, p: 0, '&:hover': { bgcolor: 'transparent' } }}
                         >
                           <EditOutlinedIcon sx={{ fontSize: 14 }} />
                         </IconButton>
@@ -295,8 +296,11 @@ export function DutControls() {
                           size="small"
                           onClick={onCopyMac}
                           disabled={!selectedAddr}
+                          // Named for screen readers and keyboard users: the
+                          // tooltip alone left it an unnamed button.
+                          aria-label="Copy MAC address"
                           sx={{
-                            p: 0.5,
+                            width: 26, height: 26, p: 0,
                             '&:hover': { bgcolor: 'transparent' },
                             '&.Mui-disabled': { opacity: 0.4 },
                           }}
