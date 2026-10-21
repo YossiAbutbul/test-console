@@ -63,12 +63,37 @@ DESIGN.md records the resulting system. Its named rules are:
 - No-Shift
 - hazard keys
 
+## Simplify pass (after the operator's feedback)
+
+Guided by the apple-design skill: show each fact once, and keep the parts that
+are left responsive.
+
+| Removed (said twice, or unused) | Why it went |
+|---|---|
+| Sidebar "Instruments" entry | The top-bar Instruments lamp opens the same panel. |
+| Sidebar BLE "coming soon" group | It had no pages. |
+| DUT, Settings and Run steps on the check course, plus the course's detail panel | The top bar shows the DUT, the Run key names its blocker, and settings are on the page. The steps that are left are shortcuts. |
+| Path-loss chips and "power at the DUT = sensor + path loss" notes | The Path loss check and the top-bar field already show it. |
+| DUT scan-time field in the top bar | Set once, so it is in Settings now. |
+| Button ripple | Replaced by press feedback. |
+
+| Added | Detail |
+|---|---|
+| Press feedback | Buttons scale to 0.97 and icon buttons to 0.92 on press, over 120 ms. Off under reduced motion. |
+| System font | `system-ui` first (Segoe UI Variable on the bench PC). Titles have -0.02em tracking. |
+| Top-bar material | 82 % ground with an 18 px blur and a hairline. Solid under reduced transparency. |
+| One-line page title | When the title and the keys do not fit on one line (Load Pull at 1280 px), the keys drop to a line of their own, so the title no longer stacks three lines deep. |
+
+Screenshots are in `docs/design/shots/simplify/`: `before` is e4b66d5 and
+`after` is this pass, each at 1920 px and in `*-1280`. The layout-shift
+check still measures 0 px.
+
 ## Recommended but not done
 
 - **Sweep rows at 1280 px with the log docked** still scroll sideways inside the panel. The fix is either a two-line row under a container query or floating the log on laptop widths. The second needs a decision, because the current shell breakpoint would also hide the sidebar.
 - **Results graph:** a y = x reference line and a ± tolerance band, with failing points marked. This is new chart content, so it was out of scope for a presentation pass.
 - **Smith chart:** efficiency uses a fixed 3.6 V. Using the measured supply voltage is a data change.
-- **Fonts:** "Inter" is named in the font stack but never loaded, so the bench PC renders Segoe UI. Bundle Inter or drop it from the stack, so every machine matches.
+- **Fonts:** done in the simplify pass — the stack now starts at `system-ui`, with no named-but-missing Inter.
 - **Log drawer:** it docks open and empty on wide windows. Making it start closed is a behaviour default, so I left it.
 - **Accessibility:** a screen-reader pass and 200 % zoom were not done (see `audit.md`).
 - **Testing Guide and manual:** the text and the images in `docs/manual/img/` still describe the old design. Sections to rewrite:

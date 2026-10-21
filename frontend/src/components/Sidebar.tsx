@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Box, Collapse, Drawer, IconButton, ListItemButton, ListItemIcon,
+  Box, Collapse, Drawer, IconButton, ListItemButton,
   ListItemText, Popover, Stack, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { instrumentsApi } from '../api/instruments'
@@ -11,9 +11,8 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import FolderIcon from '@mui/icons-material/Folder'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import SettingsIcon from '@mui/icons-material/Settings'
-import CableIcon from '@mui/icons-material/Cable'
 import CheckIcon from '@mui/icons-material/Check'
-import { useInstrumentsActions, useInstrumentsState } from '../context/InstrumentsContext'
+import { useInstrumentsState } from '../context/InstrumentsContext'
 import { useThemeMode, type ThemePreference } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
 import { SIDEBAR_W, TOP_BAR_H } from '../ui/tokens'
@@ -22,6 +21,7 @@ import { testRegistry } from '../tests/registry'
 import { useInstrumentsUnavailableReason } from '../context/CapabilitiesContext'
 import type { TestModule } from '../tests/types'
 import { LatchingKey } from '../ui'
+import { useDutLink } from '../context/dutLink'
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 
 // Re-exported for the call sites that reach for them alongside Sidebar; the
@@ -180,6 +180,35 @@ function DcSupplySection() {
   )
 }
 
+/**
+ * How long a DUT scan listens. It sat in the top bar as an unlabelled "5 s"
+ * field beside the device type, a setting chosen once and then left; here it
+ * is named, and the bar keeps the controls used on every connect.
+ */
+function ScanTimeSetting() {
+  const { mode } = useThemeMode()
+  const s = getAppPalette(mode).sidebar
+  const { duration, setDuration, isConnected, scanning } = useDutLink()
+  return (
+    <Box sx={{ px: 1.5, pt: 0.75, pb: 1 }}>
+      <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: s.textDim, mb: 0.5 }}>
+        DUT scan time
+      </Typography>
+      <TextField
+        size="small"
+        type="number"
+        value={duration}
+        disabled={isConnected || scanning}
+        onChange={(e) => setDuration(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
+        onFocus={(e) => (e.target as HTMLInputElement).select()}
+        inputProps={{ min: 1, max: 30, 'aria-label': 'DUT scan time in seconds' }}
+        InputProps={{ endAdornment: <Typography sx={{ fontSize: 12, color: s.textDim }}>s</Typography> }}
+        sx={{ width: 96, '& .MuiInputBase-root': { color: s.text } }}
+      />
+    </Box>
+  )
+}
+
 function SettingsButton() {
   const { mode } = useThemeMode()
   const s = getAppPalette(mode).sidebar
@@ -217,6 +246,7 @@ function SettingsButton() {
           },
         }}
       >
+        <ScanTimeSetting />
         <Typography sx={{ px: 1.5, pt: 0.5, pb: 0.5, fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: s.textDim }}>
           Theme
         </Typography>
@@ -271,15 +301,9 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
   const { sidebarW } = useShellLayout()
   const { mode } = useThemeMode()
   const s = getAppPalette(mode).sidebar
-  const { setOpen: openInstruments } = useInstrumentsActions()
-  const { instruments } = useInstrumentsState()
   // Non-null in the DUT-only desktop build: the message explaining why every
   // rig page below is greyed out.
   const noInstruments = useInstrumentsUnavailableReason()
-  const anyConnected = useMemo(
-    () => Object.values(instruments).some((i) => i.status === 'connected'),
-    [instruments],
-  )
   // The page on screen at mount. After a reload that is whichever one was last
   // used, so the tree has to open around it — a selected page inside a closed
   // protocol reads as nothing being selected at all. Read once, not tracked:
@@ -349,42 +373,11 @@ export function Sidebar({ activeId, onSelect, open, floating }: SidebarProps) {
       }}
     >
       <Box sx={{ flexGrow: 1, overflowY: 'auto', py: 1.5 }}>
-        <Box sx={{ px: 1.5, mb: 1.5 }}>
-          <Tooltip
-            title={noInstruments ?? ''}
-            placement="right"
-            disableHoverListener={!noInstruments}
-          >
-            <Box>
-          <ListItemButton
-            disableRipple
-            disabled={!!noInstruments}
-            onClick={() => openInstruments(true)}
-            sx={{
-              borderRadius: 1.5,
-              px: 1.25,
-              mx: 0,
-              height: 36,
-              color: s.textDim,
-              '&:hover': { bgcolor: s.hover, color: s.text },
-              '&.Mui-disabled': { opacity: 0.38 },
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: 30, color: anyConnected ? s.success : 'inherit' }}>
-              <CableIcon sx={{ fontSize: 18 }} />
-            </ListItemIcon>
-            <ListItemText
-              primary="Instruments"
-              primaryTypographyProps={{ fontSize: 14.5, fontWeight: 500 }}
-            />
-            {anyConnected && (
-              <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: s.success, mr: 0.5 }} />
-            )}
-          </ListItemButton>
-            </Box>
-          </Tooltip>
-        </Box>
-        {tree.map(({ protocol, groups }) => {
+        {/* No Instruments entry here: the top bar's Instruments lamp opens the
+            same panel and shows the count, so a second way in only repeated
+            it. Protocols with no pages yet (BLE) are not listed: a greyed
+            "coming soon" row was a control that did nothing. */}
+        {tree.filter((p) => p.groups.length > 0).map(({ protocol, groups }) => {
           // Root entry: no protocol row to expand, and always open.
           const isRoot = protocol == null
           const pkey = protocol ?? 'root'

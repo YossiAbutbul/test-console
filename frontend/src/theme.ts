@@ -276,8 +276,12 @@ export function makeTheme(mode: ThemeMode): Theme {
     },
     shape: { borderRadius: 6 },
     typography: {
+      // The platform's own UI face. "Inter" headed this list but was never
+      // loaded, so the bench PC drew Segoe UI anyway; naming the system font
+      // first makes that the deliberate choice, with its optical sizing and
+      // hinting, and every machine draws what it was tuned for.
       fontFamily:
-        '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+        'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
       fontSize: 14.5,
       h6: { fontWeight: 600, fontSize: '1.1rem', letterSpacing: 0 },
       subtitle1: { fontWeight: 600, fontSize: '0.95rem' },
@@ -343,11 +347,27 @@ export function makeTheme(mode: ThemeMode): Theme {
           },
         },
       },
+      MuiIconButton: {
+        styleOverrides: {
+          root: {
+            transitionProperty: 'background-color, color, transform',
+            transitionDuration: '120ms',
+            '&:active:not(.Mui-disabled)': { transform: 'scale(0.92)' },
+            '@media (prefers-reduced-motion: reduce)': {
+              '&:active:not(.Mui-disabled)': { transform: 'none' },
+            },
+          },
+        },
+      },
       MuiAppBar: {
         defaultProps: { elevation: 0 },
         styleOverrides: { root: { boxShadow: 'none' } },
       },
       MuiButtonBase: {
+        // No ripple: it starts on press but blooms for ~550 ms after, so the
+        // key's answer trails the finger. Feedback is the press itself (see
+        // MuiButton / MuiIconButton below) and the background change.
+        defaultProps: { disableRipple: true },
         styleOverrides: {
           // Keyboard focus on every button-like control: an outline outside
           // the box, so focusing a key never changes its size or its row.
@@ -361,6 +381,14 @@ export function makeTheme(mode: ThemeMode): Theme {
         styleOverrides: {
           root: {
             borderRadius: 6,
+            // Instant press: the key gives under the pointer on pointer-down.
+            // A transform, so it never moves anything around it.
+            transitionProperty: 'background-color, box-shadow, border-color, color, transform',
+            transitionDuration: '120ms',
+            '&:active:not(.Mui-disabled)': { transform: 'scale(0.97)' },
+            '@media (prefers-reduced-motion: reduce)': {
+              '&:active:not(.Mui-disabled)': { transform: 'none' },
+            },
             '&.Mui-disabled, &.Mui-disabled:hover, &:disabled, &:disabled:hover': {
               pointerEvents: 'none',
               cursor: 'default',

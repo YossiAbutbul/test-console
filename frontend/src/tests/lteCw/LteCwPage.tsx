@@ -3,7 +3,6 @@ import { Box, Stack, Tab, Tabs } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { BenchCourse } from '../../components/BenchCourse'
-import { planStep, runStep } from '../../components/courseSteps'
 import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
@@ -21,7 +20,6 @@ import {
   FieldGrid, LastFrameSection, LatchingKey, MeasureOptions, PageBody,
   RunControls, Section, SegmentedChoice, SendStopControls, measuresAnything,
   requiredInstruments, type MeasureSelection,
-  useDutGated,
 } from '../../ui'
 import { BandsModal } from '../lte/BandsModal'
 import { useLteBands, useLteChannelUnit, type ChannelUnit } from '../lte/channel'
@@ -296,7 +294,6 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
   })
 
   const busy = send.isPending || stop.isPending || modem.busy
-  const gated = useDutGated()
   const autoRunning = autoCtl?.running ?? false
 
   // `msg` is the whole message, blank case included — the channel field's
@@ -365,7 +362,6 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
         instruments={tab === 'manual' ? requiredInstruments(measure) : ['power-sensor', 'dc-analyzer']}
         connectsOn={tab === 'manual' ? 'Send' : 'Run'}
         freqsMhz={tab === 'manual' ? channel ? [channel.freqHz / 1e6] : [] : (autoCtl?.freqsMhz ?? [])}
-        steps={tab === 'automation' && autoCtl ? [planStep(autoCtl), runStep(autoCtl, gated)] : []}
       />
 
       {/* Switching tabs sends nothing, and the Automation tab holds results

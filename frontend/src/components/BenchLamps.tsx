@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Box, Tooltip } from '@mui/material'
 import { useInstrumentsActions, useInstrumentsState } from '../context/InstrumentsContext'
+import { useInstrumentsUnavailableReason } from '../context/CapabilitiesContext'
 import { CheckMark, type CheckState } from '../ui'
 
 const lampSx = {
@@ -37,6 +38,8 @@ const lampSx = {
 export function BenchLamps({ compact }: { compact?: boolean }) {
   const { instruments } = useInstrumentsState()
   const { setOpen } = useInstrumentsActions()
+  // Non-null on the DUT-only build, which has no instrument support at all.
+  const noInstruments = useInstrumentsUnavailableReason()
 
   const rig = useMemo(
     () => Object.values(instruments).filter((i) => !i.placeholder),
@@ -58,7 +61,8 @@ export function BenchLamps({ compact }: { compact?: boolean }) {
         <Box
           component="button"
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={() => { if (!noInstruments) setOpen(true) }}
+          aria-disabled={noInstruments ? true : undefined}
           aria-label={`Instruments: ${up} of ${rig.length} connected${failed.length ? `, ${failed.length} with an error` : ''}. Open Instruments.`}
           sx={{ ...lampSx, width: compact ? 132 : 168 }}
         >

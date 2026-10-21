@@ -1081,9 +1081,6 @@ export function AutomationPanel({
         grow
         action={
           <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
-            <Typography noWrap title="Power at the DUT = sensor reading + path loss" sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5, minWidth: 0 }}>
-              power at the DUT = sensor + path loss
-            </Typography>
             <Button
               size="small"
               variant="text"

@@ -118,7 +118,9 @@ export function DutControls({ compact = false }: { compact?: boolean }) {
           ? { display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 1 }
           : { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 1.5 }}
       >
-        <Tooltip title={compact ? 'Scan duration' : ''} placement="bottom">
+        {/* Not in the top bar: there it is a setting in Settings (DUT scan time). */}
+        {!compact && (
+        <Tooltip title="" placement="bottom">
         <Box sx={compact ? { flex: '0 0 68px' } : { flex: '0 1 110px', minWidth: 96 }}>
           {fieldLabel('Duration (sec)')}
           <TextField
@@ -136,6 +138,7 @@ export function DutControls({ compact = false }: { compact?: boolean }) {
           />
         </Box>
         </Tooltip>
+        )}
 
         <Box sx={compact ? { flex: '0 0 136px' } : { flex: '1 1 150px', minWidth: 130, maxWidth: 220 }}>
           {fieldLabel('Device type')}

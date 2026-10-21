@@ -16,7 +16,7 @@ export {
 } from './measure'
 export { Eyebrow, Readout, StatusChip, StatusDot, MonoText } from './Readout'
 export {
-  ConnectButton, EmergencyStop, RunControls, SendStopControls, PathLossChip,
+  ConnectButton, EmergencyStop, RunControls, SendStopControls,
   FrameDump, LastFrameSection, MiniAction, DenseTabs,
 } from './controls'
 export {

@@ -6,7 +6,7 @@ const BASE = process.argv[2] || 'http://localhost:5174'
 const TRACK = {
   'page title': 'h1',
   'Run/Send key': 'main button:has-text("Run"), main button:has-text("Send"), main button:has-text("Needs")',
-  'check rail': '[aria-label^="DUT:"]',
+  'check rail': '[aria-label^="Instruments:"]:not(header *)',
   'tabs': '[role="tablist"]',
   'results/transmit panel': 'main .MuiTable-root, main [role="tablist"] ~ * >> nth=0',
   'DUT Connect key': 'header button:has-text("Connect"), header button:has-text("Disconnect"), body > div button:has-text("Disconnect"), body > div button:has-text("Connect")',

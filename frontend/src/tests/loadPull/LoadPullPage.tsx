@@ -43,7 +43,7 @@ import { saveBlob } from '../../lib/download'
 import { DASH, fmt } from '../../lib/format'
 import { vswr, vswrLabel } from './smith'
 import {
-  ACTION_W, CONTROL_H, EmergencyStop, FieldGrid, MONO, PageBody, PathLossChip,
+  ACTION_W, CONTROL_H, EmergencyStop, FieldGrid, MONO, PageBody,
   RunControls, Section, StatRow, StatTile, StatusChip, TEXT, TwoCol,
   HeadCell, NUM_CELL_SX,
   HazardGlyph, hazardRingSx,
@@ -563,12 +563,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     pageId: 'load-pull',
   } : null)
 
-  // The chip covers the whole plan: with several frequencies in a run, one
-  // of them being uncalibrated is what the operator needs to know.
-  const firstFreq = freqs[0] ?? null
-  const loss = lossAt(firstFreq)
-  const pathLossDb = loss.db
-  const allCalibrated = freqs.length > 0 && freqs.every((f) => lossAt(f).calibrated)
+  // Calibration across the whole plan is shown on the page's Path loss check
+  // (BenchCourse), not repeated here.
 
   // Instruments are deliberately not gated here — the preflight connects them
   // on Run, and gating would make an unconnected rig look like a broken page.
@@ -639,15 +635,6 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         ? `${totalPoints} points`
         : zeroPulses == null || endPulses == null ? 'capture Zero and End' : 'set Delta X',
       targetId: 'lp-trombone',
-    },
-    {
-      id: 'run',
-      label: 'Run',
-      state: running ? 'busy' : blockers.length ? 'block' : 'todo',
-      summary: running
-        ? `Running ${progressIdx}/${totalPoints}`
-        : blockers.length ? `Needs ${firstBlocked ?? 'setup'}` : `Ready · ≈ ${formatDuration(estimatedRunMs)}`,
-      targetId: 'lp-results',
     },
   ]
 
@@ -920,7 +907,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         <BenchCourse
           freqsMhz={freqs}
           steps={courseSteps}
-          order={['dut', 'rig', 'rf-path', 'path-loss', 'test-point', 'trombone', 'run']}
+          order={['rig', 'rf-path', 'path-loss', 'test-point', 'trombone']}
         />
 
         {/* Calibration state, which is what the run plan is built from. */}
@@ -1034,11 +1021,6 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                 >
                   View setup
                 </Button>
-                <PathLossChip
-                  pathLossDb={pathLossDb}
-                  calibrated={allCalibrated}
-                  freqMhz={firstFreq ?? undefined}
-                />
               </Stack>
             </Stack>
           </Section>
@@ -1359,9 +1341,6 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           panel
           action={
             <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
-              <Typography noWrap title="Power at the DUT = sensor reading + path loss" sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5, minWidth: 0 }}>
-                power at the DUT = sensor + path loss
-              </Typography>
               <Button
                 size="small" variant="text"
                 startIcon={<ScatterPlotIcon sx={{ fontSize: 15 }} />}

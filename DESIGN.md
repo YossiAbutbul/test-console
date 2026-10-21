@@ -27,34 +27,34 @@ colors:
   series-8: "#4FD1C0"
 typography:
   title:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI Variable Text, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
     fontSize: "26px"
     fontWeight: 700
     lineHeight: 1.15
   section:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI Variable Text, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
     fontSize: "17px"
     fontWeight: 700
   section-title:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI Variable Text, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
     fontSize: "12px"
     fontWeight: 700
     letterSpacing: "0.5px"
   body:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI Variable Text, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
     fontSize: "14.5px"
     fontWeight: 400
   label:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI Variable Text, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
     fontSize: "13px"
     fontWeight: 500
   eyebrow:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI Variable Text, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
     fontSize: "12px"
     fontWeight: 700
     letterSpacing: "0.5px"
   hint:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI Variable Text, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
     fontSize: "12px"
   readout:
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
@@ -69,7 +69,7 @@ typography:
     letterSpacing: "-0.02em"
     fontFeature: "tnum"
   dense:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI Variable Text, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
     fontSize: "12px"
     fontWeight: 600
 rounded:
@@ -141,7 +141,8 @@ components:
 
 > Started as a baseline of the system at commit 026a66c, before the impeccable
 > redesign on `new-design`; updated as each redesign pass lands (layout: the
-> check course, bench lamps, no DUT row). Values in the frontmatter are the
+> check course, bench lamps, no DUT row; simplify: no duplicate status, press
+> feedback, system font, translucent top bar). Values in the frontmatter are the
 > **Mid** theme, the default. Light and Dark values are in
 > `.impeccable/design.json` (`colorMeta.*.modes`) and in
 > `frontend/src/theme.ts`, which is the source of truth.
@@ -238,8 +239,10 @@ Run are the only filled controls, and a filled Scan would outrank both.
 
 ## Typography
 
-**Body Font:** Inter (falls back to the system UI stack — on the bench PC this
-is Segoe UI, because Inter is named but not bundled or loaded).
+**Body Font:** the platform's system face (`system-ui`; Segoe UI Variable on
+the bench PC). Nothing is bundled, so every machine renders its own tuned UI
+face instead of a named-but-missing Inter. The 26 px page title carries
+-0.02em tracking; body text stays at 0.
 **Mono Font:** `ui-monospace, SFMono-Regular, Menlo, monospace` (Consolas on Windows).
 
 **Character:** a plain UI sans for labels and copy, with every measurement in
@@ -280,15 +283,17 @@ the bench is not a label.
 
 A three-column shell: a 300 px sidebar (232 px below a 1200 px window), the
 content area, and an optional 340 px log drawer that docks on wide windows and
-floats over content below 1200 px. The top bar is 56 px and holds the
-breadcrumb, search, live-output pills and the log toggle.
+floats over content below 1200 px. The top bar is 56 px: a translucent
+material (ground at 82 % with an 18 px backdrop blur and a hairline below),
+solid under `prefers-reduced-transparency`.
 
 The top bar holds the **DUT connection and its configuration** on every page,
-always visible: scan time, device type, MAC, meter info, Scan, Connect, and
+always visible: device type, MAC, meter info, Scan, Connect, and
 the default path loss (with the per-frequency table behind its icon). It is
 left-aligned so status appearing on the right never moves it; on the right
 sit the Instruments lamp (n/7), the live-output pills and the Log/Assistant
-buttons, which are always shown. There is no page search. Below 1600 px the
+buttons, which are always shown. There is no page search. The DUT scan
+time is a set-once value and lives in the Settings popover. Below 1600 px the
 logo column shrinks to the logo and the status goes to its short form. The
 log drawer carries its own tab strip inside the panel.
 
@@ -296,11 +301,14 @@ The sidebar footer holds the **DC supply** -- an Off/On latching key (a
 hazard key while it would power the DUT) and the voltage -- beside the
 Settings gear, so the supply is in view on every page.
 
-Every test page opens with PageHeader (title + actions), then its **check
-course** (report only for the DUT; its controls are in the top bar): a CheckRail of the checks that page needs (DUT · Instruments · Path
-loss · Settings · Run; Load Pull: DUT · Instruments · RF path · Path loss ·
-Test point · Trombone · Run), with the open check's detail directly below.
-A check's detail opens only on a click. Components pages have no course;
+Every test page opens with PageHeader (title + actions; the title never wraps -- when the two cannot
+share a line the keys drop to their own line, right-aligned), then its **check
+course**: a CheckRail of only what the top bar and header do not already
+say -- Instruments · Path loss (Load Pull adds RF path · Test point ·
+Trombone). DUT is the top bar's; Run's blocker is on the Run key itself.
+Each step is a shortcut: Instruments opens the Instruments panel, Path loss
+opens the per-frequency table, and a page step scrolls to its section. There
+is no detail panel. Components pages have no course;
 their InstrumentBar comes straight after the header. PageBody then
 picks a width -- form 760, panel 900, grid 1040, full 1180, or fluid -- and
 owns a container query so grids stack when *their* box runs out of room
@@ -341,6 +349,9 @@ Emergency stop is the only round button in the app.
   by the page's DUT gate (or Load Pull's first unmet check) says so on the
   button: "Needs DUT", "Needs RF path".
 - **MiniAction:** 24 px text button for panel-heading actions (Add, Apply).
+- **Press feedback:** no ripple. A pressed button scales to 0.97 (icon
+  buttons 0.92) over 120 ms, on press rather than release; reduced motion
+  drops the scale.
 
 ### Hazard keys
 Every control that acts on the bench -- Send, Run, RF On, Output On, the
@@ -359,7 +370,7 @@ vertical divider at the left of the Load Pull header. Never disabled.
 widths that hold their longest label ("Running 312/616", "Stopping…",
 "Disconnect"); a pending export keeps its label and swaps its icon for a
 spinner; lamps, status chips and countdowns have fixed or floor widths; the
-check course never opens or closes a detail on its own, only on a click;
+check course has no detail panel to open or close;
 hint and footer lines are always present, with different words per state.
 `docs/design/tools/layout-shift-check.cjs` measures it: connect the DUT on a
 page and report any element that moved.
@@ -371,8 +382,8 @@ rings) and the border tints green.
 
 ### Check rail (CheckRail / CheckStep / CheckMark)
 A page's checks on one hairline strip, divided like a StatRow. Each step is a
-mark, a 14 px label and a 12.5 px one-line summary; clicking opens its detail
-(CheckDetail) below the rail or scrolls to the section that settles it. The
+mark, a 14 px label and a 12.5 px one-line summary; clicking opens the panel
+or table that settles it, or scrolls to its section. The
 mark's shape carries the state as well as its colour: filled disc with a tick
 (done), filled amber disc with "!" (blocking), open amber ring with "!" (check,
 does not block), open red ring with a cross (error), empty ring (not done yet),
@@ -435,9 +446,10 @@ browser autocomplete disabled everywhere.
 DenseTabs at 36 px (page sub-tabs) or 28 px (in-panel view switch).
 
 ### Navigation (Sidebar)
-Protocol tree (LoRa / LTE / Components), Instruments shortcut, Settings.
-Selected item: soft graphite tint and 600 weight. Footer shows DUT BLE status
-(the top-bar DUT lamp repeats it where it can be seen from the bench).
+Protocol tree (LoRa / LTE / Components) -- groups with no pages yet are not
+listed -- and Settings. The Instruments panel opens from the top-bar lamp, not
+a sidebar entry. Selected item: soft graphite tint and 600 weight. Footer:
+DC supply key and voltage, Settings gear.
 
 ## Do's and Don'ts
 

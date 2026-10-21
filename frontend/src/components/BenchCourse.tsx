@@ -1,18 +1,13 @@
 import { useState } from 'react'
-import { Box, Button, Stack, Typography } from '@mui/material'
-import TuneIcon from '@mui/icons-material/Tune'
-import { useConnection } from '../context/ConnectionContext'
 import {
   useInstrumentsActions, useInstrumentsState, type InstrumentId,
 } from '../context/InstrumentsContext'
 import { usePathLoss } from '../context/PathLossContext'
-import { useNicknames } from '../context/NicknamesContext'
-import { CheckDetail, CheckMark, CheckRail, CheckStep, GRID_GAP, MONO, type CheckState } from '../ui'
+import { CheckRail, CheckStep, type CheckState } from '../ui'
+import { PathLossModal } from './PathLossModal'
 import type { CourseStep } from './courseSteps'
 
 interface Props {
-  /** Show the DUT step. Off only for a page that never talks to the DUT. */
-  dut?: boolean
   /** The instruments this page reads. Omit to leave the step out. */
   instruments?: InstrumentId[]
   /** What starts the instruments on their own: "Send", "Run". */
@@ -20,6 +15,7 @@ interface Props {
   /** Frequencies this page measures at, for the Path loss step. Omit to leave
    *  the step out. */
   freqsMhz?: number[]
+  /** A page's own checks (Load Pull's RF path, test point, trombone). */
   steps?: CourseStep[]
   /** Step ids in the order the rail shows them, when the page's own steps
    *  belong between the built-in ones. Unlisted steps keep their place after. */
@@ -34,46 +30,30 @@ function listShort(values: string[], max = 3): string {
 }
 
 /**
- * The check course at the top of a test page: what the page needs, in the
- * order it is done, each with its state -- and, below the rail, the detail of
- * whichever check is open.
+ * The checks at the top of a test page that are not already on screen
+ * somewhere else.
  *
- * The DUT step reports the link; the controls for it, and the default path
- * loss, are in the top bar. Marked `data-ungated`: opening a check's detail
- * and the Instruments panel have to work on a page that is waiting for the
- * DUT.
+ * It used to carry DUT, Settings and Run steps too, and a detail panel that
+ * opened under the rail. Each of those repeated something the page already
+ * shows -- the DUT connection is in the top bar, the plan size is on the
+ * sweep panel, and the Run key says what holds it -- so they went. What is
+ * left is a strip of status that doubles as shortcuts: Instruments opens the
+ * Instruments panel, Path loss opens the per-frequency table, and a page's own
+ * steps scroll to the section that settles them. Nothing opens or closes
+ * under the rail, so nothing below it moves.
+ *
+ * Marked `data-ungated`: both shortcuts have to work on a page that is waiting
+ * for the DUT.
  */
 export function BenchCourse({
-  dut = true, instruments, connectsOn = 'Send', freqsMhz, steps = [], order,
+  instruments, connectsOn = 'Send', freqsMhz, steps = [], order,
 }: Props) {
-  const { status } = useConnection()
-  const nicknames = useNicknames()
   const { instruments: all } = useInstrumentsState()
   const { setOpen: openInstruments } = useInstrumentsActions()
   const { lossAt, defaultDb } = usePathLoss()
+  const [tableOpen, setTableOpen] = useState(false)
 
-  const dutReady = !!(status?.connected && status?.transport_ready)
-
-  // Which detail is open: only ever changed by a click. The DUT step has no
-  // detail -- its controls are in the top bar, always in view.
-  const [openId, setOpenId] = useState<string | null>(null)
-  const toggle = (id: string) => setOpenId((cur) => (cur === id ? null : id))
-
-  const items: (CourseStep & { builtin?: boolean })[] = []
-
-  if (dut) {
-    const name = status?.address ? nicknames.get(status.address) ?? status?.name : null
-    items.push({
-      id: 'dut',
-      label: 'DUT',
-      state: dutReady ? 'ok' : status?.connected ? 'busy' : 'block',
-      summary: dutReady
-        // A string, so the rail can put the whole line in a hover title
-        // when a seven-step rail cuts it short.
-        ? [name, status?.address].filter(Boolean).join(' · ')
-        : status?.connected ? 'Connecting…' : 'Not connected',
-    })
-  }
+  const items: CourseStep[] = []
 
   if (instruments && instruments.length) {
     const rows = instruments.map((id) => all[id])
@@ -91,45 +71,9 @@ export function BenchCourse({
         ? `${failed[0].label}: ${failed[0].failure?.title ?? 'error'}`
         : connected.length === rows.length
           ? listShort(rows.map((r) => r.label))
-          // Short enough to survive a rail of seven steps; the detail says it
-          // in full.
+          // Short enough to survive a rail of six steps; the panel the step
+          // opens says it in full.
           : `${connected.length}/${rows.length} up · rest on ${connectsOn}`,
-      detail: (
-        <Stack direction="row" alignItems="center" sx={{ flexWrap: 'wrap', gap: 2 }}>
-          {rows.map((r) => (
-            <Stack key={r.id} direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
-              <CheckMark
-                size={20}
-                state={
-                  r.status === 'connected' ? 'ok'
-                    : r.status === 'error' ? 'error'
-                      : r.status === 'connecting' ? 'busy' : 'todo'
-                }
-              />
-              <Box sx={{ minWidth: 0 }}>
-                <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}>{r.label}</Typography>
-                <Typography
-                  sx={{ fontSize: 12.5, color: r.status === 'error' ? 'error.main' : 'text.secondary' }}
-                >
-                  {r.status === 'error'
-                    ? `${r.failure?.title ?? 'Error'} · ${r.failure?.hint ?? ''}`
-                    : r.status === 'connected' ? 'connected' : r.status === 'connecting' ? 'connecting…' : 'not connected'}
-                </Typography>
-              </Box>
-            </Stack>
-          ))}
-          <Box sx={{ flexGrow: 1 }} />
-          <Button
-            variant="outlined"
-            color="inherit"
-            startIcon={<TuneIcon sx={{ fontSize: 16 }} />}
-            onClick={() => openInstruments(true)}
-            sx={{ height: 36, borderColor: 'divider' }}
-          >
-            Open Instruments
-          </Button>
-        </Stack>
-      ),
     })
   }
 
@@ -148,31 +92,6 @@ export function BenchCourse({
             ? `${missing[0]} MHz on default ${defaultDb} dB`
             : `${missing.length} of ${uniq.length} on default ${defaultDb} dB`
           : one ? `${one.db} dB at ${uniq[0]} MHz` : `calibrated at all ${uniq.length} frequencies`,
-      detail: (
-        <Stack direction="row" alignItems="flex-end" sx={{ flexWrap: 'wrap', gap: 2 }}>
-          {uniq.slice(0, 8).map((f) => {
-            const l = lossAt(f)
-            return (
-              <Box key={f} sx={{ minWidth: 0 }}>
-                <Typography sx={{ fontSize: 13, fontWeight: 500, mb: 0.5 }}>{f} MHz</Typography>
-                <Stack direction="row" alignItems="center" spacing={0.75} sx={{ height: 36 }}>
-                  <CheckMark size={18} state={l.calibrated ? 'ok' : 'warn'} />
-                  <Typography
-                    sx={{ fontFamily: MONO, fontSize: 13.5, color: l.calibrated ? 'text.primary' : 'warning.main' }}
-                  >
-                    {l.calibrated ? `${l.db} dB` : `${l.db} dB default`}
-                  </Typography>
-                </Stack>
-              </Box>
-            )
-          })}
-          {uniq.length > 8 && (
-            <Typography sx={{ fontSize: 12.5, color: 'text.secondary', pb: 1 }}>
-              +{uniq.length - 8} more
-            </Typography>
-          )}
-        </Stack>
-      ),
     })
   }
 
@@ -184,30 +103,27 @@ export function BenchCourse({
     }
     items.sort((x, y) => rank(x.id) - rank(y.id))
   }
-  const open = items.find((s) => s.id === openId && s.detail)
+
+  const onStep = (s: CourseStep) => {
+    if (s.id === 'instruments') return () => openInstruments(true)
+    if (s.id === 'path-loss') return () => setTableOpen(true)
+    if (s.targetId) {
+      const id = s.targetId
+      return () => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    return undefined
+  }
+
+  if (items.length === 0) return null
 
   return (
-    <Box data-ungated sx={{ display: 'flex', flexDirection: 'column', gap: `${GRID_GAP}px`, mb: 1.5 }}>
+    <div data-ungated style={{ marginBottom: 12 }}>
       <CheckRail>
         {items.map((s) => (
-          <CheckStep
-            key={s.id}
-            state={s.state}
-            label={s.label}
-            summary={s.summary}
-            selected={openId === s.id && !!s.detail}
-            onClick={
-              s.detail
-                ? () => toggle(s.id)
-                : s.targetId
-                  ? () => document.getElementById(s.targetId!)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                  : undefined
-            }
-          />
+          <CheckStep key={s.id} state={s.state} label={s.label} summary={s.summary} onClick={onStep(s)} />
         ))}
       </CheckRail>
-      {open && <CheckDetail>{open.detail}</CheckDetail>}
-    </Box>
+      <PathLossModal open={tableOpen} onClose={() => setTableOpen(false)} />
+    </div>
   )
 }
-

@@ -1,8 +1,7 @@
 import {
-  Box, Button, Chip, CircularProgress, Divider, Stack, Tabs, Tooltip,
+  Box, Button, CircularProgress, Divider, Stack, Tabs, Tooltip,
   Typography, type ButtonProps, type TabsProps,
 } from '@mui/material'
-import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import PowerIcon from '@mui/icons-material/Power'
 import StopIcon from '@mui/icons-material/Stop'
 import type { CommandResponse } from '../types/models'
@@ -246,46 +245,6 @@ export function SendStopControls({
           <span>{send}</span>
         </Tooltip>
       ) : send}
-    </Stack>
-  )
-}
-
-/**
- * Global path-loss reminder.
- *
- * The value is set once, in the top bar, and applied by every page that
- * reports DUT power.
- */
-export function PathLossChip({
-  pathLossDb, calibrated = true, freqMhz,
-}: {
-  pathLossDb: number
-  /** False when no table entry matched and this is the default. */
-  calibrated?: boolean
-  /** The frequency the figure was looked up for, named in the warning. */
-  freqMhz?: number
-}) {
-  return (
-    <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', gap: 1 }}>
-      {/* Outlined, never filled: amber is a lamp in this palette, not a
-          surface (DESIGN.md, the Annunciator Rule). The filled chip was the
-          loudest thing on Mode Sweep for a figure that does not block. */}
-      <Chip
-        size="small"
-        variant="outlined"
-        color={calibrated ? 'default' : 'warning'}
-        icon={calibrated ? undefined : <WarningAmberRoundedIcon sx={{ fontSize: 15 }} />}
-        label={`Path loss: ${pathLossDb} dB`}
-        sx={{ ...TEXT.hint, fontWeight: 600 }}
-      />
-      {/* Only when it matters: a calibrated figure needs no caption, and the
-          long "sensor reading + path loss = DUT power" line on every page was
-          more explanation than the operator wanted. */}
-      {!calibrated && (
-        <Typography sx={{ ...TEXT.hint, color: 'warning.main' }}>
-          {`not calibrated${freqMhz != null ? ` at ${freqMhz} MHz` : ''}, using the default`}
-        </Typography>
-      )}
     </Stack>
   )
 }

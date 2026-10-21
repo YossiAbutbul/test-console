@@ -12,7 +12,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tests } from '../../api/tests'
 import { PageHeader } from '../../components/PageHeader'
 import { BenchCourse } from '../../components/BenchCourse'
-import { planStep, runStep } from '../../components/courseSteps'
 import { LabeledField } from '../../components/LabeledField'
 import { TopProgress } from '../../components/TopProgress'
 import { usePublishLiveOutput } from '../../context/liveOutput'
@@ -27,9 +26,8 @@ import { useNotify } from '../../context/NotifyContext'
 import { saveBlob } from '../../lib/download'
 import { range } from '../../lib/numericList'
 import {
-  FieldGrid, GRID_GAP, MONO, PageBody, PathLossChip, RunControls, Section,
+  FieldGrid, GRID_GAP, MONO, PageBody, RunControls, Section,
   TEXT, TwoCol,
-  useDutGated,
 } from '../../ui'
 import type { ResultRow, StartRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
@@ -317,7 +315,6 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
 
   const status = statusQ.data
   const running = status?.state === 'running'
-  const gated = useDutGated()
   const hasSweep = status?.state != null && status.state !== 'idle'
   const stopping = cancel.isPending || (running && cancel.isSuccess)
   const total = status?.total ?? 0
@@ -435,10 +432,6 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
         instruments={REQUIRED_INSTRUMENTS}
         connectsOn="Run"
         freqsMhz={[Number(freqMhz)]}
-        steps={[
-          planStep({ running, canRun: totalSteps > 0, progress: total > 0 ? `${completed}/${total}` : '', totalPoints: totalSteps, plannedMs: estimatedRunMs }, 'Sweep'),
-          runStep({ running, canRun: totalSteps > 0, progress: total > 0 ? `${completed}/${total}` : '', totalPoints: totalSteps, plannedMs: estimatedRunMs }, gated),
-        ]}
       />
 
       <PageBody width="fluid" grow>
@@ -643,9 +636,6 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                 ))}
               </LabeledField>
             </FieldGrid>
-            <Box sx={{ mt: 1.5 }}>
-              <PathLossChip pathLossDb={pathLossDb} calibrated={loss.calibrated} freqMhz={Number(freqMhz)} />
-            </Box>
           </Section>
         </TwoCol>
 
@@ -678,9 +668,6 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
           flush
           action={
             <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
-              <Typography noWrap title="Power at the DUT = sensor reading + path loss" sx={{ fontSize: 12, color: 'text.disabled', mr: 0.5, minWidth: 0 }}>
-                power at the DUT = sensor + path loss
-              </Typography>
               <Button
                 size="small"
                 variant="text"

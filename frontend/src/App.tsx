@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { alpha } from '@mui/material/styles'
 import {
   Box, Drawer, IconButton, Stack, Tooltip, Typography, useMediaQuery, type Theme,
 } from '@mui/material'
@@ -367,8 +368,17 @@ export default function App() {
           left: 0,
           right: 0,
           height: TOP_BAR_H,
-          bgcolor: s.bg,
-          boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+          // A material rather than a slab: the page scrolls under the bar, and
+          // a light blur keeps it a layer above the content instead of a strip
+          // cut out of it. A hairline in place of the drop shadow. Solid again
+          // for people who ask for less transparency.
+          bgcolor: alpha(s.bg, 0.82),
+          backdropFilter: 'blur(18px) saturate(160%)',
+          borderBottom: `1px solid ${alpha(p.appBarBorder, 0.7)}`,
+          '@media (prefers-reduced-transparency: reduce)': {
+            bgcolor: s.bg,
+            backdropFilter: 'none',
+          },
           display: 'flex',
           zIndex: (t) => t.zIndex.drawer + 2,
         }}
