@@ -78,6 +78,8 @@ are always measured.
   disabled otherwise, because 0 makes the DUT stop responding.
 - **PA mode starts at Off here, but at Auto on the CW page.** Check it before
   comparing the two pages.
+- **Measure power** and **Measure CC** work as on the CW page, but start
+  ticked every time the page opens.
 
 ## 3.5 Mode Sweep — the best setting for each power
 

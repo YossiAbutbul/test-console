@@ -7,7 +7,8 @@ The test pages share the same way of working. Learn it once here.
 Most test pages have two tabs:
 
 - **Manual** sends **one** setting. You press **Send**, read the result, and
-  press **Stop**.
+  press **Stop**. Until the DUT is connected, both keys are greyed out and
+  Send reads **Needs DUT**.
 - **Automation** runs a **list** of settings one after another, judges each
   one PASS or FAIL, and fills a results table. You press **Run**, and
   **Stop** if you need to end it early.

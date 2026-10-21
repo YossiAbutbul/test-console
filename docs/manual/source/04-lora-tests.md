@@ -247,7 +247,9 @@ so rows that differ only in those settings are no longer merged.
 
 *LoRa › Debug.* A low-level CW transmit (`CW Debug`, `28 50`) that also
 sets the radio's **PA duty cycle** and **HP max** registers directly. It has no
-automation and no export. The power sensor and DC analyzer are used.
+automation and no export. As on the CW page, a **Measure** card chooses what is
+read after sending; the power sensor and DC analyzer are asked for only when
+their box is ticked.
 
 ![LoRa Debug](img/lora-debug.png)
 
@@ -258,8 +260,13 @@ automation and no export. The power sensor and DC analyzer are used.
 | **PA duty cycle** | 1 | **1–7** |
 | **HP max** | 7 | **1–7** |
 | **PA mode** | **Off** | Auto / On / Off |
+| **Measure power** | ☑ | read the power sensor after sending |
+| **Measure CC** | ☑ | read the DC analyzer after sending |
 
 **Send** stays disabled until PA duty cycle and HP max are both within 1–7.
+Unlike the CW page, the Measure boxes are not saved: both are ticked each
+time the page opens. With both cleared, Send transmits without the instrument
+check and the measurement card is hidden.
 **0 hangs the DUT** rather than being refused, and this check on the page is
 the only protection against it. Nothing on this page is saved.
 
@@ -410,7 +417,8 @@ switch and the trombone, cabled as in
 
 **Before running:** the **Run** button stays disabled until every
 precondition is met, and names the first one still missing, e.g. **Needs
-DUT** or **Needs RF path**; its tooltip says which step blocks it. A row of checks along the top of the page shows each precondition with
+DUT** or **Needs RF path**. (A blocker too long for the key shows **Not
+ready**, and its tooltip names the step.) A row of checks along the top of the page shows each precondition with
 its state: **Instruments**, **RF path**, **Path loss**, **Test point** and
 **Trombone**. Click a check to scroll to the section that settles it;
 **Path loss** opens the per-frequency table instead.

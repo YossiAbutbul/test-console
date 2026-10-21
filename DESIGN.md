@@ -257,8 +257,9 @@ Controls 8 px, fields 7 px, menu rows and chips 6 px, cards 12 px, dialogs
   3/40" → "Needs DUT" never moves a neighbour.
 - **Primary** (Run, Send, Connect): accent fill. **Secondary**: key grey.
   **Disconnect**: red text on a red-tinted grey.
-- **Disabled:** faded key, and a disabled Run/Send says why on the key
-  ("Needs DUT").
+- **Disabled:** one look for every variant, primary included: a faded grey
+  key with greyed words, no hover and no pointer. A disabled Run/Send says
+  why on the key ("Needs DUT") rather than in a tooltip.
 - **MiniAction:** 28 px text key for card-heading actions; `tone="destructive"`
   for Clear.
 - **Header order:** Stop, then Run/Send; Clear is always last and apart.
