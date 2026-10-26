@@ -73,18 +73,22 @@ interface RowProps {
   id: InstrumentId
   inst: InstrumentState
   required?: boolean
+  /** Opened from this instrument's Bench row: scroll to it, mark it, focus it. */
+  focused?: boolean
   discoverKey: string
 }
 
 /** Per-row component. Receives its `inst` as a prop so wrapping with
  *  React.memo lets sibling rows re-render without us re-rendering too. */
-const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discoverKey }: RowProps) {
+const InstrumentRow = memo(function InstrumentRow({ id, inst, required, focused, discoverKey }: RowProps) {
   const { setAddress, setChannel, connect, disconnect, discover } = useInstrumentsActions()
   const { mode } = useThemeMode()
   const p = getAppPalette(mode)
   const [candidates, setCandidates] = useState<DiscoverCandidate[] | null>(null)
   const [scanning, setScanning] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const rowRef = useRef<HTMLDivElement | null>(null)
+  const keyRef = useRef<HTMLButtonElement | null>(null)
   const lastAutoKey = useRef<string | null>(null)
   const busy = inst.status === 'connecting'
   const connected = inst.status === 'connected'
@@ -116,18 +120,74 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
     // Don't fire scans while the modal is closing (key transitions to
     // 'closed' before unmount and would spam the backend with N requests).
     if (!discoverKey.startsWith('open')) return
+    // The row the panel was opened for scans from its own arrival effect
+    // below, which also opens the list; scanning here too sent it twice.
+    if (focused) return
     if (inst.placeholder || connected || busy) return
     void runDiscover()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [discoverKey])
+
+  // Arriving from a Bench row lands on that row, not at the top of nine. The
+  // timeout lets the dialog's focus trap take its initial focus first --
+  // child effects run before the Dialog's own, so an immediate focus() was
+  // taken straight back. Focus goes to the row's next step: its key when it
+  // can act, otherwise the address it is waiting on.
+  //
+  // A row that is not connected is pressed to be connected, so it is
+  // re-scanned on arrival and its field focused when the scan returns, which
+  // opens the list of what was found (the field opens on focus). Its scan
+  // bar runs meanwhile. A connected row has nothing to scan -- its field is
+  // locked -- and lands on Disconnect.
+  useEffect(() => {
+    if (!focused) return
+    const rescan = !inst.placeholder && !connected && !busy
+    const t = window.setTimeout(() => {
+      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      rowRef.current?.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' })
+      if (rescan) {
+        void runDiscover({ focus: true })
+        return
+      }
+      const key = keyRef.current
+      if (key && !key.disabled) key.focus({ preventScroll: true })
+      else inputRef.current?.focus({ preventScroll: true })
+    }, 60)
+    return () => window.clearTimeout(t)
+    // Once per arrival: the row's state at the moment it was pressed decides.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused])
 
   const showChannel = id === 'dc-analyzer'
   const idn = inst.idn ? idnDetail(inst.idn) : null
 
   return (
     <Box
+      ref={rowRef}
+      data-focused={focused || undefined}
       sx={{
         position: 'relative',
+        // The row the panel was opened for: an accent bar on its leading edge
+        // that stays while the panel is open (where am I), and a wash that
+        // swells and settles once on arrival (this is the one). Both are
+        // overlays, so the marked row is exactly as tall as the rest.
+        '&[data-focused]::before': {
+          content: '""', position: 'absolute', left: 0, top: 6, bottom: 6,
+          width: 3, borderRadius: '0 3px 3px 0', bgcolor: 'primary.main',
+        },
+        '&[data-focused]::after': {
+          content: '""', position: 'absolute', inset: 0, pointerEvents: 'none',
+          bgcolor: alpha(p.sidebar.accent, 0.10),
+          animation: 'inst-arrive 1.4s cubic-bezier(.2,.8,.2,1) 0.1s both',
+        },
+        '@keyframes inst-arrive': {
+          '0%': { opacity: 0 },
+          '20%': { opacity: 1 },
+          '100%': { opacity: 0.35 },
+        },
+        '@media (prefers-reduced-motion: reduce)': {
+          '&[data-focused]::after': { animation: 'none', opacity: 0.35 },
+        },
         // A row of its group's panel, as in System Settings: each instrument
         // used to be its own bordered card on the grey, nine boxes stacked
         // with gaps, which read as clutter before any of them was read.
@@ -338,6 +398,7 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, discover
               The label holds while connecting -- the spinner says it -- so
               the word does not jump inside the key. */}
           <Button
+            ref={keyRef}
             size="small"
             variant="outlined"
             color={connected ? 'inherit' : 'primary'}
@@ -393,7 +454,7 @@ const GROUP_SX = {
 } as const
 
 export function InstrumentsModal() {
-  const { open, setOpen, required } = useInstrumentsModal()
+  const { open, focus, setOpen, required } = useInstrumentsModal()
   const { instruments } = useInstrumentsState()
   const { connect, disconnect } = useInstrumentsActions()
   const { mode } = useThemeMode()
@@ -528,6 +589,7 @@ export function InstrumentsModal() {
                   id={id}
                   inst={instruments[id]}
                   required={required.includes(id)}
+                  focused={open && focus === id}
                   discoverKey={discoverKey}
                 />
               ))}
@@ -554,6 +616,7 @@ export function InstrumentsModal() {
                   id={id}
                   inst={instruments[id]}
                   required={required.includes(id)}
+                  focused={open && focus === id}
                   discoverKey={discoverKey}
                 />
               ))}

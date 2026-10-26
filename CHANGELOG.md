@@ -53,8 +53,22 @@ turns that heading into the version and date.
 - A disabled primary key ("Needs DUT") is the faded grey of any disabled key,
   not a blue wash that looked pressable, and no longer shows a tooltip.
 - The inspector always opens on the Bench tab.
+- Bench inspector: an instrument row opens the Instruments panel at that
+  instrument (scrolled to, marked with an accent bar, its key or address
+  focused); Manage opens the whole panel. Rows answer on the press and their
+  chevron leans on hover; Manage is a tinted key rather than bare text.
+  Opened from a row that is not connected, the panel re-scans that
+  instrument and opens the list of what it found.
+- Sidebar DC supply: while the DC analyzer is not connected, the greyed Off
+  key is a Connect key in the same box. A failed connect marks the footer and
+  opens the Instruments panel at the DC analyzer.
+- The inspector's first tab is called Connection (was Bench).
 
 ### Fixed
+- Resizing the inspector tracks the pointer instead of trailing it: the
+  column's open/close transition no longer runs during the drag, the width
+  is painted once a frame without re-rendering the app, and it is saved once,
+  on release. The edge no longer jumps by where the handle was grabbed.
 - Stop on the LoRa CW, Modulated and Debug pages is disabled while no DUT is
   connected, as Send is; it stayed pressable with nothing to stop.
 

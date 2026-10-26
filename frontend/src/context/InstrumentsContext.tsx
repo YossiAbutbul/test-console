@@ -39,6 +39,9 @@ export interface InstrumentState {
 
 interface State {
   open: boolean
+  /** The instrument the panel was opened for, when it was opened from that
+   *  instrument's row; null when opened as a whole (Manage, a preflight). */
+  focus: InstrumentId | null
   required: InstrumentId[]
   instruments: Record<InstrumentId, InstrumentState>
 }
@@ -97,6 +100,9 @@ export const DISCOVER_TIMEOUT_MS = 20000
 
 interface Actions {
   setOpen: (b: boolean) => void
+  /** Open the panel at one instrument: its row is scrolled to, marked and
+   *  given focus. What a Bench row does, so it is not a second Manage. */
+  openInstrument: (id: InstrumentId) => void
   notifyMissing: (ids: InstrumentId[]) => void
   setAddress: (id: InstrumentId, address: string) => void
   setChannel: (id: InstrumentId, channel: number) => void
@@ -186,6 +192,7 @@ const INITIAL: Record<InstrumentId, InstrumentState> = {
 
 export function InstrumentsProvider({ children }: { children: ReactNode }) {
   const [openState, setOpenState] = useState(false)
+  const [focus, setFocus] = useState<InstrumentId | null>(null)
   const [required, setRequired] = useState<InstrumentId[]>([])
   const [instruments, setInstruments] = useState(INITIAL)
   const instrumentsRef = useRef(instruments)
@@ -280,7 +287,17 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
       (document.activeElement as HTMLElement | null)?.blur?.()
     }
     setOpenState(b)
+    // Opening as a whole drops any earlier instrument focus; closing does too.
+    setFocus(null)
     if (!b) setRequired([])
+  }, [])
+
+  const openInstrument = useCallback((id: InstrumentId) => {
+    if (typeof document !== 'undefined') {
+      (document.activeElement as HTMLElement | null)?.blur?.()
+    }
+    setFocus(id)
+    setOpenState(true)
   }, [])
 
   const notifyMissing = useCallback((ids: InstrumentId[]) => {
@@ -288,6 +305,7 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
       (document.activeElement as HTMLElement | null)?.blur?.()
     }
     setRequired(ids)
+    setFocus(null)
     setOpenState(true)
   }, [])
 
@@ -467,15 +485,15 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
   useEffect(() => { discoverRef.current = discover }, [discover])
 
   const state = useMemo<State>(
-    () => ({ open: openState, required, instruments }),
-    [openState, required, instruments],
+    () => ({ open: openState, focus, required, instruments }),
+    [openState, focus, required, instruments],
   )
   const actions = useMemo<Actions>(
     () => ({
-      setOpen, notifyMissing, setAddress, setChannel,
+      setOpen, openInstrument, notifyMissing, setAddress, setChannel,
       connect, disconnect, discover, refreshStatus,
     }),
-    [setOpen, notifyMissing, setAddress, setChannel, connect, disconnect, discover, refreshStatus],
+    [setOpen, openInstrument, notifyMissing, setAddress, setChannel, connect, disconnect, discover, refreshStatus],
   )
 
   return (
@@ -515,7 +533,7 @@ export function useInstrumentValue(id: InstrumentId): InstrumentState {
 /** Modal-only state — open, required, setOpen. Doesn't track instruments,
  *  so it ignores poll-induced map changes. */
 export function useInstrumentsModal() {
-  const { open, required } = useInstrumentsState()
+  const { open, focus, required } = useInstrumentsState()
   const { setOpen, notifyMissing } = useInstrumentsActions()
-  return { open, required, setOpen, notifyMissing }
+  return { open, focus, required, setOpen, notifyMissing }
 }

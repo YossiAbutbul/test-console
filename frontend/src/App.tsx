@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { alpha } from '@mui/material/styles'
 import {
   Box, Button, Drawer, IconButton, Stack, Tooltip, Typography, type Theme,
@@ -321,7 +322,6 @@ export default function App() {
   const { available: chatOn } = useChat()
   const p = getAppPalette(mode)
   const s = p.sidebar
-  const dragging = useRef(false)
   // The toolbar is the page's to fill (see ui/toolbarSlot.ts); a callback ref
   // in state, so pages re-render into it once it exists.
   const [barEl, setBarEl] = useState<HTMLElement | null>(null)
@@ -339,35 +339,64 @@ export default function App() {
   const gatedHere = !!activeMod?.requiresConnection
     && !(dutStatus?.connected && dutStatus?.transport_ready)
 
-  const onDragStart = useCallback((e: React.MouseEvent) => {
+  // Resizing the inspector. It felt slow for three reasons, each fixed here:
+  // the column's open/close width transition stayed on, so the page eased
+  // after the pointer instead of tracking it; every mousemove set App state,
+  // re-rendering every page and writing localStorage per event; and the width
+  // was `innerWidth - clientX`, so the edge jumped by where the 6 px handle
+  // was grabbed. Now the drag writes the width straight onto the two drawer
+  // elements, once a frame, with the transition off and the grab offset kept,
+  // and React state (and storage) take the result once, on release. Pointer
+  // capture keeps it tracking when the pointer leaves the window.
+  const onDragStart = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    if (e.button !== 0) return
     e.preventDefault()
-    dragging.current = true
+    const handle = e.currentTarget
+    const paper = handle.parentElement
+    const root = paper?.parentElement
+    if (!paper || !root) return
+    handle.setPointerCapture(e.pointerId)
+    const startX = e.clientX
+    const startW = paper.getBoundingClientRect().width
+    let w = startW
+    let frame = 0
+    const paint = () => {
+      frame = 0
+      paper.style.width = narrow
+        ? `min(${w}px, ${Math.round(LOG_OVERLAY_MAX_FRAC * 100)}vw)`
+        : `${w}px`
+      if (!narrow) root.style.width = `${w}px`
+    }
+    root.style.transition = 'none'
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
-  }, [])
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!dragging.current) return
-      const next = Math.max(LOG_MIN_W, Math.min(LOG_MAX_W, window.innerWidth - e.clientX))
-      setLogW(next)
+    const onMove = (ev: PointerEvent) => {
+      w = Math.round(Math.max(LOG_MIN_W, Math.min(LOG_MAX_W, startW + startX - ev.clientX)))
+      if (!frame) frame = requestAnimationFrame(paint)
     }
-    const onUp = () => {
-      if (!dragging.current) return
-      dragging.current = false
+    const onEnd = () => {
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onEnd)
+      handle.removeEventListener('pointercancel', onEnd)
+      if (frame) cancelAnimationFrame(frame)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
+      // Commit synchronously, then drop the inline styles: React's width is
+      // already the dragged one, so the edge does not flick back for a frame.
+      flushSync(() => setLogW(w))
+      paper.style.width = ''
+      root.style.width = ''
+      root.style.transition = ''
     }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-    return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-  }, [setLogW])
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onEnd)
+    handle.addEventListener('pointercancel', onEnd)
+  }, [narrow, setLogW])
 
   const tabs = [
-    { value: 'bench' as const, label: 'Bench' },
+    // Labelled "Connection": DUT link, path loss and instruments are what it
+    // holds. The value stays 'bench' so a stored tab still opens it.
+    { value: 'bench' as const, label: 'Connection' },
     { value: 'log' as const, label: 'Log' },
     ...(chatOn ? [{ value: 'chat' as const, label: 'Assistant' }] : []),
   ]
@@ -590,7 +619,7 @@ export default function App() {
         }}
       >
         <Box
-          onMouseDown={onDragStart}
+          onPointerDown={onDragStart}
           sx={{
             position: 'absolute',
             top: 0,
@@ -598,6 +627,8 @@ export default function App() {
             width: 6,
             height: '100%',
             cursor: 'col-resize',
+            // No touch panning or scrolling while the handle is held.
+            touchAction: 'none',
             zIndex: 1,
             '&:hover': { bgcolor: p.appBarBorder },
             '&:active': { bgcolor: s.accent },

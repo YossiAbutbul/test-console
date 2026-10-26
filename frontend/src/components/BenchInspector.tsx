@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from 'react'
 import { Box, Button, ButtonBase, Stack, Typography } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import { DutControls, PathLossField } from './ConnectionPanel'
 import { useConnection } from '../context/ConnectionContext'
@@ -59,10 +60,26 @@ function Row({ children, onClick, label }: { children: ReactNode; onClick?: () =
   }
   return onClick
     ? (
+      // Answers on the press, not the release: the darker fill lands on
+      // pointer-down with no ripple to wait for, and the chevron leans the way
+      // the row goes. A row that only lit on hover read as a status line, not
+      // as something to press.
       <ButtonBase
         onClick={onClick}
         aria-label={label}
-        sx={{ ...sx, '&:hover': { bgcolor: p.sidebar.hover }, '&.Mui-focusVisible': { bgcolor: p.sidebar.hover } }}
+        disableRipple
+        sx={{
+          ...sx,
+          transition: 'background-color 120ms ease-out',
+          '& .row-chevron': { transition: 'transform 160ms ease-out, color 120ms ease-out' },
+          '&:hover': { bgcolor: p.sidebar.hover },
+          '&:hover .row-chevron': { color: 'text.secondary', transform: 'translateX(2px)' },
+          '&.Mui-focusVisible': { bgcolor: p.sidebar.hover, outline: `2px solid ${p.sidebar.accent}`, outlineOffset: -2 },
+          '&:active': { bgcolor: p.sidebar.accentSoftHover, transition: 'none' },
+          '@media (prefers-reduced-motion: reduce)': {
+            '&:hover .row-chevron': { transform: 'none' },
+          },
+        }}
       >
         {children}
       </ButtonBase>
@@ -177,7 +194,7 @@ function PathLossGroup() {
 function InstrumentsGroup() {
   const p = useAppPalette()
   const { instruments } = useInstrumentsState()
-  const { setOpen } = useInstrumentsActions()
+  const { setOpen, openInstrument } = useInstrumentsActions()
   const noInstruments = useInstrumentsUnavailableReason()
   const rig = useMemo(
     () => Object.values(instruments).filter((i) => !i.placeholder),
@@ -201,19 +218,37 @@ function InstrumentsGroup() {
     <Group
       title={`Instruments · ${up} of ${rig.length}`}
       trailing={(
-        <Button size="small" variant="text" onClick={() => setOpen(true)} sx={{ minWidth: 0, px: 1, mr: -1 }}>
+        // A tinted key rather than bare text, so it reads as one beside the
+        // heading. It opens the whole panel; a row opens its own instrument.
+        <Button
+          size="small"
+          variant="text"
+          onClick={() => setOpen(true)}
+          aria-label="Manage all instruments"
+          disableRipple
+          sx={{
+            minWidth: 0, height: 22, px: 1, mr: -0.5, borderRadius: '11px',
+            fontSize: 12, fontWeight: 600, lineHeight: 1,
+            bgcolor: alpha(p.sidebar.accent, 0.12), color: p.sidebar.accent,
+            transition: 'background-color 120ms ease-out',
+            '&:hover': { bgcolor: alpha(p.sidebar.accent, 0.18) },
+            '&:active': { bgcolor: alpha(p.sidebar.accent, 0.24), transform: 'scale(0.97)', transition: 'none' },
+          }}
+        >
           Manage
         </Button>
       )}
     >
-      {/* Each row opens the Instruments panel, where connecting happens. The
-          inspector only reports: a connect key per row here would be a second
-          place to drive the same sessions (see the per-instrument bus). */}
+      {/* Each row opens the Instruments panel at that instrument -- scrolled
+          to, marked, its key focused -- where connecting happens. Manage opens
+          the panel as a whole. The inspector only reports: a connect key per
+          row here would be a second place to drive the same sessions (see the
+          per-instrument bus). */}
       {rig.map((i) => (
         <Row
           key={i.id}
-          onClick={() => setOpen(true)}
-          label={`${i.label}: ${STATUS_WORD[i.status]}. Open Instruments.`}
+          onClick={() => openInstrument(i.id)}
+          label={`${i.label}: ${STATUS_WORD[i.status]}. Open in Instruments.`}
         >
           <Dot color={dot(i.status)} />
           <Typography noWrap sx={{ fontSize: 13, flexGrow: 1, minWidth: 0 }}>{i.label}</Typography>
@@ -224,7 +259,7 @@ function InstrumentsGroup() {
           >
             {STATUS_WORD[i.status]}
           </Typography>
-          <ChevronRightRoundedIcon sx={{ fontSize: 16, color: 'text.disabled', mr: -0.5 }} />
+          <ChevronRightRoundedIcon className="row-chevron" sx={{ fontSize: 16, color: 'text.disabled', mr: -0.5 }} />
         </Row>
       ))}
     </Group>

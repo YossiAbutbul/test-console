@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Box, Collapse, Drawer, IconButton, ListItemButton,
+  Box, ButtonBase, CircularProgress, Collapse, Drawer, IconButton, ListItemButton,
   ListItemText, MenuItem, MenuList, Popover, Stack, Switch, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { instrumentsApi } from '../api/instruments'
@@ -10,7 +10,9 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRightRounded'
 import ScienceIcon from '@mui/icons-material/ScienceRounded'
 import SettingsIcon from '@mui/icons-material/SettingsRounded'
 import CheckIcon from '@mui/icons-material/CheckRounded'
-import { useInstrumentsState } from '../context/InstrumentsContext'
+import { useInstrumentsActions, useInstrumentsState } from '../context/InstrumentsContext'
+import { alpha } from '@mui/material/styles'
+import PowerRoundedIcon from '@mui/icons-material/PowerRounded'
 import { useThemeMode, type ThemePreference } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
 import { CONTROL_H, SIDEBAR_W, TOP_BAR_H } from '../ui/tokens'
@@ -18,7 +20,7 @@ import { useShellLayout } from '../ui/useShellLayout'
 import { testRegistry } from '../tests/registry'
 import { useInstrumentsUnavailableReason } from '../context/CapabilitiesContext'
 import type { TestModule } from '../tests/types'
-import { LatchingKey } from '../ui'
+import { LatchingKey, PRESS_SX } from '../ui'
 import { useDutLink } from '../context/dutLink'
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 import { selectOnFocus, useSelectOnFocusSetting } from '../lib/selectOnFocus'
@@ -93,12 +95,19 @@ function DcSupplySection() {
   // gutters, 80 px field, 8 px gap), so the two end flush at both edges.
   const { sidebarW } = useShellLayout()
   const keyW = sidebarW - 32 - 80 - 8
-  const dcConnected = instruments['dc-analyzer']?.status === 'connected'
+  const dc = instruments['dc-analyzer']
+  const dcConnected = dc?.status === 'connected'
+  const dcConnecting = dc?.status === 'connecting'
+  const { connect, openInstrument } = useInstrumentsActions()
   const [enabled, setEnabled] = usePersistedState<boolean>(STORAGE_KEYS.dcSupplyEnabled, false)
   const [voltage, setVoltage] = usePersistedState<number>(STORAGE_KEYS.dcSupplyVoltage, 3.6)
   const [draft, setDraft] = useState<string>(String(voltage))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Kept apart from the supply's own error and read only while disconnected,
+  // so a failed connect stops marking the footer once the analyzer connects
+  // by any route (here, the panel, a preflight).
+  const [connectErr, setConnectErr] = useState<string | null>(null)
   useEffect(() => { setDraft(String(voltage)) }, [voltage])
 
   // No auto-apply on connect / menu open: the supply turns on ONLY when the
@@ -132,6 +141,19 @@ function DcSupplySection() {
     void apply(next, voltage)
   }
 
+  // Connecting is the step before the supply can do anything, so it is offered
+  // where the supply is rather than a panel away. A blank address is fine: the
+  // connect scans for the N6705 and binds it. When it fails, the panel opens
+  // at the DC analyzer -- the address and the explained failure are there.
+  const onConnect = async () => {
+    setConnectErr(null)
+    const r = await connect('dc-analyzer')
+    if (!r.ok) {
+      setConnectErr(r.failure?.title ?? 'Could not connect')
+      openInstrument('dc-analyzer')
+    }
+  }
+
   const commitVoltage = () => {
     const n = Number(draft)
     if (!Number.isFinite(n) || n < 0 || n > 60) { setDraft(String(voltage)); return }
@@ -145,9 +167,12 @@ function DcSupplySection() {
   // switch, so it reads like the Modem key and carries the hazard ring while it
   // would power the DUT. Errors and the "connect the analyzer first" reason go
   // in the tooltip, so the footer keeps one height.
+  const shownConnectErr = dcConnected ? null : connectErr
   const reason = err
     ? `Supply command failed: ${err}`
-    : dcConnected ? (enabled ? 'DC analyzer supply is on' : 'Turn the DC analyzer supply on') : 'Connect the DC analyzer first'
+    : shownConnectErr ? `DC analyzer: ${shownConnectErr}`
+    : dcConnected ? (enabled ? 'DC analyzer supply is on' : 'Turn the DC analyzer supply on')
+      : dcConnecting ? 'Connecting the DC analyzer…' : 'Connect the DC analyzer'
   return (
     <Box sx={{ minWidth: 0 }}>
       {/* The error mark sits on the label line, so the keys below it can take
@@ -156,22 +181,54 @@ function DcSupplySection() {
         <Typography sx={{ fontSize: 12, fontWeight: 600, color: s.textDim }}>
           DC supply
         </Typography>
-        <Box sx={{ display: 'flex', color: p.data.bad, visibility: err ? 'visible' : 'hidden' }}>
+        <Box sx={{ display: 'flex', color: p.data.bad, visibility: err || shownConnectErr ? 'visible' : 'hidden' }}>
           <ErrorOutlineRoundedIcon sx={{ fontSize: 15 }} />
         </Box>
       </Stack>
       <Stack direction="row" alignItems="center" spacing={1}>
         <Tooltip title={reason} placement="top">
           <span>
-            <LatchingKey
-              value={enabled}
-              onChange={onToggle}
-              offLabel="Off"
-              onLabel="On"
-              disabled={!dcConnected}
-              pending={busy}
-              width={keyW}
-            />
+            {dcConnected ? (
+              <LatchingKey
+                value={enabled}
+                onChange={onToggle}
+                offLabel="Off"
+                onLabel="On"
+                pending={busy}
+                width={keyW}
+              />
+            ) : (
+              // Until the analyzer is connected the slot holds the step that
+              // is actually next, instead of a greyed Off that only said
+              // "not yet". Same box as the power key that replaces it, so
+              // nothing in the footer moves when it connects. Tinted, not
+              // filled: the page's Run is the one filled key on screen. The
+              // word holds while connecting; the spinner says it is working.
+              <ButtonBase
+                disableRipple
+                onClick={() => { void onConnect() }}
+                disabled={dcConnecting}
+                aria-busy={dcConnecting || undefined}
+                aria-label="Connect the DC analyzer"
+                sx={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 0.75,
+                  width: keyW, minWidth: keyW, height: CONTROL_H.md, px: 1.5,
+                  borderRadius: '8px', overflow: 'hidden', whiteSpace: 'nowrap',
+                  fontSize: 13.5, fontWeight: 600,
+                  color: s.accent, bgcolor: alpha(s.accent, 0.14),
+                  transition: 'background-color .15s ease, transform 120ms',
+                  ...PRESS_SX,
+                  '&:hover': { bgcolor: alpha(s.accent, 0.2) },
+                  '&.Mui-focusVisible': { outline: `2px solid ${s.accent}`, outlineOffset: 2 },
+                  '&.Mui-disabled': { color: s.accent, bgcolor: alpha(s.accent, 0.1) },
+                }}
+              >
+                {dcConnecting
+                  ? <CircularProgress size={14} color="inherit" />
+                  : <PowerRoundedIcon sx={{ fontSize: 17 }} />}
+                Connect
+              </ButtonBase>
+            )}
           </span>
         </Tooltip>
         <TextField
