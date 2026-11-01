@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { alpha } from '@mui/material/styles'
 import {
@@ -69,6 +69,10 @@ function TestArea({ activeId }: { activeId: string }) {
   const noInstruments = useInstrumentsUnavailableReason()
   const { known } = useCapabilities()
   const activeMod = testRegistry.find((m) => m.id === activeId) ?? testRegistry[0]
+  // The page whose `active` prop is set lags the one on screen by a render
+  // (see PageSlot): re-rendering two page trees is kept off the click.
+  const deferredId = useDeferredValue(activeId)
+  const deferredMod = testRegistry.find((m) => m.id === deferredId) ?? testRegistry[0]
   const gated = activeMod.requiresConnection && !(status?.connected && status?.transport_ready)
   // The sidebar will not navigate here, but the last-used page is restored
   // from storage on load -- so a bundle opened on a PC with no rig can land on
@@ -138,30 +142,63 @@ function TestArea({ activeId }: { activeId: string }) {
         </Stack>
       )}
       {pages.map((mod) => {
-        const { Page } = mod
-        const isActive = mod.id === activeMod.id && !unavailable && !waiting
+        const isShown = mod.id === activeMod.id && !unavailable && !waiting
+        const isActive = mod.id === deferredMod.id && !unavailable && !waiting
         return (
-          <Box
-            key={mod.id}
-            sx={{
-              flexGrow: 1, minHeight: 0, minWidth: 0,
-              display: isActive ? 'flex' : 'none',
-              flexDirection: 'column',
-            }}
-          >
-            {/* Send and Run read the gate to say what they are waiting for
-                (see ui/gate.ts). Only the page on screen can be gated. */}
-            <DutGateContext.Provider value={isActive && gated}>
-              <PageActiveContext.Provider value={isActive}>
-                <Page protocol={mod.protocol} group={mod.group} active={isActive} />
-              </PageActiveContext.Provider>
-            </DutGateContext.Provider>
-          </Box>
+          <PageSlot key={mod.id} mod={mod} shown={isShown} active={isActive} gated={isShown && gated} />
         )
       })}
     </Box>
   )
 }
+
+/**
+ * One mounted page, hidden with `display` when it is not the one on screen.
+ *
+ * A sidebar switch used to wait 150-400 ms for React to re-render whole page
+ * trees before anything changed on screen: first all ~16 mounted pages (their
+ * elements were rebuilt every time TestArea rendered), then, once memoised,
+ * still the page leaving and the page arriving, because both took a new
+ * `active` prop. So the switch is two updates:
+ *
+ *  - `shown` (urgent) flips `display` and the page-active context. Only the
+ *    toolbar title and progress bar read that context, so this commit is
+ *    small and the new page, its title and the sidebar change at once.
+ *  - `active` (deferred, see TestArea) is the prop pages start and stop their
+ *    polls and chat sources on. Nothing drawn depends on it, so the page-tree
+ *    re-render it costs runs just after, interruptibly, off the click.
+ */
+const PageSlot = memo(function PageSlot({ mod, shown, active, gated }: {
+  mod: (typeof testRegistry)[number]
+  shown: boolean
+  active: boolean
+  gated: boolean
+}) {
+  const { Page, protocol, group } = mod
+  // Held as an element so a change of `shown` alone leaves the page tree be:
+  // React skips an element that is the same object as last render.
+  const page = useMemo(
+    () => <Page protocol={protocol} group={group} active={active} />,
+    [Page, protocol, group, active],
+  )
+  return (
+    <Box
+      sx={{
+        flexGrow: 1, minHeight: 0, minWidth: 0,
+        display: shown ? 'flex' : 'none',
+        flexDirection: 'column',
+      }}
+    >
+      {/* Send and Run read the gate to say what they are waiting for
+          (see ui/gate.ts). Only the page on screen can be gated. */}
+      <DutGateContext.Provider value={gated}>
+        <PageActiveContext.Provider value={shown}>
+          {page}
+        </PageActiveContext.Provider>
+      </DutGateContext.Provider>
+    </Box>
+  )
+})
 
 const NARROW_QUERY = `(max-width:${SHELL_NARROW_W - 1}px)`
 

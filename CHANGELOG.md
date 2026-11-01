@@ -28,6 +28,10 @@ turns that heading into the version and date.
   after one sweep per step. The Run sheet records the source and settings.
 
 ### Fixed
+- Switching pages in the sidebar is immediate (~30-50 ms in the dev server,
+  was 280-410 ms). Each mounted page is memoised, and the page trees'
+  `active` prop is deferred: the new page, its title and the sidebar change
+  at once, and the re-render that starts the page's polls follows.
 - Mode Sweep: a lost DUT link ends the run as an error ("DUT not answering")
   after three failed commands in a row, instead of failing every remaining
   step in milliseconds and finishing as "done".
