@@ -1134,7 +1134,6 @@ export function AutomationPanel({
 
       <Section
         title="Results"
-        ungated
         panel
         grow
         action={

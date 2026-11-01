@@ -80,7 +80,9 @@ Tips:
 
 - The pencil next to the MAC field gives a unit a **nickname** such as "Lab
   unit 3". Nicknamed units show a coloured tag and sort to the top.
-- The test pages are **faded out** until a DUT is connected. That is normal.
+- Until a DUT is connected, **Send** and **Run** on the test pages read
+  **Needs DUT** and are greyed. That is normal; you can still fill in the
+  fields.
 
 ![A test page before a DUT is connected](img/dut-page-dimmed.png)
 

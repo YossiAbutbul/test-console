@@ -46,8 +46,17 @@ export function PageBody({ children, width = 'panel', scroll, grow }: PageBodyPr
         // of a column with a fixed height they shrank to fit it instead of
         // overflowing it, and Load Pull's stat tiles were squeezed to a 2 px
         // rule under the check course.
+        //
+        // `scrollbarGutter: stable` keeps the scrollbar's lane whether or not
+        // it is needed. Without it the bar appeared only once the page
+        // overflowed (Spectrum analyzer chosen on Mode Sweep, a taller
+        // window shrunk) and took its width from every card, so the whole
+        // page jumped sideways at the moment content was added.
         ...(scroll
-          ? { flexGrow: 1, minHeight: 0, overflowY: 'auto', pr: 1, pb: 2, '& > *': { flexShrink: 0 } }
+          ? {
+              flexGrow: 1, minHeight: 0, overflowY: 'auto', scrollbarGutter: 'stable',
+              pr: 1, pb: 2, '& > *': { flexShrink: 0 },
+            }
           : null),
         // `minHeight: 0` is the load-bearing half: without it the flex item
         // refuses to shrink below its content and the inner scroll never

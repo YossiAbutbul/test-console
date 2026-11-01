@@ -229,13 +229,10 @@ async function fitHeight(page) {
       }
       await page.goto(BASE)
       await page.waitForLoadState('networkidle').catch(() => {})
-      // DUT pages are dimmed and click-blocked until a BLE unit is connected.
-      // Connecting one is a real-world action, so instead the dimming is
-      // lifted in this headless copy to show the page as the operator sees it
-      // once connected. Only tabs and dialogs are clicked (see SAFE).
-      if (!s.gated) {
-        await page.addStyleTag({ content: '[aria-disabled="true"]{opacity:1!important;pointer-events:auto!important}' })
-      }
+      // No DUT is connected here (connecting one is a real-world action), so
+      // DUT pages show Send/Run as "Needs DUT". The page itself is no longer
+      // dimmed or click-blocked, so nothing needs lifting. Only tabs and
+      // dialogs are clicked (see SAFE).
       await page.waitForTimeout(1200)
       for (const c of s.clicks || []) await clickSafe(page, c, !!s.mock)
       const file = path.join(OUT, `${s.file}.png`)

@@ -1020,7 +1020,6 @@ export function LteAutomationPanel({
 
       <Section
         title="Results"
-        ungated
         panel
         grow
         action={

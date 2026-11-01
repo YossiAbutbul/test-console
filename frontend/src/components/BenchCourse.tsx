@@ -41,9 +41,6 @@ function listShort(values: string[], max = 3): string {
  * Instruments panel, Path loss opens the per-frequency table, and a page's own
  * steps scroll to the section that settles them. Nothing opens or closes
  * under the rail, so nothing below it moves.
- *
- * Marked `data-ungated`: both shortcuts have to work on a page that is waiting
- * for the DUT.
  */
 export function BenchCourse({
   instruments, connectsOn = 'Send', freqsMhz, steps = [], order,
@@ -117,7 +114,7 @@ export function BenchCourse({
   if (items.length === 0) return null
 
   return (
-    <div data-ungated style={{ marginBottom: 12 }}>
+    <div style={{ marginBottom: 12 }}>
       <CheckRail>
         {items.map((s) => (
           <CheckStep key={s.id} state={s.state} label={s.label} summary={s.summary} onClick={onStep(s)} />

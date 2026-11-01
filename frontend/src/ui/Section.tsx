@@ -49,14 +49,6 @@ interface SectionProps {
   collapsible?: boolean
   /** Start expanded. Ignored unless `collapsible`. */
   defaultOpen?: boolean
-  /**
-   * Stay usable while the page is gated on a DUT connection.
-   *
-   * For panels that work on data already on screen — import, export, graph,
-   * clear — and so have nothing to wait for from the DUT. See PageGate in
-   * App.tsx, which honours the `data-ungated` attribute this sets.
-   */
-  ungated?: boolean
 }
 
 /**
@@ -70,7 +62,7 @@ interface SectionProps {
  */
 export function Section({
   title, anchorId, action, hint, children, grow, panel, collapsible, flush,
-  defaultOpen = true, ungated,
+  defaultOpen = true,
 }: SectionProps) {
   const [open, setOpen] = useState(defaultOpen)
   // Folding is instant for operators who asked for less motion.
@@ -181,7 +173,6 @@ export function Section({
   return (
     <Box
       id={anchorId}
-      data-ungated={ungated || undefined}
       sx={{
         // The nearest query container for anything the section holds. A field
         // grid inside a two-column layout has to size off its own column, not

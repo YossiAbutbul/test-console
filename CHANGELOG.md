@@ -28,6 +28,9 @@ turns that heading into the version and date.
   after one sweep per step. The Run sheet records the source and settings.
 
 ### Fixed
+- A scrolling page (Mode Sweep, Load Pull, Spectrum Analyzer) keeps its scrollbar's lane even
+  when nothing overflows, so the cards no longer narrow by 10 px and shift
+  the moment content is added (e.g. choosing Spectrum analyzer).
 - Switching pages in the sidebar is immediate (~30-50 ms in the dev server,
   was 280-410 ms). Each mounted page is memoised, and the page trees'
   `active` prop is deferred: the new page, its title and the sidebar change
@@ -67,6 +70,11 @@ turns that heading into the version and date.
   key is a Connect key in the same box. A failed connect marks the footer and
   opens the Instruments panel at the DC analyzer.
 - The inspector's first tab is called Connection (was Bench).
+- A DUT page with no DUT connected is no longer dimmed and click-blocked:
+  fields, tabs, the Measurement card's Read and the results all work, and
+  only Send, Run and their Stop wait, reading "Needs DUT". Drops the
+  `ungated` escape hatch (`Section` prop, `data-ungated`) the dimming needed.
+  The manual says so; its `dut-page-dimmed` screenshot needs re-capturing.
 - Light is the default theme for a browser that has not picked one (was Mid).
 - The toolbar title is one 20 px line, "LoRa CW", instead of the page name
   over a "LoRa" caption. Rig pages show the page name alone.

@@ -43,16 +43,16 @@ again. CW and Modulated use the same icons under LoRa and LTE.
 pages only hides and shows them. So form values, results and a running
 automation all survive navigation.
 
-**DUT pages are dimmed until a unit is connected.** The TX pages (LoRa CW,
-Modulated, Debug, Mode Sweep; LTE CW, Modulated) fade to 60 % and ignore
-clicks until the DUT is connected **and** its command channel is ready. Two
-parts stay usable, because they send nothing to the DUT:
+**DUT pages can be set up before a unit is connected.** On the TX pages
+(LoRa CW, Modulated, Debug, Mode Sweep; LTE CW, Modulated) everything stays
+usable without a DUT: fill in the fields, switch tabs, read the instruments
+with **Read**, and import, export, graph or clear results. Only the keys that
+send to the DUT wait for it: **Send** and **Run** read **Needs DUT** and stay
+greyed, with **Stop** beside them, until the DUT is connected **and** its
+command channel is ready. **Connect DUT** in the toolbar opens the bench to
+connect it.
 
-- the **Results** panel, so you can import, export, graph, filter and clear
-  results;
-- the **Manual / Automation** tabs, so you can reach that panel.
-
-The Components pages and Load Pull are never dimmed.
+The Components pages and Load Pull do not need a DUT.
 
 ![A DUT page with no unit connected](img/dut-page-dimmed.png)
 

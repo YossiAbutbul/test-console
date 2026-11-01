@@ -906,7 +906,6 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
 
       <Section
         title="Results"
-        ungated
         panel
         grow
         action={

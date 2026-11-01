@@ -59,11 +59,6 @@ function NoInstrumentsNotice({ label, reason }: { label: string; reason: string 
   )
 }
 
-/** Everything the DUT gate dims: the topmost elements that neither are nor
- *  contain an ungated panel (see TestArea). */
-const GATE_DIMMED = `& > :not([data-ungated]):not(:has([data-ungated])),
-  & :has([data-ungated]) > :not([data-ungated]):not(:has([data-ungated]))`
-
 function TestArea({ activeId }: { activeId: string }) {
   const { status } = useConnection()
   const noInstruments = useInstrumentsUnavailableReason()
@@ -73,6 +68,12 @@ function TestArea({ activeId }: { activeId: string }) {
   // (see PageSlot): re-rendering two page trees is kept off the click.
   const deferredId = useDeferredValue(activeId)
   const deferredMod = testRegistry.find((m) => m.id === deferredId) ?? testRegistry[0]
+  // A page waiting for the DUT stays fully usable: fields can be filled in
+  // and the instruments read before the board is up. Only what would reach
+  // the DUT -- Send, Run and their Stop -- reads this (ui/gate.ts) and says
+  // "Needs DUT". It used to dim the whole page and turn off its pointer,
+  // which blocked setting up a test, and the Measurement card's Read, which
+  // needs no DUT, for the sake of the one key that does.
   const gated = activeMod.requiresConnection && !(status?.connected && status?.transport_ready)
   // The sidebar will not navigate here, but the last-used page is restored
   // from storage on load -- so a bundle opened on a PC with no rig can land on
@@ -104,24 +105,8 @@ function TestArea({ activeId }: { activeId: string }) {
   // (form inputs, results tables) across switches automatically.
   return (
     <Box
-      aria-disabled={gated || undefined}
       sx={{
         minWidth: 0,
-        pointerEvents: gated ? 'none' : 'auto',
-        // Dim everything except panels marked `data-ungated` (results, with
-        // their import/export), which work on data already on screen and have
-        // nothing to wait for from the DUT. Opacity cannot be undone by a
-        // child, so rather than dimming this box the rule dims the topmost
-        // elements that neither are nor contain an ungated panel: the children
-        // of the gate, and of any box on the path down to an ungated panel.
-        ...(gated ? {
-          [GATE_DIMMED]: { opacity: 0.6 },
-          '& [data-ungated]': { pointerEvents: 'auto' },
-        } : null),
-        // The fade sits on the same selector list as the dim, gated or not, so
-        // it runs on the way in and the way out -- on `& > *` alone the
-        // elements dimmed through the second branch snapped.
-        [GATE_DIMMED]: { transition: 'opacity 0.15s' },
         display: 'flex',
         flexDirection: 'column',
         flexGrow: 1,
@@ -549,10 +534,10 @@ export default function App() {
               the title and the keys, so what it holds takes its room from the
               title and never moves a key (see ToolbarSlots). */}
           <Box sx={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden', display: 'flex', gap: 0.5 }}>
-            {/* With the inspector closed (the default below 1200 px) a gated
-                page dimmed with its only Connect control out of sight behind
-                an unlabelled glyph. This names the missing step and opens the
-                bench. */}
+            {/* With the inspector closed (the default below 1200 px) a page
+                waiting for the DUT had its only Connect control out of sight
+                behind an unlabelled glyph. This names the missing step and
+                opens the bench. */}
             {gatedHere && !paneOpen && (
               <Button
                 size="small"

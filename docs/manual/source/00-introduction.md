@@ -25,9 +25,9 @@ This manual covers the whole application:
 - **Example data:** screenshots captioned *example data* show synthetic
   results, which were seeded into a throw-away browser profile so that tables
   and charts have something to show. Nothing in them was measured.
-- **DUT pages:** these pages are normally dimmed until a unit is connected.
-  They are shown as they appear once connected. The dimmed state is shown in
-  section 3.1.
+- **DUT pages:** captured with no unit connected, so their Send and Run
+  keys read "Needs DUT" (see section 3.1). Once a unit is connected they
+  read Send and Run.
 
 ## Which page do I use?
 

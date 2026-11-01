@@ -818,7 +818,6 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
             Run/Stop stay in the header, these belong to the results. */}
         <Section
           title="Results"
-          ungated
           panel
           // The table is its own scroller, so it should meet the panel edge.
           flush
