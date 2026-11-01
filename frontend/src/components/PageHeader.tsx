@@ -14,34 +14,33 @@ interface Props {
 /**
  * The page's title and header keys, drawn into the window toolbar.
  *
- * The title is the toolbar's, as in a macOS window: one line, 15 px, with the
- * section under it in the caption size. It used to be a 26 px heading in the
- * page with the keys beside it, which spent a 60 px band of every page on a
- * name the sidebar already highlights. In the toolbar the keys stay put
- * whatever the page scrolls to -- and, in their own slot, whatever the
- * live-output pills beside them do (see ToolbarSlots).
+ * The title is the toolbar's, as in a macOS window: one line. It used to be a
+ * 26 px heading in the page with the keys beside it, which spent a 60 px band
+ * of every page on a name the sidebar already highlights. In the toolbar the
+ * keys stay put whatever the page scrolls to -- and, in their own slot,
+ * whatever the live-output pills beside them do (see ToolbarSlots).
  *
- * The crumb names the sidebar section the page sits in and nothing more:
- * "LoRa", or "Components" for a rig page. "LoRa · TX" named a TX level the
- * sidebar no longer shows.
+ * The protocol leads the page name on the same line, "LoRa CW", in the same
+ * ink and weight -- the operator read it as one name, and a grey "LoRa" as
+ * less important than it is. It was a caption under the title; the operator
+ * found the two-line stack fussy. Rig pages have no protocol and
+ * show the page name alone -- "Components DC Analyzer" would read as one name.
  */
 export function PageHeader({ protocol, group, label, actions }: Props) {
   const slots = useToolbarSlot()
   const active = usePageActive()
   if (!active) return null
-  const crumb = group === 'Components' ? group : protocol
+  const prefix = group === 'Components' ? undefined : protocol
   return (
     <>
       {slots.title && createPortal(
         <Box sx={{ minWidth: 0 }}>
           <Typography component="h1" noWrap sx={{ ...TEXT.title, color: 'text.primary' }}>
+            {prefix && (
+              <>{prefix}{' '}</>
+            )}
             {label}
           </Typography>
-          {crumb && (
-            <Typography noWrap sx={{ ...TEXT.crumb, color: 'text.secondary' }}>
-              {crumb}
-            </Typography>
-          )}
         </Box>,
         slots.title,
       )}

@@ -64,6 +64,8 @@ turns that heading into the version and date.
   opens the Instruments panel at the DC analyzer.
 - The inspector's first tab is called Connection (was Bench).
 - Light is the default theme for a browser that has not picked one (was Mid).
+- The toolbar title is one 20 px line, "LoRa CW", instead of the page name
+  over a "LoRa" caption. Rig pages show the page name alone.
 - Measurement card: the Measured (TX power) reading leads the strip on an
   accent-tinted cell with an accent bar and label (`primary` on `StatTile`).
 - Readout tiles show an empty value instead of a "—" when there is no

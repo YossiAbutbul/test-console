@@ -78,10 +78,8 @@ export const FIELD_MAX_W = 780
  * the page until it moved into the window toolbar.)
  */
 export const TEXT = {
-  /** Page title, in the window toolbar (PageHeader). */
-  title: { fontSize: 15, fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.01em' },
-  /** The sidebar section under the toolbar title. */
-  crumb: { fontSize: 12, lineHeight: 1.25 },
+  /** Page title, in the window toolbar (PageHeader): one line, "LoRa CW". */
+  title: { fontSize: 20, fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.02em' },
   /** Section heading inside a page. */
   section: { fontSize: 17, fontWeight: 700 },
   /** Dialog title. */
