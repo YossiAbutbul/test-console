@@ -152,7 +152,7 @@ export function SweepResultsModal({ open, onClose, rows }: Props) {
                     formatter={(v: number | string) => (typeof v === 'number' ? `${v.toFixed(1)} mA` : v)}
                     labelFormatter={(x) => {
                       const pt = curve.find((c) => c.power === Number(x))
-                      return pt ? `${x} dBm — ${pt.combo}` : `${x} dBm`
+                      return pt ? `${x} dBm · ${pt.combo}` : `${x} dBm`
                     }}
                   />
                   {/* Without this the list below can be showing a power the

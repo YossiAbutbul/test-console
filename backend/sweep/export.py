@@ -195,7 +195,7 @@ def parse_workbook(data: bytes) -> list[ResultRow]:
     wb = load_workbook(BytesIO(data), data_only=True)
     if "All" not in wb.sheetnames:
         raise ValueError(
-            "no 'All' sheet — this is not a sweep workbook exported by this app"
+            "no 'All' sheet: this is not a sweep workbook exported by this app"
         )
     ws = wb["All"]
 

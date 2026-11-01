@@ -76,7 +76,7 @@ export function parseModulatedCsv(text: string): ModulatedResultRow[] {
   const missing = REQUIRED.filter((c) => !col.has(c))
   if (missing.length) {
     throw new Error(
-      `Not a Modulated export — missing ${missing.join(', ')}. `
+      `Not a Modulated export: missing ${missing.join(', ')}. `
       + `Found: ${header.join(', ')}`,
     )
   }

@@ -958,7 +958,7 @@ export function AutomationPanel({
                           endAdornment: (
                             <ValidationAdornment
                               show={shouldShowValidation(r.power, !badPower, focusKey === `${i}-power`)}
-                              message={`Invalid — e.g. 23 or 10-23 (max ${MAX_POWER_DBM} dBm)`}
+                              message={`Invalid. Try 23 or 10-23 (max ${MAX_POWER_DBM} dBm)`}
                             />
                           ),
                         }}
@@ -1038,7 +1038,7 @@ export function AutomationPanel({
                           endAdornment: (
                             <ValidationAdornment
                               show={badMargin}
-                              message="A tolerance in dB, 0 or more — or blank for no verdict"
+                              message="A tolerance in dB, 0 or more, or blank for no verdict"
                             />
                           ),
                         }}

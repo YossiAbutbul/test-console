@@ -363,7 +363,7 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
       'sweep-imported',
       'info',
       active && imported
-        ? `${imported.name} — ${imported.rows.length} imported rows, not a run of this backend`
+        ? `${imported.name}: ${imported.rows.length} imported rows, not a run of this backend`
         : null,
       'Viewing a file',
     )

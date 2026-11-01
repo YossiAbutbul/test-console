@@ -54,6 +54,11 @@ export interface LoadPullPageSnapshot {
   freqSpec?: string
   powerSpec?: string
   attEnabled?: boolean
+  /** Attenuator sweep, first and last setting in dB. Either order. */
+  attStartDb?: number
+  attStopDb?: number
+  /** Superseded by `attStopDb` (the sweep always started at 0); read as its
+   *  default so a saved ceiling carries over. */
   attMaxDb?: number
   paMode?: number
   settleMs?: number

@@ -134,9 +134,19 @@ interface PlanPoint {
   attDb: number | null
 }
 
-/** Attenuator sweep. Fixed 1 dB steps from 0 up to a configurable ceiling. */
+/** Attenuator sweep. Fixed 1 dB steps from a start to a stop setting, either
+ *  way round, within the attenuator's 0-20 dB. */
 const ATT_STEP_DB = 1
 const ATT_MAX_LIMIT_DB = 20
+
+/** A typed attenuator setting, or null while empty or out of range. */
+function parseAttDb(text: string): number | null {
+  const t = text.trim()
+  if (t === '') return null
+  const n = Number(t)
+  if (!Number.isFinite(n) || n < 0 || n > ATT_MAX_LIMIT_DB) return null
+  return Math.round(n)
+}
 
 /** One height for every control in the drive column. Four kinds of control —
  *  buttons, a jog pad, a toggle group — at three different sizes read as
@@ -144,9 +154,33 @@ const ATT_MAX_LIMIT_DB = 20
 const DRIVE_H = 32
 
 /** What the Frequency and DUT power fields accept (see lib/numericList). */
-const SPEC_SYNTAX = 'One value "915", a range "900-930", a stepped range "900-930:5", or a list "902.3,915,927.5".'
-const LTE_CHANNEL_SYNTAX = 'One channel, a range "a-b", a stepped range "a-b:step", or a list "a,b,c" -- '
-  + 'EARFCNs or MHz, as set on the LTE CW page, within its selected bands.'
+/** Examples of the four forms, in the field's own unit. */
+const SPEC_EXAMPLES = {
+  mhz: ['915', '900-930', '900-930:5', '902.3, 915'],
+  lteMhz: ['1880', '1860-1900', '1860-1900:10', '1860, 1880'],
+  earfcn: ['18900', '18700-19100', '18700-19100:100', '18700, 18900'],
+  dbm: ['14', '10-20', '10-20:2', '10, 14, 20'],
+  lteDbm: ['23', '10-23', '10-23:1', '10, 17, 23'],
+} as const
+
+/**
+ * The list syntax as four labelled examples. It was one sentence naming the
+ * forms in prose ("a stepped range \"a-b:step\" …"), which read as a rule to
+ * decode rather than something to copy.
+ */
+function SpecTip({ examples }: { examples: readonly string[] }) {
+  const names = ['One', 'Range', 'Step', 'List']
+  return (
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'auto auto', columnGap: 1.5, rowGap: 0.25 }}>
+      {examples.map((ex, i) => (
+        <Box key={names[i]} sx={{ display: 'contents' }}>
+          <span>{names[i]}</span>
+          <Box component="span" sx={{ fontFamily: MONO }}>{ex}</Box>
+        </Box>
+      ))}
+    </Box>
+  )
+}
 
 
 /** Write fields to this radio's page snapshot and schedule the save. */
@@ -227,11 +261,11 @@ function StepMark({ state, label }: { state: CheckState; label: string }) {
   )
 }
 
-/** Widest a control in the trombone cards' control column gets. Every control
- *  fills the column up to this, so the pad, the speed choice, the key pairs
- *  and the Delta X field end on one edge in each card. */
-const FORM_CONTROL_W = 232
-const CONTROL_COL_SX = { width: '100%', maxWidth: FORM_CONTROL_W } as const
+/** Every control in the trombone cards fills the control column, so the pad,
+ *  the speed choice, the key pairs and the Delta X field end on one edge --
+ *  the card's own padding. They were capped at 232 px, which in a wide card
+ *  left a band of empty card to the right of every control. */
+const CONTROL_COL_SX = { width: '100%' } as const
 
 /** Narrowest a trombone card gets before the three stack into one column. */
 const TROMBONE_CARD_MIN = 280
@@ -408,19 +442,18 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   )
   // Held as text: a number field bound to a number cannot be cleared — the
   // moment it is empty the parse gives 0 and 0 is written straight back.
-  const [attMaxText, setAttMaxText] = useState<string>(
-    () => String(snap.attMaxDb ?? ATT_MAX_LIMIT_DB),
+  const [attStartText, setAttStartText] = useState<string>(
+    () => String(snap.attStartDb ?? 0),
   )
-  /** The typed ceiling, or null while the field is empty or out of range. */
-  const attMaxDb: number | null = (() => {
-    const t = attMaxText.trim()
-    if (t === '') return null
-    const n = Number(t)
-    if (!Number.isFinite(n) || n < 0 || n > ATT_MAX_LIMIT_DB) return null
-    return Math.round(n)
-  })()
+  const [attStopText, setAttStopText] = useState<string>(
+    () => String(snap.attStopDb ?? snap.attMaxDb ?? ATT_MAX_LIMIT_DB),
+  )
+  const attStartDb = parseAttDb(attStartText)
+  const attStopDb = parseAttDb(attStopText)
+  /** Both ends typed and in range -- what a sweep needs. */
+  const attRangeOk = attStartDb != null && attStopDb != null
 
-  // Text for the same reason as Att max: bound to a number, the field cannot
+  // Text for the same reason as the attenuator fields: bound to a number, the field cannot
   // be emptied — a blank parses to 0 and 0 is written straight back.
   const [settleText, setSettleText] = useState<string>(
     () => String(clampSettleMs(snap.settleMs ?? DEFAULT_SETTLE_MS)),
@@ -482,8 +515,11 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   useEffect(() => {
     // Only a usable value is persisted; a half-typed field is not worth
     // restoring on the next visit.
-    if (attMaxDb != null) { saveSnapshot(isLte, { attMaxDb }) }
-  }, [attMaxDb, isLte])
+    if (attStartDb != null) { saveSnapshot(isLte, { attStartDb }) }
+  }, [attStartDb, isLte])
+  useEffect(() => {
+    if (attStopDb != null) { saveSnapshot(isLte, { attStopDb }) }
+  }, [attStopDb, isLte])
   useEffect(() => {
     if (settleMs != null) { saveSnapshot(isLte, { settleMs }) }
   }, [settleMs, isLte])
@@ -610,10 +646,12 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     && powers.some((p) => p < 0 || p > LTE_MAX_POWER_DBM)
   // Attenuation is the outermost axis: it is set by hand, so the run does a
   // whole trombone cycle at one setting before asking for the next.
-  const attSteps: Array<number | null> = attEnabled && attMaxDb != null
+  // Start to stop in either direction, so a sweep can run down from the most
+  // attenuation as well as up from the least.
+  const attSteps: Array<number | null> = attEnabled && attRangeOk
     ? Array.from(
-        { length: Math.floor(attMaxDb / ATT_STEP_DB) + 1 },
-        (_v, i) => i * ATT_STEP_DB,
+        { length: Math.floor(Math.abs(attStopDb - attStartDb) / ATT_STEP_DB) + 1 },
+        (_v, i) => attStartDb + Math.sign(attStopDb - attStartDb) * i * ATT_STEP_DB,
       )
     : [null]
   const plan: PlanPoint[] = []
@@ -674,8 +712,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   if (powers.length === 0) blockers.push('enter at least one power')
   if (powersOutOfRange) blockers.push(`keep power within 0–${LTE_MAX_POWER_DBM} dBm`)
   if (settleMs == null) blockers.push(`set a settle of at least ${MIN_SETTLE_MS} ms`)
-  if (attEnabled && attMaxDb == null) {
-    blockers.push(`set the attenuator maximum (0–${ATT_MAX_LIMIT_DB} dB)`)
+  if (attEnabled && !attRangeOk) {
+    blockers.push(`set the attenuator start and stop (0–${ATT_MAX_LIMIT_DB} dB)`)
   }
   const canRun = blockers.length === 0 && !running
 
@@ -683,7 +721,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // section that settles them, so the rail says which part of a long page is
   // holding Run.
   const pointOk = freqs.length > 0 && powers.length > 0 && settleMs != null
-    && !(attEnabled && attMaxDb == null) && unresolvedChannels === 0 && !powersOutOfRange
+    && !(attEnabled && !attRangeOk) && unresolvedChannels === 0 && !powersOutOfRange
   const tromboneOk = zeroPulses != null && endPulses != null && deltaXmm > 0
   /** The first check still in the way, named on the Run button and the Run
    *  step. Same order as the rail. */
@@ -971,7 +1009,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     notify.notice(
       `${pageId}-imported`,
       'info',
-      active && importedName ? `${importedName} — imported rows, not a run of this rig` : null,
+      active && importedName ? `${importedName}: imported rows, not a run of this rig` : null,
       'Viewing a file',
     )
   }, [notify, active, importedName, pageId])
@@ -1151,7 +1189,10 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
             {/* The list syntax lives on the two fields that take it, rather
                 than as a line of its own under the grid. A wrapper because
                 LabeledField does not forward a ref for the tooltip. */}
-            <Tooltip title={isLte ? LTE_CHANNEL_SYNTAX : SPEC_SYNTAX} placement="top-start">
+            <Tooltip
+              title={<SpecTip examples={!isLte ? SPEC_EXAMPLES.mhz : channelUnit === 'earfcn' ? SPEC_EXAMPLES.earfcn : SPEC_EXAMPLES.lteMhz} />}
+              placement="top-start"
+            >
               <Box>
                 {/* LTE takes channels in the unit every LTE page reads (set on
                     the LTE CW page), resolved within its selected bands. */}
@@ -1165,7 +1206,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                 />
               </Box>
             </Tooltip>
-            <Tooltip title={SPEC_SYNTAX} placement="top-start">
+            <Tooltip title={<SpecTip examples={isLte ? SPEC_EXAMPLES.lteDbm : SPEC_EXAMPLES.dbm} />} placement="top-start">
               <Box>
                 <LabeledField
                   label="DUT power" hint="dBm" value={powerSpec}
@@ -1214,12 +1255,21 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               <MenuItem value={1}>Sweep</MenuItem>
             </LabeledField>
             <LabeledField
-              label="Att max" hint={`dB · 0–${ATT_MAX_LIMIT_DB}`}
-              type="number" value={attMaxText}
-              onChange={(e) => setAttMaxText(e.target.value)}
-              onBlur={() => setAttMaxText((t) => (attMaxDb == null ? t : String(attMaxDb)))}
+              label="Att start" hint={`dB · 0–${ATT_MAX_LIMIT_DB}`}
+              type="number" value={attStartText}
+              onChange={(e) => setAttStartText(e.target.value)}
+              onBlur={() => setAttStartText((t) => (attStartDb == null ? t : String(attStartDb)))}
               disabled={running || !attEnabled}
-              error={attEnabled && attMaxDb == null}
+              error={attEnabled && attStartDb == null}
+              inputProps={{ min: 0, max: ATT_MAX_LIMIT_DB, step: ATT_STEP_DB }}
+            />
+            <LabeledField
+              label="Att stop" hint={`dB · 0–${ATT_MAX_LIMIT_DB}`}
+              type="number" value={attStopText}
+              onChange={(e) => setAttStopText(e.target.value)}
+              onBlur={() => setAttStopText((t) => (attStopDb == null ? t : String(attStopDb)))}
+              disabled={running || !attEnabled}
+              error={attEnabled && attStopDb == null}
               inputProps={{ min: 0, max: ATT_MAX_LIMIT_DB, step: ATT_STEP_DB }}
             />
           </FieldGrid>
@@ -1235,7 +1285,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                 {positions.length} {positions.length === 1 ? 'position' : 'positions'}
                 {' × '}{freqs.length} {isLte ? (freqs.length === 1 ? 'channel' : 'channels') : (freqs.length === 1 ? 'freq' : 'freqs')}
                 {' × '}{powers.length} {powers.length === 1 ? 'power' : 'powers'}
-                {attEnabled && attMaxDb != null && (
+                {attEnabled && attRangeOk && (
                   <>{' × '}{attSteps.length} att ({ATT_STEP_DB} dB steps)</>
                 )}
               </>
@@ -1293,7 +1343,6 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               {/* Press-and-hold — focus it, then hold the arrow keys to run
                   the motor; release to stop. Mouse press-hold works too. */}
               <JogPad
-                width={CONTROL_COL_SX.maxWidth}
                 dir={jogDir}
                 focused={jogFocused}
                 disabled={!motorConnected || running}
@@ -1606,8 +1655,9 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         open={smithOpen}
         onClose={() => setSmithOpen(false)}
         results={results}
+        keepToolbar={running}
       />
-      <SetupDiagramModal open={setupOpen} onClose={() => setSetupOpen(false)} />
+      <SetupDiagramModal open={setupOpen} onClose={() => setSetupOpen(false)} keepToolbar={running} />
 
       {attPrompt.dialog}
       {preflight.dialog}

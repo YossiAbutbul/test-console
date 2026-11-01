@@ -170,7 +170,7 @@ export function useLteModem({ onFrame, pageId }: Options = {}): LteModem {
       if (!r.ok) {
         throw new Error(
           `modem on rejected (status ${r.status}). `
-          + 'It may already be on, or still running a test — power it off and on again.',
+          + 'It may already be on, or still running a test. Power it off and on again.',
         )
       }
     } finally {

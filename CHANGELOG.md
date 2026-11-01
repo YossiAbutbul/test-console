@@ -35,6 +35,9 @@ turns that heading into the version and date.
   after one sweep per step. The Run sheet records the source and settings.
 
 ### Fixed
+- Load Pull's Test setup and Smith chart dialogs dim the toolbar too, as any
+  dialog does. Only during a run do they stop below it, so E-STOP and Stop
+  stay reachable.
 - A persisted setting changed on one page reaches every other mounted page
   that reads it: switching the LTE channel unit on the CW page left LTE
   Modulated reading its channels in the old unit until a reload.
@@ -64,6 +67,17 @@ turns that heading into the version and date.
   answer from 172.16.10.1:5555 …") instead of a bare "timed out".
 
 ### Changed
+- No em dashes in toasts or tooltips (run-complete toast, import errors and
+  notices, meter info results, field validation, the Measurement card's
+  failure tooltip, the Mode Sweep chart). Empty-value dashes are unchanged.
+- Load Pull: the trombone cards' controls fill the card instead of stopping
+  at 232 px with empty card to their right.
+- Load Pull (LoRa and LTE): the attenuator sweep has Att start and Att stop
+  (0–20 dB, 1 dB steps, either direction) instead of an Att max that always
+  started at 0. A saved Att max carries over as the stop.
+- Load Pull's Frequency/Channel and DUT power tooltips are four short examples
+  (One, Range, Step, List) in the field's own unit instead of a sentence; the
+  LTE Channel's follow the EARFCN/MHz setting.
 - Mode Sweep's results table is a fixed 240 px, the same as Load Pull's
   (`RESULTS_H` in the UI kit), and the page scrolls when the cards above it
   do not fit, instead of squeezing the table.

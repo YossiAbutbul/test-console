@@ -121,7 +121,7 @@ export function parseLoadPullCsv(text: string): LoadPullImport {
   const missing = REQUIRED.filter((c) => !has(c))
   if (missing.length) {
     throw new Error(
-      `Not a Load Pull export — missing ${missing.join(', ')}. `
+      `Not a Load Pull export: missing ${missing.join(', ')}. `
       + `Found: ${header.join(', ')}`,
     )
   }

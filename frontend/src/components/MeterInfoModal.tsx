@@ -84,7 +84,7 @@ function summarize(
       parts.push(`The unit refused the app mode change (status ${am.status}).`)
       worsen('error')
     } else {
-      parts.push(`App mode ${am.label} sent, but the unit did not reply — it may have reset while applying it.`)
+      parts.push(`App mode ${am.label} sent, but the unit did not reply. It may have reset while applying it.`)
       worsen('warning')
     }
   }
@@ -93,7 +93,7 @@ function summarize(
   // because then the change silently will not persist.
   if (reset && !reset.ok) {
     if (reset.acknowledged) {
-      parts.push(`Save and reset was refused (status ${reset.status}) — the channel change will not persist.`)
+      parts.push(`Save and reset was refused (status ${reset.status}), so the channel change will not persist.`)
       worsen('error')
     } else {
       parts.push('Save and reset got no reply, so the channel change may not persist. Reconnect and re-read.')
@@ -102,7 +102,7 @@ function summarize(
   } else if (!reset && ch?.ok) {
     // Channels staged but never committed. Silence here would look like a
     // clean success and the unit would come back on the old channels.
-    parts.push('Not saved — the change will be lost on the next reset.')
+    parts.push('Not saved. The change will be lost on the next reset.')
     worsen('warning')
   }
 

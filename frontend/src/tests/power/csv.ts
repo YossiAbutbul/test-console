@@ -87,7 +87,7 @@ export function parsePowerCsv(text: string): AutomationResultRow[] {
   const missing = REQUIRED.filter((c) => !col.has(c))
   if (missing.length) {
     throw new Error(
-      `Not a TX CW export — missing ${missing.join(', ')}. `
+      `Not a TX CW export: missing ${missing.join(', ')}. `
       + `Found: ${header.join(', ')}`,
     )
   }

@@ -215,7 +215,7 @@ export function useActionReporter(
     succeeded: (detail) => {
       log(source, detail ? `${name} ok — ${detail}` : `${name} ok`)
       if (quietSuccess) {
-        notify.success(detail ? `${name} — ${detail}` : `${name} ok`)
+        notify.success(detail ? `${name}: ${detail}` : `${name} ok`)
         return
       }
       notify.complete({

@@ -207,7 +207,7 @@ export function MeasurementCard({
   const heading = (
     <Stack direction="row" alignItems="center" spacing={1}>
       {!isStatic && (
-        <Tooltip title={failure ? `${failure.title}${failure.hint ? ` — ${failure.hint}` : ''}` : ''}>
+        <Tooltip title={failure ? `${failure.title}${failure.hint ? `. ${failure.hint}` : ''}` : ''}>
           <Box
             aria-hidden={!failure}
             sx={{ display: 'flex', width: 18, color: p.data.warn, visibility: failure ? 'visible' : 'hidden' }}

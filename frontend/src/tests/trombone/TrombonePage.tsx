@@ -292,7 +292,7 @@ export function TrombonePage({ group }: TestPageProps) {
                         targetStr.trim() === ''
                           ? 'Enter a value'
                           : targetOutOfRange
-                            ? `Out of range — must be ${fmtMm(softMin)} … ${fmtMm(softMax)}`
+                            ? `Out of range: must be ${fmtMm(softMin)} … ${fmtMm(softMax)}`
                             : 'Invalid number'
                       }
                     />

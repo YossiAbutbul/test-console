@@ -199,7 +199,7 @@ def _close_quietly(*instruments: PowerMeter | CurrentMeter | None) -> None:
 async def start(req: StartRequest) -> RunStatus:
     device = manager.device
     if device is None:
-        raise HTTPException(status_code=409, detail="Device not ready — connect first")
+        raise HTTPException(status_code=409, detail="Device not ready. Connect first.")
 
     pm: PowerMeter | None = None
     cm: CurrentMeter | None = None

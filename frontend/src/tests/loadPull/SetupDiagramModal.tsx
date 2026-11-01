@@ -16,16 +16,23 @@ import { TOP_BAR_H } from '../../ui/tokens'
  * Imported rather than served from `public/`: Vite then fingerprints it, so a
  * changed diagram cannot be masked by a cached copy of the old one.
  */
-export function SetupDiagramModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function SetupDiagramModal({ open, onClose, keepToolbar }: {
+  open: boolean
+  onClose: () => void
+  /** Stop below the toolbar instead of covering it -- pass while a run is on. */
+  keepToolbar?: boolean
+}) {
   return (
     <Dialog
       open={open} onClose={onClose} maxWidth="lg" fullWidth
-      // Below the toolbar, scrim included: "View setup" stays live during a
-      // run, and a full-window scrim hid E-STOP and Stop behind it. Focus is
-      // not held inside either, so the keyboard can reach them too.
-      sx={{ top: TOP_BAR_H }}
-      disableEnforceFocus
-      slotProps={{ backdrop: { sx: { top: TOP_BAR_H } } }}
+      // Below the toolbar, scrim included, while a run is on: "View setup"
+      // stays live during one, and a full-window scrim hid E-STOP and Stop
+      // behind it. Focus is not held inside either, so the keyboard can reach
+      // them too. With no run the scrim covers the toolbar like any dialog --
+      // an undimmed strip read as the dialog having missed it.
+      sx={{ top: keepToolbar ? TOP_BAR_H : 0 }}
+      disableEnforceFocus={keepToolbar}
+      slotProps={{ backdrop: { sx: { top: keepToolbar ? TOP_BAR_H : 0 } } }}
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', py: 1.5 }}>
         <Stack direction="row" spacing={1.5} alignItems="baseline" sx={{ minWidth: 0 }}>

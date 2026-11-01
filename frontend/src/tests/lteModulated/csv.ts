@@ -82,7 +82,7 @@ export function parseLteModulatedCsv(text: string): LteModulatedResultRow[] {
   const missing = REQUIRED.filter((c) => !col.has(c))
   if (missing.length) {
     throw new Error(
-      `Not an LTE Modulated export — missing ${missing.join(', ')}. `
+      `Not an LTE Modulated export: missing ${missing.join(', ')}. `
       + `Found: ${header.join(', ')}`,
     )
   }

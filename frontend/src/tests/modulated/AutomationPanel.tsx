@@ -723,7 +723,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
                           endAdornment: (
                             <ValidationAdornment
                               show={shouldShowValidation(r.freq, !badFreq, focusKey === `${i}-freq`)}
-                              message={r.freq.trim() === '' ? 'Enter a value' : 'Invalid — e.g. 915 or 900-930'}
+                              message={r.freq.trim() === '' ? 'Enter a value' : 'Invalid. Try 915 or 900-930'}
                             />
                           ),
                         }}
@@ -742,7 +742,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
                           endAdornment: (
                             <ValidationAdornment
                               show={shouldShowValidation(r.power, !badPower, focusKey === `${i}-power`)}
-                              message="Invalid — e.g. 14 or 10-20"
+                              message="Invalid. Try 14 or 10-20"
                             />
                           ),
                         }}
@@ -821,7 +821,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
                           endAdornment: (
                             <ValidationAdornment
                               show={badMargin}
-                              message="A tolerance in dB, 0 or more — or blank for no verdict"
+                              message="A tolerance in dB, 0 or more, or blank for no verdict"
                             />
                           ),
                         }}

@@ -67,11 +67,13 @@ function Picker({
 }
 
 export function SmithChartModal({
-  open, onClose, results,
+  open, onClose, results, keepToolbar,
 }: {
   open: boolean
   onClose: () => void
   results: LoadPullResultRow[]
+  /** Stop below the toolbar instead of covering it -- pass while a run is on. */
+  keepToolbar?: boolean
 }) {
   // Grid, ink and ground come from the theme like every other chart, rather
   // than blue-grey values of the chart's own that read as a different product.
@@ -259,14 +261,16 @@ export function SmithChartModal({
   return (
     <Dialog
       open={open} onClose={onClose} maxWidth="lg" fullWidth
-      // Below the toolbar, scrim included: this can be opened mid-run, and a
-      // scrim over the whole window hid E-STOP and Stop behind it. Focus is
-      // not held inside either, so the keyboard can reach them too.
-      sx={{ top: TOP_BAR_H }}
-      disableEnforceFocus
+      // Below the toolbar, scrim included, while a run is on: a scrim over
+      // the whole window hid E-STOP and Stop behind it. Focus is not held
+      // inside either, so the keyboard can reach them too. With no run the
+      // scrim covers the toolbar like any dialog -- an undimmed strip read as
+      // the dialog having missed it.
+      sx={{ top: keepToolbar ? TOP_BAR_H : 0 }}
+      disableEnforceFocus={keepToolbar}
       slotProps={{
         paper: { sx: { height: '88vh' } },
-        backdrop: { sx: { top: TOP_BAR_H } },
+        backdrop: { sx: { top: keepToolbar ? TOP_BAR_H : 0 } },
       }}
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', py: 1.5 }}>

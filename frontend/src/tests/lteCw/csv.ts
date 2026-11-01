@@ -73,7 +73,7 @@ export function parseLteCwCsv(text: string): LteAutomationResultRow[] {
   const missing = REQUIRED.filter((c) => !col.has(c))
   if (missing.length) {
     throw new Error(
-      `Not an LTE CW export — missing ${missing.join(', ')}. `
+      `Not an LTE CW export: missing ${missing.join(', ')}. `
       + `Found: ${header.join(', ')}`,
     )
   }

@@ -67,7 +67,7 @@ const COPY: Record<ConnectErrorKind, { title: string; hint: string }> = {
   },
   unsupported: {
     title: 'Not supported yet',
-    hint: 'This instrument is a placeholder — it has no driver wired up.',
+    hint: 'This instrument is a placeholder with no driver wired up.',
   },
   rejected: {
     title: 'Rejected by the instrument',
@@ -165,7 +165,7 @@ export function describeMeasureError(error: unknown): MeasureFailure {
 
   const [causeRaw, ...adviceParts] = first.split(/\s+[—–]\s+/)
   const cause = causeRaw.trim()
-  const advice = adviceParts.join(' — ').trim() || undefined
+  const advice = adviceParts.join('. ').trim() || undefined
   const text = first.toLowerCase()
 
   if (text.includes('no signal')) {
