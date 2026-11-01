@@ -73,6 +73,12 @@ export interface LteModem {
    * parameters.
    */
   prepare: () => Promise<void>
+  /**
+   * Power the modem down and wait for it. For a run that owns the modem for
+   * its whole length (Load Pull) and hands it back off. Throws if the frame
+   * fails to go out; the belief moves to off either way, as for `toggle`.
+   */
+  powerOff: () => Promise<void>
   getRunning: () => LiveTest | null
   setRunning: (t: LiveTest | null) => void
   /** "Turning on modem" — rendered by the page, covers the ~10 s boot. */
@@ -203,18 +209,19 @@ export function useLteModem({ onFrame, pageId }: Options = {}): LteModem {
     setLive(null)
   }, [log, setLive, startModem])
 
+  const powerOff = useCallback(async () => {
+    const r = await device.lteModemOff()
+    onFrame?.(r)
+    log('DUT', `LTE modem off: ok=${r.ok} status=${r.status} · rx ${r.rx_hex}`)
+    // Recorded as off even on a non-zero status: the frame went out, and
+    // claiming it is still on would make the next Send skip a MODEM_ON it
+    // may well need.
+    setOn(false)
+    setLive(null)
+  }, [log, onFrame, setOn, setLive])
+
   const toggleM = useMutation({
-    mutationFn: async (next: boolean) => {
-      if (next) return startModem()
-      const r = await device.lteModemOff()
-      onFrame?.(r)
-      log('DUT', `LTE modem off: ok=${r.ok} status=${r.status} · rx ${r.rx_hex}`)
-      // Recorded as off even on a non-zero status: the frame went out, and
-      // claiming it is still on would make the next Send skip a MODEM_ON it
-      // may well need.
-      setOn(false)
-      setLive(null)
-    },
+    mutationFn: async (next: boolean) => (next ? startModem() : powerOff()),
     onError: (e: Error) => log('DUT', `LTE modem toggle failed: ${e.message}`, 'error'),
   })
 
@@ -244,6 +251,6 @@ export function useLteModem({ onFrame, pageId }: Options = {}): LteModem {
   ), [starting])
 
   return useMemo(() => ({
-    on, busy, toggle, cycle, prepare, getRunning, setRunning, dialog,
-  }), [on, busy, toggle, cycle, prepare, getRunning, setRunning, dialog])
+    on, busy, toggle, cycle, prepare, powerOff, getRunning, setRunning, dialog,
+  }), [on, busy, toggle, cycle, prepare, powerOff, getRunning, setRunning, dialog])
 }

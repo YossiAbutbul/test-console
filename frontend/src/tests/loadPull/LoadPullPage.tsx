@@ -50,8 +50,13 @@ import {
 import { useAppPalette } from '../../context/ThemeModeContext'
 import type { TestPageProps } from '../types'
 import {
-  loadPullPageSnapshot, persistLoadPullPage, type LoadPullResultRow,
+  loadPullPageSnapshot, lteLoadPullPageStore, persistLoadPullPage,
+  type LoadPullPageSnapshot, type LoadPullResultRow,
 } from '../../store/loadPullPageStore'
+import { useLteModem } from '../lte/useLteModem'
+import { useLteBands, useLteChannelUnit } from '../lte/channel'
+import { uplinkFromEarfcn, uplinkFromMhz } from '../../lib/earfcn'
+import type { LteCwRequest } from '../../types/models'
 import { SmithChartModal } from './SmithChartModal'
 import { runSequence } from '../engine/runSequence'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
@@ -89,10 +94,22 @@ const EST_POINT_OVERHEAD_MS = 500
 /** Budget for the motor travel, switching and measuring around the delays. */
 const STEP_OVERHEAD_TIMEOUT_MS = 90_000
 
+/**
+ * LTE: per-point CW duration, a backstop only. Each point is aborted as soon
+ * as it has measured; this just bounds a transmission whose abort was missed.
+ * Same figure and reasoning as the LTE CW sweep (CW_TIME_MS there).
+ */
+const LTE_CW_TIME_MS = 20_000
+/** The modem's ceiling; mirrors MAX_TX_POWER_DBM on the backend. */
+const LTE_MAX_POWER_DBM = 23
+/** The modem power-cycle at the start of an LTE run; see `useLteModem.cycle`. */
+const LTE_MODEM_RESTART_MS = 10_000
+
 const blankRow = (item: PlanPoint): LoadPullResultRow => ({
   pos_pulses: item.pos,
   pos_mm: mm(item.pos),
   freq_mhz: item.freqMhz,
+  ...(item.earfcn == null ? {} : { earfcn: item.earfcn }),
   power_dbm_setting: item.powerDbm,
   ...(item.attDb == null ? {} : { att_db: item.attDb }),
   power_dbm: null,
@@ -110,6 +127,8 @@ const mm = (p: number) => p / PULSES_PER_MM
 interface PlanPoint {
   pos: number
   freqMhz: number
+  /** LTE only: the channel sent to the modem; `freqMhz` is its uplink. */
+  earfcn?: number
   powerDbm: number
   /** Null when the run is not sweeping attenuation. */
   attDb: number | null
@@ -126,7 +145,20 @@ const DRIVE_H = 32
 
 /** What the Frequency and DUT power fields accept (see lib/numericList). */
 const SPEC_SYNTAX = 'One value "915", a range "900-930", a stepped range "900-930:5", or a list "902.3,915,927.5".'
+const LTE_CHANNEL_SYNTAX = 'One channel, a range "a-b", a stepped range "a-b:step", or a list "a,b,c" -- '
+  + 'EARFCNs or MHz, as set on the LTE CW page, within its selected bands.'
 
+
+/** Write fields to this radio's page snapshot and schedule the save. */
+function saveSnapshot(isLte: boolean, patch: Partial<LoadPullPageSnapshot>) {
+  if (isLte) {
+    Object.assign(lteLoadPullPageStore.snapshot, patch)
+    lteLoadPullPageStore.persist()
+  } else {
+    Object.assign(loadPullPageSnapshot, patch)
+    persistLoadPullPage()
+  }
+}
 
 /** Row label in the drive column, matching the bounds grid opposite it. */
 function DriveLabel({ children }: { children: React.ReactNode }) {
@@ -306,14 +338,34 @@ function BoundRow({
   )
 }
 
+/**
+ * The Load Pull test, for either radio.
+ *
+ * One page rather than a copy per protocol: the trombone, switch, VNA and
+ * measurement are the rig, and only the TX step differs -- a LoRa power
+ * command and stop, or an LTE CW START and ABORT on a modem the run brings up
+ * first. Each protocol keeps its own snapshot, since both pages stay mounted.
+ */
 export function LoadPullPage({ protocol, group, active }: TestPageProps) {
+  const isLte = protocol === 'LTE'
+  // Registry id, for the run pill and the modem's TX pill to navigate back to.
+  const pageId = isLte ? 'lte-load-pull' : 'load-pull'
+  // Prefix for the course's scroll targets. Both pages are mounted at once,
+  // so a shared DOM id would scroll whichever came first -- the hidden one.
+  const anchor = (id: string) => `${isLte ? 'llp' : 'lp'}-${id}`
+  const snap = isLte ? lteLoadPullPageStore.snapshot : loadPullPageSnapshot
+  const title = isLte ? 'LTE Load Pull' : 'Load Pull'
   const { log } = useLog()
   const notify = useNotify()
-  const reporter = useRunReporter('Load Pull', 'LoadPull')
+  const reporter = useRunReporter(title, 'LoadPull')
   const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
   const { lossAt, defaultDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
-  const hasBackend = protocol === 'LoRa'
+  const hasBackend = protocol === 'LoRa' || isLte
+  // Called on both pages (hooks cannot be conditional); only LTE's uses it.
+  const modem = useLteModem({ pageId: isLte ? pageId : undefined })
+  const [channelUnit] = useLteChannelUnit()
+  const [lteBands] = useLteBands()
 
   const ps = useInstrumentValue('power-sensor')
   const dc = useInstrumentValue('dc-analyzer')
@@ -336,24 +388,28 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const allReady = missingRig.length === 0 && dutConnected
   const missingCount = missingRig.length + (dutConnected ? 0 : 1)
 
-  const [paMode, setPaMode] = useState<number>(() => loadPullPageSnapshot.paMode ?? 2)
+  const [paMode, setPaMode] = useState<number>(() => snap.paMode ?? 2)
   // Clamped on read: a snapshot saved before the floor existed can hold a value
   // below it, and restoring one would quietly reintroduce the bad readings.
   // Sweep specs. Seeded from the old single values so an existing snapshot
   // keeps working and reads the same on first load.
+  // LTE seeds a band 2 channel, in the unit the LTE pages are reading in, and
+  // the modem's full power -- the LTE CW sweep's defaults.
   const [freqSpec, setFreqSpec] = useState<string>(
-    () => loadPullPageSnapshot.freqSpec ?? String(loadPullPageSnapshot.freqMhz ?? 902.3),
+    () => snap.freqSpec ?? (isLte
+      ? (channelUnit === 'earfcn' ? '18900' : '1880')
+      : String(snap.freqMhz ?? 902.3)),
   )
   const [powerSpec, setPowerSpec] = useState<string>(
-    () => loadPullPageSnapshot.powerSpec ?? String(loadPullPageSnapshot.powerDbm ?? 14),
+    () => snap.powerSpec ?? String(snap.powerDbm ?? (isLte ? LTE_MAX_POWER_DBM : 14)),
   )
   const [attEnabled, setAttEnabled] = useState<boolean>(
-    () => loadPullPageSnapshot.attEnabled ?? false,
+    () => snap.attEnabled ?? false,
   )
   // Held as text: a number field bound to a number cannot be cleared — the
   // moment it is empty the parse gives 0 and 0 is written straight back.
   const [attMaxText, setAttMaxText] = useState<string>(
-    () => String(loadPullPageSnapshot.attMaxDb ?? ATT_MAX_LIMIT_DB),
+    () => String(snap.attMaxDb ?? ATT_MAX_LIMIT_DB),
   )
   /** The typed ceiling, or null while the field is empty or out of range. */
   const attMaxDb: number | null = (() => {
@@ -367,7 +423,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // Text for the same reason as Att max: bound to a number, the field cannot
   // be emptied — a blank parses to 0 and 0 is written straight back.
   const [settleText, setSettleText] = useState<string>(
-    () => String(clampSettleMs(loadPullPageSnapshot.settleMs ?? DEFAULT_SETTLE_MS)),
+    () => String(clampSettleMs(snap.settleMs ?? DEFAULT_SETTLE_MS)),
   )
   /** The typed settle, or null while the field is empty or below the floor. */
   const settleMs: number | null = (() => {
@@ -380,21 +436,25 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   /** What the run and its timeouts actually use. The blocker below stops a run
    *  while `settleMs` is null, so the fallback never reaches the hardware. */
   const settleEffectiveMs = settleMs ?? DEFAULT_SETTLE_MS
-  const [deltaXmm, setDeltaXmm] = useState<number>(() => loadPullPageSnapshot.deltaXmm ?? 1)
-  const [jogSpeed, setJogSpeed] = useState<number>(() => loadPullPageSnapshot.jogSpeed ?? 800)
-  const [zeroPulses, setZeroPulses] = useState<number | null>(() => loadPullPageSnapshot.zeroPulses ?? null)
-  const [endPulses, setEndPulses] = useState<number | null>(() => loadPullPageSnapshot.endPulses ?? null)
+  const [deltaXmm, setDeltaXmm] = useState<number>(() => snap.deltaXmm ?? 1)
+  const [jogSpeed, setJogSpeed] = useState<number>(() => snap.jogSpeed ?? 800)
+  const [zeroPulses, setZeroPulses] = useState<number | null>(() => snap.zeroPulses ?? null)
+  const [endPulses, setEndPulses] = useState<number | null>(() => snap.endPulses ?? null)
   // Starts false every session on purpose: it asserts how the bench is
   // cabled *now*, which is the one precondition nothing here can verify.
   const [pathAck, setPathAck] = useState(false)
-  const [results, setResults] = useState<LoadPullResultRow[]>(() => loadPullPageSnapshot.results ?? [])
+  const [results, setResults] = useState<LoadPullResultRow[]>(() => snap.results ?? [])
   const [smithOpen, setSmithOpen] = useState(false)
   const [setupOpen, setSetupOpen] = useState(false)
 
   // Read live rather than from the snapshot: a Load Pull run is driven from
   // this page, so a question asked mid-run should see the rows already taken.
-  useChatSource('Load Pull', !!active, () => ({
-    title: `Load Pull results (freq ${freqSpec || '?'} MHz, power ${powerSpec || '?'} dBm, PA mode ${paMode})`,
+  /** What the Frequency field's values are, as written beside it. */
+  const freqUnit = isLte && channelUnit === 'earfcn' ? 'EARFCN' : 'MHz'
+  useChatSource(title, !!active, () => ({
+    title: isLte
+      ? `LTE Load Pull results (channel ${freqSpec || '?'} ${freqUnit}, power ${powerSpec || '?'} dBm, CW)`
+      : `Load Pull results (freq ${freqSpec || '?'} MHz, power ${powerSpec || '?'} dBm, PA mode ${paMode})`,
     // The table's own columns, in the table's own units. CC is milliamps on
     // screen and amps on the row, and VSWR is not on the row at all: it is
     // derived from S11 here exactly as the table derives it.
@@ -402,6 +462,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       '#': i + 1,
       'Pos (mm)': r.pos_mm,
       'Freq (MHz)': r.freq_mhz ?? null,
+      ...(isLte ? { EARFCN: r.earfcn ?? null } : {}),
       'Set (dBm)': r.power_dbm_setting ?? null,
       'Att (dB)': r.att_db ?? null,
       'Power (dBm)': r.power_dbm,
@@ -414,23 +475,23 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     })),
   }))
 
-  useEffect(() => { loadPullPageSnapshot.paMode = paMode; persistLoadPullPage() }, [paMode])
-  useEffect(() => { loadPullPageSnapshot.freqSpec = freqSpec; persistLoadPullPage() }, [freqSpec])
-  useEffect(() => { loadPullPageSnapshot.powerSpec = powerSpec; persistLoadPullPage() }, [powerSpec])
-  useEffect(() => { loadPullPageSnapshot.attEnabled = attEnabled; persistLoadPullPage() }, [attEnabled])
+  useEffect(() => { saveSnapshot(isLte, { paMode }) }, [paMode, isLte])
+  useEffect(() => { saveSnapshot(isLte, { freqSpec }) }, [freqSpec, isLte])
+  useEffect(() => { saveSnapshot(isLte, { powerSpec }) }, [powerSpec, isLte])
+  useEffect(() => { saveSnapshot(isLte, { attEnabled }) }, [attEnabled, isLte])
   useEffect(() => {
     // Only a usable value is persisted; a half-typed field is not worth
     // restoring on the next visit.
-    if (attMaxDb != null) { loadPullPageSnapshot.attMaxDb = attMaxDb; persistLoadPullPage() }
-  }, [attMaxDb])
+    if (attMaxDb != null) { saveSnapshot(isLte, { attMaxDb }) }
+  }, [attMaxDb, isLte])
   useEffect(() => {
-    if (settleMs != null) { loadPullPageSnapshot.settleMs = settleMs; persistLoadPullPage() }
-  }, [settleMs])
-  useEffect(() => { loadPullPageSnapshot.deltaXmm = deltaXmm; persistLoadPullPage() }, [deltaXmm])
-  useEffect(() => { loadPullPageSnapshot.jogSpeed = jogSpeed; persistLoadPullPage() }, [jogSpeed])
-  useEffect(() => { loadPullPageSnapshot.zeroPulses = zeroPulses; persistLoadPullPage() }, [zeroPulses])
-  useEffect(() => { loadPullPageSnapshot.endPulses = endPulses; persistLoadPullPage() }, [endPulses])
-  useEffect(() => { loadPullPageSnapshot.results = results; persistLoadPullPage() }, [results])
+    if (settleMs != null) { saveSnapshot(isLte, { settleMs }) }
+  }, [settleMs, isLte])
+  useEffect(() => { saveSnapshot(isLte, { deltaXmm }) }, [deltaXmm, isLte])
+  useEffect(() => { saveSnapshot(isLte, { jogSpeed }) }, [jogSpeed, isLte])
+  useEffect(() => { saveSnapshot(isLte, { zeroPulses }) }, [zeroPulses, isLte])
+  useEffect(() => { saveSnapshot(isLte, { endPulses }) }, [endPulses, isLte])
+  useEffect(() => { saveSnapshot(isLte, { results }) }, [results, isLte])
 
   // One frequency per run, so the correction is decided once.
 
@@ -523,8 +584,30 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // cost nothing by comparison.
   const deltaPulses = Math.max(1, Math.round(deltaXmm * PULSES_PER_MM))
   const positions = deltaXmm <= 0 ? [] : planPositions(zeroPulses, endPulses, deltaPulses)
-  const freqs = parseRangeSpec(freqSpec).filter((f) => f > 0)
+  // LTE reads the field as channels, in the LTE pages' shared unit, and
+  // resolves each to its uplink frequency -- which is what the VNA marker, the
+  // sensor's calibration and the path loss are all keyed by. A value that
+  // resolves to no band, or (in MHz) to more than one selected band, is not
+  // guessed at: it is counted and blocks the run, as on the LTE CW sweep.
+  const specValues = parseRangeSpec(freqSpec)
+  const channels: Array<{ freqMhz: number; earfcn?: number }> = isLte
+    ? specValues.flatMap((v) => {
+        if (channelUnit === 'earfcn') {
+          if (!Number.isInteger(v) || v < 0) return []
+          const ch = uplinkFromEarfcn(v)
+          return ch ? [{ freqMhz: ch.freqHz / 1e6, earfcn: v }] : []
+        }
+        const hits = uplinkFromMhz(v, lteBands)
+        return hits.length === 1 ? [{ freqMhz: hits[0].freqHz / 1e6, earfcn: hits[0].earfcn }] : []
+      })
+    : specValues.filter((f) => f > 0).map((f) => ({ freqMhz: f }))
+  const unresolvedChannels = isLte ? specValues.length - channels.length : 0
+  const freqs = channels.map((c) => c.freqMhz)
   const powers = parseRangeSpec(powerSpec)
+  // The modem takes 0-23 dBm and refuses anything else, so an out-of-range
+  // power is a setup error here rather than forty failed rows.
+  const powersOutOfRange = isLte
+    && powers.some((p) => p < 0 || p > LTE_MAX_POWER_DBM)
   // Attenuation is the outermost axis: it is set by hand, so the run does a
   // whole trombone cycle at one setting before asking for the next.
   const attSteps: Array<number | null> = attEnabled && attMaxDb != null
@@ -536,8 +619,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const plan: PlanPoint[] = []
   for (const attDb of attSteps) {
     for (const pos of positions) {
-      for (const f of freqs) {
-        for (const pw of powers) plan.push({ pos, freqMhz: f, powerDbm: pw, attDb })
+      for (const { freqMhz, earfcn } of channels) {
+        for (const pw of powers) plan.push({ pos, freqMhz, earfcn, powerDbm: pw, attDb })
       }
     }
   }
@@ -548,7 +631,9 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const estimatedRunMs = estimateRunMs(
     totalPoints,
     settleEffectiveMs + EST_POINT_OVERHEAD_MS,
-    positionVisits * (2 * settleEffectiveMs + EST_POSITION_OVERHEAD_MS),
+    positionVisits * (2 * settleEffectiveMs + EST_POSITION_OVERHEAD_MS)
+      // An LTE run power-cycles the modem once before its first point.
+      + (isLte && totalPoints > 0 ? LTE_MODEM_RESTART_MS : 0),
   )
   // runSequence reports the 1-based point in hand.
   const completedPoints = Math.max(0, progressIdx - 1)
@@ -557,11 +642,11 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   })
   // A "Run" pill in the top bar, visible from every page while this runs:
   // it moves the trombone and keys the DUT. The id is this page's registry id.
-  usePublishLiveOutput('run:load-pull', running ? {
+  usePublishLiveOutput(`run:${pageId}`, running ? {
     kind: 'run',
     label: 'Run',
-    detail: `Load Pull ${progressIdx}/${totalPoints}`,
-    pageId: 'load-pull',
+    detail: `${title} ${progressIdx}/${totalPoints}`,
+    pageId,
   } : null)
 
   // Calibration across the whole plan is shown on the page's Path loss check
@@ -582,8 +667,12 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   if (zeroPulses == null) blockers.push('capture the zero position')
   if (endPulses == null) blockers.push('capture the end position')
   if (deltaXmm <= 0) blockers.push('set Delta X above 0')
-  if (freqs.length === 0) blockers.push('enter at least one frequency')
+  if (freqs.length === 0) blockers.push(isLte ? 'enter at least one channel' : 'enter at least one frequency')
+  if (unresolvedChannels > 0) {
+    blockers.push(`${unresolvedChannels} channel${unresolvedChannels === 1 ? '' : 's'} not in the selected bands`)
+  }
   if (powers.length === 0) blockers.push('enter at least one power')
+  if (powersOutOfRange) blockers.push(`keep power within 0–${LTE_MAX_POWER_DBM} dBm`)
   if (settleMs == null) blockers.push(`set a settle of at least ${MIN_SETTLE_MS} ms`)
   if (attEnabled && attMaxDb == null) {
     blockers.push(`set the attenuator maximum (0–${ATT_MAX_LIMIT_DB} dB)`)
@@ -594,7 +683,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // section that settles them, so the rail says which part of a long page is
   // holding Run.
   const pointOk = freqs.length > 0 && powers.length > 0 && settleMs != null
-    && !(attEnabled && attMaxDb == null)
+    && !(attEnabled && attMaxDb == null) && unresolvedChannels === 0 && !powersOutOfRange
   const tromboneOk = zeroPulses != null && endPulses != null && deltaXmm > 0
   /** The first check still in the way, named on the Run button and the Run
    *  step. Same order as the rail. */
@@ -610,23 +699,26 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       label: 'Instruments',
       state: missingRig.length ? 'block' : 'ok',
       summary: missingRig.length ? `${missingRig.length} not connected` : 'all ready',
-      targetId: 'lp-instruments',
+      targetId: anchor('instruments'),
     },
     {
       id: 'rf-path',
       label: 'RF path',
       state: pathAck ? 'ok' : 'block',
       summary: pathAck ? 'confirmed' : 'not confirmed',
-      targetId: 'lp-rf-path',
+      targetId: anchor('rf-path'),
     },
     {
       id: 'test-point',
       label: 'Test point',
       state: pointOk ? 'ok' : 'block',
       summary: pointOk
-        ? `${freqs.length} freq × ${powers.length} power`
-        : freqs.length === 0 ? 'no frequency' : powers.length === 0 ? 'no power' : 'settle or attenuator',
-      targetId: 'lp-test-point',
+        ? `${freqs.length} ${isLte ? 'channel' : 'freq'} × ${powers.length} power`
+        : freqs.length === 0 ? (isLte ? 'no channel' : 'no frequency')
+          : unresolvedChannels > 0 ? 'channel not in bands'
+            : powers.length === 0 ? 'no power'
+              : powersOutOfRange ? 'power out of range' : 'settle or attenuator',
+      targetId: anchor('test-point'),
     },
     {
       id: 'trombone',
@@ -635,9 +727,60 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       summary: tromboneOk
         ? `${totalPoints} points`
         : zeroPulses == null || endPulses == null ? 'capture Zero and End' : 'set Delta X',
-      targetId: 'lp-trombone',
+      targetId: anchor('trombone'),
     },
   ]
+
+  /** The LTE CW frame for a point: at the channel centre, as on the CW sweep. */
+  const lteParams = (item: PlanPoint): LteCwRequest => ({
+    earfcn: item.earfcn ?? 0,
+    time_ms: LTE_CW_TIME_MS,
+    tx_power_dbm: item.powerDbm,
+    offset_hz: 0,
+  })
+
+  /**
+   * Key the DUT for one point -- the only step that differs by radio.
+   *
+   * LTE records the test as live on the modem, so Stop, E-Stop and the top
+   * bar's TX pill can abort it with the parameters it was started with.
+   */
+  const txOn = async (item: PlanPoint, freqHz: number, signal: AbortSignal) => {
+    if (!isLte) {
+      return device.loraPower(
+        { freq_hz: freqHz, power_dbm: item.powerDbm, pa_mode: paMode },
+        { signal },
+      )
+    }
+    const params = lteParams(item)
+    const tx = await device.lteCw({ ...params, start: true }, { signal })
+    if (tx.ok) modem.setRunning({ label: 'CW', abort: () => device.lteCw({ ...params, start: false }) })
+    return tx
+  }
+
+  /**
+   * Un-key after a point, on success and failure alike. Never throws.
+   *
+   * On LTE this is not tidiness: the modem takes one test at a time and drops
+   * a START that arrives while another runs, so a point left un-aborted would
+   * have every later point silently measure its channel.
+   */
+  const txOff = async (item: PlanPoint) => {
+    try {
+      if (!isLte) { await device.stop(); return }
+      await device.lteCw({ ...lteParams(item), start: false })
+      modem.setRunning(null)
+    } catch { /* the end-of-run stop tries again */ }
+  }
+
+  /** Abort whatever the page last keyed, wherever the run is. Never throws. */
+  const stopTx = async () => {
+    if (!isLte) { try { await device.stop() } catch { /* ignore */ } return }
+    const live = modem.getRunning()
+    if (!live) return
+    try { await live.abort() } catch { /* ignore */ }
+    modem.setRunning(null)
+  }
 
   // One plan point. The trombone moves only when the position changes, and the
   // VNA is read once per position for every frequency in the plan — both are
@@ -687,10 +830,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       }
 
       // 4. TX on at this frequency and power
-      const tx = await device.loraPower(
-        { freq_hz: freqHz, power_dbm: item.powerDbm, pa_mode: paMode },
-        { signal },
-      )
+      const tx = await txOn(item, freqHz, signal)
       if (!tx.ok) {
         row.error = (row.error ? row.error + '; ' : '') + `tx status=${tx.status}`
       } else {
@@ -707,11 +847,11 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         if (meas.error) row.error = (row.error ? row.error + '; ' : '') + meas.error
       }
       // 6. TX off
-      try { await device.stop() } catch { /* ignore */ }
+      await txOff(item)
     } catch (e) {
       // A cancelled request is the operator stopping, not a measurement fault.
       if (!signal.aborted) row.error = (e as Error).message
-      try { await device.stop() } catch { /* ignore */ }
+      await txOff(item)
     }
     return row
   }
@@ -786,16 +926,35 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           before: async () => {
             try { await vna.setMarkers(freqs.map((f) => Math.round(f * 1_000_000))) }
             catch (e) { reporter.note(`setMarkers failed: ${(e as Error).message}`, 'warn') }
+            // Once per run, as on the LTE CW sweep: down and up again, so the
+            // run starts from a known modem with nothing left running on it.
+            // A modem that will not come up fails the run here, before the
+            // trombone has moved.
+            if (isLte) {
+              reporter.note('restarting the modem')
+              await modem.cycle()
+            }
           },
           beforeItem,
           measure: (item) => measurePoint(item),
-          after: async () => { try { await device.stop() } catch { /* ignore */ } },
+          // TX off only; an LTE run powers the modem down in `finally` below.
+          after: stopTx,
           rowHasError: (r) => !!r.error,
           onRows: setResults,
           onProgress: setProgressIdx,
           reporter,
         })
       } finally {
+        // LTE: the run owns the modem from its first point to its last, so it
+        // hands it back off once every cycle is done -- or the run was stopped
+        // or failed, including a modem that never came up. Here rather than
+        // in `after`, which a failed start skips. A refusal is most likely a
+        // modem that was already down, which is where this was going.
+        if (isLte) {
+          try { await modem.powerOff() } catch (e) {
+            reporter.note(`modem off failed: ${(e as Error).message}`, 'warn')
+          }
+        }
         if (runTimesRef.current) runTimesRef.current.finished_at = Date.now() / 1000
         setRunning(false)
       }
@@ -810,19 +969,22 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
 
   useEffect(() => {
     notify.notice(
-      'loadpull-imported',
+      `${pageId}-imported`,
       'info',
       active && importedName ? `${importedName} — imported rows, not a run of this rig` : null,
       'Viewing a file',
     )
-  }, [notify, active, importedName])
+  }, [notify, active, importedName, pageId])
 
   const exportXlsx = useMutation({
     mutationFn: () => loadPullApi.exportXlsx(results, {
-      freq_spec: freqSpec,
+      radio: protocol,
+      // An LTE spec is channels, so the unit goes with it; the per-frequency
+      // sheets and path loss below are by uplink MHz either way.
+      freq_spec: isLte ? `${freqSpec} (${freqUnit})` : freqSpec,
       power_spec: powerSpec,
       settle_ms: settleEffectiveMs,
-      pa_mode: paMode,
+      ...(isLte ? {} : { pa_mode: paMode }),
       delta_x_mm: deltaXmm,
       zero_pulses: zeroPulses,
       end_pulses: endPulses,
@@ -853,7 +1015,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     // sit there after the abort.
     attPrompt.cancel()
     abortRef.current.abort()
-    void device.stop().catch(() => { /* ignore */ })
+    void stopTx()
     void motor.stop().catch(() => { /* ignore */ })
   }
 
@@ -873,7 +1035,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     })
     abortRef.current.abort()
     stopJog()
-    void device.stop().catch(() => { /* ignore */ })
+    void stopTx()
     log('Motor', 'EMERGENCY STOP — run aborted, motor halted', 'error')
   }
 
@@ -920,7 +1082,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         <TwoCol stretch>
           <Section
             title="Connections"
-            anchorId="lp-instruments"
+            anchorId={anchor('instruments')}
             panel
             action={
               <StepMark
@@ -945,7 +1107,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
 
           <Section
             title="RF path"
-            anchorId="lp-rf-path"
+            anchorId={anchor('rf-path')}
             panel
             action={
               <StepMark state={pathAck ? 'ok' : 'block'} label={pathAck ? 'confirmed' : 'not confirmed'} />
@@ -984,19 +1146,22 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           </Section>
         </TwoCol>
 
-        <Section title="Test point" anchorId="lp-test-point" panel>
+        <Section title="Test point" anchorId={anchor('test-point')} panel>
           <FieldGrid columns={4}>
             {/* The list syntax lives on the two fields that take it, rather
                 than as a line of its own under the grid. A wrapper because
                 LabeledField does not forward a ref for the tooltip. */}
-            <Tooltip title={SPEC_SYNTAX} placement="top-start">
+            <Tooltip title={isLte ? LTE_CHANNEL_SYNTAX : SPEC_SYNTAX} placement="top-start">
               <Box>
+                {/* LTE takes channels in the unit every LTE page reads (set on
+                    the LTE CW page), resolved within its selected bands. */}
                 <LabeledField
-                  label="Frequency" hint="MHz" value={freqSpec}
+                  label={isLte ? 'Channel' : 'Frequency'} hint={freqUnit} value={freqSpec}
                   onChange={(e) => setFreqSpec(e.target.value)}
                   disabled={running}
-                  error={freqSpec.trim() !== '' && freqs.length === 0}
-                  placeholder="915, 900-930:5 or 902.3,915"
+                  error={freqSpec.trim() !== '' && (freqs.length === 0 || unresolvedChannels > 0)}
+                  placeholder={!isLte ? '915, 900-930:5 or 902.3,915'
+                    : channelUnit === 'earfcn' ? '18900 or 18700-19100:100' : '1880 or 1860-1900:10'}
                 />
               </Box>
             </Tooltip>
@@ -1006,20 +1171,23 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                   label="DUT power" hint="dBm" value={powerSpec}
                   onChange={(e) => setPowerSpec(e.target.value)}
                   disabled={running}
-                  error={powerSpec.trim() !== '' && powers.length === 0}
-                  placeholder="14 or 10-20:2"
+                  error={powerSpec.trim() !== '' && (powers.length === 0 || powersOutOfRange)}
+                  placeholder={isLte ? '23 or 10-23:1' : '14 or 10-20:2'}
                 />
               </Box>
             </Tooltip>
-            <LabeledField
-              label="PA mode" select value={paMode}
-              onChange={(e) => setPaMode(Number(e.target.value))}
-              disabled={running}
-            >
-              <MenuItem value={2}>Auto</MenuItem>
-              <MenuItem value={1}>On</MenuItem>
-              <MenuItem value={0}>Off</MenuItem>
-            </LabeledField>
+            {/* LoRa's PA selection. The LTE modem has no such setting. */}
+            {!isLte && (
+              <LabeledField
+                label="PA mode" select value={paMode}
+                onChange={(e) => setPaMode(Number(e.target.value))}
+                disabled={running}
+              >
+                <MenuItem value={2}>Auto</MenuItem>
+                <MenuItem value={1}>On</MenuItem>
+                <MenuItem value={0}>Off</MenuItem>
+              </LabeledField>
+            )}
             <LabeledField
               label="Settle" hint={`ms · min ${MIN_SETTLE_MS}`} type="number" value={settleText}
               onChange={(e) => setSettleText(e.target.value)}
@@ -1065,7 +1233,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
             {positions.length > 0 && freqs.length > 0 && powers.length > 0 ? (
               <>
                 {positions.length} {positions.length === 1 ? 'position' : 'positions'}
-                {' × '}{freqs.length} {freqs.length === 1 ? 'freq' : 'freqs'}
+                {' × '}{freqs.length} {isLte ? (freqs.length === 1 ? 'channel' : 'channels') : (freqs.length === 1 ? 'freq' : 'freqs')}
                 {' × '}{powers.length} {powers.length === 1 ? 'power' : 'powers'}
                 {attEnabled && attMaxDb != null && (
                   <>{' × '}{attSteps.length} att ({ATT_STEP_DB} dB steps)</>
@@ -1084,7 +1252,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         <Box sx={TROMBONE_ROW_SX}>
           <Section
             title="Move trombone"
-            anchorId="lp-trombone"
+            anchorId={anchor('trombone')}
             panel
             action={
               <Stack direction="row" alignItems="center" spacing={1.5}>
@@ -1259,7 +1427,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
 
         <Section
           title="Results"
-          anchorId="lp-results"
+          anchorId={anchor('results')}
           panel
           action={
             <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
@@ -1443,6 +1611,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
 
       {attPrompt.dialog}
       {preflight.dialog}
+      {isLte && modem.dialog}
     </Box>
   )
 }

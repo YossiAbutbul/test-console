@@ -18,6 +18,9 @@ class LoadPullRow(BaseModel):
     #: and on CSVs exported then. Those land in "All" and in an "Unspecified"
     #: sheet rather than being dropped.
     freq_mhz: Optional[float] = None
+    #: LTE runs only: the channel sent. `freq_mhz` is its uplink frequency,
+    #: which is what the sheets are grouped by.
+    earfcn: Optional[int] = None
     power_dbm_setting: Optional[float] = None
     #: Manual attenuator on the trombone's second output. Absent when the run
     #: did not sweep it.
@@ -50,6 +53,9 @@ class LoadPullMeta(BaseModel):
     rather than what came back, and a file without them cannot say which path
     loss produced its numbers or how long the PA was left to settle.
     """
+    #: Which radio keyed the DUT, "LoRa" or "LTE". Absent from clients that
+    #: predate LTE Load Pull, which were all LoRa.
+    radio: Optional[str] = None
     freq_spec: Optional[str] = None
     power_spec: Optional[str] = None
     settle_ms: Optional[int] = None

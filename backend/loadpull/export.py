@@ -258,7 +258,9 @@ def _write_run_sheet(ws: Worksheet, meta: LoadPullMeta, rows: list[LoadPullRow])
 
     entries: list[tuple[str, Any]] = [
         ("Points", len(rows)),
-        ("Frequencies", meta.freq_spec or "—"),
+        ("Radio", meta.radio or "—"),
+        # An LTE spec is channels, and carries its unit ("18900 (EARFCN)").
+        ("Channels" if meta.radio == "LTE" else "Frequencies", meta.freq_spec or "—"),
         ("Powers", meta.power_spec or "—"),
         ("PA mode", f"{_PA_MODE_NAMES.get(meta.pa_mode, '?')} ({meta.pa_mode})"
                     if meta.pa_mode is not None else "—"),

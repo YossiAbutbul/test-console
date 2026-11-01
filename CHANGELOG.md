@@ -11,6 +11,13 @@ turns that heading into the version and date.
 ## [Unreleased]
 
 ### Added
+- LTE Load Pull Test (LTE → Load Pull Test): the Load Pull run keyed with LTE
+  CW instead of LoRa. Channels in the LTE pages' unit (EARFCN or MHz, within
+  the selected bands), 0–23 dBm, no PA mode. The modem is turned on at the
+  start of the run (off, then on) and off once every cycle is done, or the
+  run is stopped or fails; each point is a CW START, settle, read and ABORT. Same page as
+  LoRa's with its own saved settings. The workbook's Run sheet names the
+  radio, and LTE files are named `…_lte-load-pull_…`.
 - `scripts/publish-release.ps1` creates the GitHub Release page from the
   changelog; `release.ps1 -Push` runs it, and `-Bundle` attaches the
   DUT-only zip.
@@ -28,6 +35,9 @@ turns that heading into the version and date.
   after one sweep per step. The Run sheet records the source and settings.
 
 ### Fixed
+- A persisted setting changed on one page reaches every other mounted page
+  that reads it: switching the LTE channel unit on the CW page left LTE
+  Modulated reading its channels in the old unit until a reload.
 - A scrolling page (Mode Sweep, Load Pull, Spectrum Analyzer) keeps its scrollbar's lane even
   when nothing overflows, so the cards no longer narrow by 10 px and shift
   the moment content is added (e.g. choosing Spectrum analyzer).

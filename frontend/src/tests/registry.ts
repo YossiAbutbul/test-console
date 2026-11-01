@@ -5,6 +5,7 @@ import { powerModule } from './power/module'
 import { powerSweepModule } from './powerSweep/module'
 import { modulatedModule } from './modulated/module'
 import { loadPullModule } from './loadPull/module'
+import { lteLoadPullModule } from './loadPull/lteModule'
 import { tromboneModule } from './trombone/module'
 import { switchModule } from './switch/module'
 import { networkAnalyzerModule } from './networkAnalyzer/module'
@@ -20,6 +21,7 @@ export const testRegistry: TestModule[] = [
   cwDebugModule,
   lteCwModule,
   lteModulatedModule,
+  lteLoadPullModule,
   powerSweepModule,
   loadPullModule,
   tromboneModule,

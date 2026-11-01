@@ -30,6 +30,15 @@ export const storage = {
   },
 }
 
+/**
+ * Every mounted hook per key, so a change made through one reaches the rest.
+ *
+ * Pages stay mounted, so two of them reading one setting each held a copy
+ * read at mount: switching the LTE channel unit on the CW page left the other
+ * LTE pages reading their fields in the old unit until a reload.
+ */
+const peers = new Map<StorageKey, Set<(v: unknown) => void>>()
+
 export function usePersistedState<T>(
   key: StorageKey,
   initial: T,
@@ -38,9 +47,20 @@ export function usePersistedState<T>(
   const firstRun = useRef(true)
 
   useEffect(() => {
+    const set = peers.get(key) ?? new Set()
+    peers.set(key, set)
+    const peer = (v: unknown) => setValue(v as T)
+    set.add(peer)
+    return () => { set.delete(peer) }
+  }, [key])
+
+  useEffect(() => {
     // Skip the first effect: state already initialised from storage.
     if (firstRun.current) { firstRun.current = false; return }
     storage.set(key, value)
+    // The same reference goes to every peer, so the echo each one sends back
+    // is a no-op state update rather than a loop.
+    peers.get(key)?.forEach((p) => p(value))
   }, [key, value])
 
   const update = useCallback((next: T | ((prev: T) => T)) => {

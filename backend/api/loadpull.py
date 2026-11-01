@@ -33,8 +33,10 @@ XLSX_MEDIA_TYPE = (
 MAX_ROWS = 100_000
 
 
-#: The test slug in export filenames -- see `export_filename`.
+#: The test slug in export filenames -- see `export_filename`. LTE runs get
+#: their own, so the two radios' files do not read as one test.
 EXPORT_SLUG = "load-pull"
+LTE_EXPORT_SLUG = "lte-load-pull"
 
 
 def _with_rig(meta: LoadPullMeta | None) -> LoadPullMeta:
@@ -78,7 +80,8 @@ async def export(req: LoadPullExportRequest) -> Response:
         # openpyxl rendering is CPU-bound and grows with the row count.
         data = await asyncio.to_thread(build_workbook, req.rows, meta)
 
-    filename = export_filename(meta.dut_mac if meta else manager.status().address, EXPORT_SLUG, "xlsx")
+    slug = LTE_EXPORT_SLUG if meta is not None and meta.radio == "LTE" else EXPORT_SLUG
+    filename = export_filename(meta.dut_mac if meta else manager.status().address, slug, "xlsx")
     return Response(
         content=data,
         media_type=XLSX_MEDIA_TYPE,

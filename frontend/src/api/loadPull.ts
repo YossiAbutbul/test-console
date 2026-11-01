@@ -3,6 +3,8 @@ import type { LoadPullResultRow } from '../store/loadPullPageStore'
 
 /** Run parameters for the workbook's Run sheet — none of it is in the rows. */
 export interface LoadPullExportMeta {
+  /** Which radio keyed the DUT: 'LoRa' or 'LTE'. Absent from older clients. */
+  radio?: string
   freq_spec?: string
   power_spec?: string
   settle_ms?: number

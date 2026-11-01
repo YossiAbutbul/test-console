@@ -21,6 +21,9 @@ export const STORAGE_KEYS = {
   lteBands: 'lte-bands-v1',
   lteChannelUnit: 'lte-channel-unit-v1',
   loadPullPage: 'load-pull-page-snapshot-v1',
+  // Its own snapshot, not the LoRa one: the two pages are mounted together,
+  // and a channel spec typed in EARFCNs is not a LoRa frequency.
+  lteLoadPullPage: 'lte-load-pull-page-snapshot-v1',
   // v2: the continuous interval's default moved from 1000 ms to 400 ms, and a
   // stored v1 value would have shadowed it forever -- a default only applies
   // when nothing is saved.

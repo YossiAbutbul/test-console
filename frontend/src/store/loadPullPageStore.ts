@@ -18,6 +18,8 @@ export interface LoadPullResultRow {
    * run's single frequency in the file header instead of on the row.
    */
   freq_mhz?: number
+  /** LTE only: the channel that was sent. `freq_mhz` is its uplink frequency. */
+  earfcn?: number
   power_dbm_setting?: number
   /**
    * Attenuator setting the point was taken at, in dB.
@@ -72,3 +74,9 @@ const store = makePageStore<LoadPullPageSnapshot>(STORAGE_KEYS.loadPullPage, {})
 export const loadPullPageSnapshot = store.snapshot
 export const persistLoadPullPage = store.persist
 export const flushLoadPullPage = store.flush
+
+/**
+ * The LTE Load Pull page's snapshot. Same shape; `freqSpec` holds channels in
+ * whichever unit the LTE pages read (EARFCN or MHz), and `paMode` is unused.
+ */
+export const lteLoadPullPageStore = makePageStore<LoadPullPageSnapshot>(STORAGE_KEYS.lteLoadPullPage, {})

@@ -222,6 +222,14 @@ class TestRunSheet:
         # A timestamp, not a placeholder.
         assert len(str(pairs["Exported"])) == len("2026-08-11 10:41:13")
 
+    def test_an_lte_run_names_its_radio_and_channels(self) -> None:
+        meta = LoadPullMeta(radio="LTE", freq_spec="18900 (EARFCN)", power_spec="23")
+        wb = load_workbook(BytesIO(build_workbook([row(0, 1880, 23)], meta)))
+        pairs = {r[0]: r[1] for r in wb["Run"].iter_rows(min_row=2, values_only=True) if r[0]}
+        assert pairs["Radio"] == "LTE"
+        assert pairs["Channels"] == "18900 (EARFCN)"
+        assert "Frequencies" not in pairs
+
     def test_an_uncalibrated_path_loss_says_so(self) -> None:
         meta = LoadPullMeta(path_loss_points=[
             PathLossPoint(freq_mhz=915, db=36, calibrated=False),
