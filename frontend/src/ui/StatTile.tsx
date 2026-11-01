@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Box, Typography } from '@mui/material'
+import { Box, Typography, alpha } from '@mui/material'
 import { useAppPalette } from '../context/ThemeModeContext'
 import { CARD_PAD, CARD_RADIUS, GRID_GAP, MONO, TEXT, TILE_PAD } from './tokens'
 
@@ -22,6 +22,10 @@ interface StatTileProps {
   off?: boolean
   /** Colour the value by how it measured up. Omit for a plain reading. */
   tone?: StatTone
+  /** The reading the strip exists to produce (Measured on a TX power test).
+   *  Accent tint, bar and label, so it is the first thing the eye lands on
+   *  rather than one of four equal cells. */
+  primary?: boolean
 }
 
 /**
@@ -30,17 +34,39 @@ interface StatTileProps {
  * Deliberately plain: a hairline cell, 12px padding, no shadow, no accent bar,
  * no icon. In a data-dense instrument view the *numbers* carry the meaning, so
  * chrome around them is noise — colour is reserved for encoding state (a dead
- * channel greys out), never for decoration.
+ * channel greys out), never for decoration. The one exception is `primary`,
+ * whose tint and bar mark the reading the whole strip exists to produce.
  */
-export function StatTile({ label, value, unit, sub, off, tone }: StatTileProps) {
+export function StatTile({ label, value, unit, sub, off, tone, primary }: StatTileProps) {
   const p = useAppPalette()
   const toneColor = tone ? p.data[tone] : undefined
+  // No reading shows as an empty value line, not a dash: the operator found
+  // the dashes noise, and the caption under it already says why it is empty
+  // ("not read yet", "sensor off"). Callers still pass DASH to mean "none".
+  const blank = value === DASH
+  // A fixed line box, so a blank tile and a filled one are the same height.
+  const valueH = 27
   return (
-    <Box sx={{ minWidth: 0, px: `${TILE_PAD}px`, py: 1.25 }}>
+    <Box
+      sx={{
+        minWidth: 0, px: `${TILE_PAD}px`, py: 1.25,
+        // A column with the caption pushed to the foot, so captions share a
+        // baseline across the strip even when a tile's label wraps.
+        display: 'flex', flexDirection: 'column',
+        // Tinted in the accent with an inset bar (a shadow, so it takes no
+        // width): the one cell on the strip the eye should land on first.
+        // Colour only -- a two-column, 44 px version read as too big.
+        ...(primary && {
+          bgcolor: (t) => alpha(t.palette.primary.main, 0.07),
+          boxShadow: (t) => `inset 3px 0 0 ${t.palette.primary.main}`,
+        }),
+      }}
+    >
       <Typography
         sx={{
           ...TEXT.eyebrow,
-          color: 'text.secondary',
+          color: primary ? 'primary.main' : 'text.secondary',
+          fontWeight: primary ? 600 : undefined,
           mb: 0.5,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}
@@ -52,17 +78,17 @@ export function StatTile({ label, value, unit, sub, off, tone }: StatTileProps) 
           // 24 rather than 20: this is the number the operator walks over to
           // read, and the tile has the width for it at every wrap point.
           fontFamily: MONO,
-          fontSize: 24, fontWeight: 600, lineHeight: 1.1,
+          fontSize: 24, fontWeight: 600,
+          lineHeight: `${valueH}px`, height: valueH, mb: 0.4, flexShrink: 0,
           letterSpacing: '-0.02em',
           color: off ? 'text.disabled' : (toneColor ?? 'text.primary'),
           fontVariantNumeric: 'tabular-nums',
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}
       >
-        {value}
-        {/* No unit after a dash: "— dBm" reads as a reading of nothing in
-            dBm, and the bare dash beside it ("RF output —") disagreed. */}
-        {unit && value !== DASH && (
+        {blank ? '' : value}
+        {/* No unit on a blank: "dBm" alone reads as a reading of nothing. */}
+        {unit && !blank && (
           <Typography
             component="span"
             sx={{ fontSize: 13, fontWeight: 500, color: 'text.secondary', ml: 0.5, fontFamily: 'inherit' }}
@@ -77,7 +103,8 @@ export function StatTile({ label, value, unit, sub, off, tone }: StatTileProps) 
           read ("25.2 mW", "not read yet"), and disabled grey said it was not. */}
       <Typography
         sx={{
-          fontSize: 12, lineHeight: '16px', height: 16, color: 'text.secondary', mt: 0.4,
+          fontSize: 12, lineHeight: '16px', height: 16, color: 'text.secondary', mt: 'auto',
+          flexShrink: 0,
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}
       >

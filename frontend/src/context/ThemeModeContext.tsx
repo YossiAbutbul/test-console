@@ -20,10 +20,10 @@ function systemMode(): ThemeMode {
 }
 
 export function ThemeModeProvider({ children }: { children: ReactNode }) {
-  // Chassis (`mid`) is the bench default — a lit lab, panels a step above the
-  // ground. Only applies to a browser that has never chosen: a stored
-  // preference still wins.
-  const [preference, setPreference] = usePersistedState<ThemePreference>(STORAGE_KEYS.themePref, 'mid')
+  // Light is the bench default (the operator asked for it over Chassis/`mid`).
+  // Only applies to a browser that has never chosen: a stored preference
+  // still wins.
+  const [preference, setPreference] = usePersistedState<ThemePreference>(STORAGE_KEYS.themePref, 'light')
   const [sysMode, setSysMode] = useState<ThemeMode>(() => systemMode())
 
   useEffect(() => {

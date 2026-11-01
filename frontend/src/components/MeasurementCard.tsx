@@ -281,6 +281,9 @@ export function MeasurementCard({
         )}
         <StatTile
           label={hasTarget ? 'Measured' : 'TX power'}
+          // The number a TX power test exists for: it leads the strip rather
+          // than reading as one of four equal cells.
+          primary
           value={ps ? num(power, 2) : '—'}
           unit={ps && power != null ? 'dBm' : undefined}
           sub={

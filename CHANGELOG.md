@@ -63,6 +63,12 @@ turns that heading into the version and date.
   key is a Connect key in the same box. A failed connect marks the footer and
   opens the Instruments panel at the DC analyzer.
 - The inspector's first tab is called Connection (was Bench).
+- Light is the default theme for a browser that has not picked one (was Mid).
+- Measurement card: the Measured (TX power) reading leads the strip on an
+  accent-tinted cell with an accent bar and label (`primary` on `StatTile`).
+- Readout tiles show an empty value instead of a "—" when there is no
+  reading; the caption already says why. Captions share one baseline across
+  the strip.
 
 ### Fixed
 - Resizing the inspector tracks the pointer instead of trailing it: the
