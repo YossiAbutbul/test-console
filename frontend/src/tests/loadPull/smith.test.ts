@@ -118,4 +118,9 @@ describe('chartRows', () => {
     expect(chartRows(results, 900, 10).map((s) => s.idx)).toEqual([0])
     expect(chartRows(results, null, null).map((s) => s.idx)).toEqual([0, 1, 2])
   })
+  it('hides the attenuator settings asked, keeping each row index', () => {
+    const results = [row({ att_db: 0 }), row({ att_db: 4 }), row({ att_db: 8 }), row({})]
+    expect(chartRows(results, null, null, new Set([0, 8])).map((s) => s.idx)).toEqual([1, 3])
+    expect(chartRows(results, null, null).map((s) => s.idx)).toEqual([0, 1, 2, 3])
+  })
 })

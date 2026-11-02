@@ -14,6 +14,10 @@ import {
   vna, type VnaMeasureResponse, type VnaMeasureS21Response,
 } from '../../api/networkAnalyzer'
 import { useLog } from '../../context/LogContext'
+import { usePathLoss } from '../../context/PathLossContext'
+import { PathLossModal } from '../../components/PathLossModal'
+import { PathLossReplaceDialog } from './PathLossReplaceDialog'
+import { pathLossFromS21 } from '../../lib/pathLoss'
 import { DASH, fmt, fmtHz, fmtMhz } from '../../lib/format'
 import {
   ACTION_W, CONTROL_H, DenseTabs, InstrumentBar, KeySpinner, MiniAction, MONO, PageBody, Section,
@@ -29,6 +33,7 @@ import { selectOnFocus } from '../../lib/selectOnFocus'
 const MHZ = 1e6
 
 const MAX_MARKERS = 9
+
 
 
 export function NetworkAnalyzerPage({ group }: TestPageProps) {
@@ -153,6 +158,26 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
   })
 
   const shown = sTab === 's11' ? lastMeas : lastS21
+
+  // S21 markers into the path loss table. It replaces the table, so a table
+  // that already holds points asks first; either way the table opens after,
+  // to show what went in (and to edit it).
+  const { points: lossPoints, setPoints: setLossPoints, defaultDb: lossDefaultDb } = usePathLoss()
+  const [confirmLoss, setConfirmLoss] = useState(false)
+  const [lossTableOpen, setLossTableOpen] = useState(false)
+  const s21Loss = useMemo(() => (lastS21 ? pathLossFromS21(lastS21.markers) : []), [lastS21])
+  const writeLoss = () => {
+    setConfirmLoss(false)
+    setLossPoints(s21Loss)
+    log('VNA', `path loss table set from S21: ${s21Loss.length} point${s21Loss.length === 1 ? '' : 's'}`)
+    setLossTableOpen(true)
+  }
+  const exportLoss = () => (lossPoints.length ? setConfirmLoss(true) : writeLoss())
+  const exportLossWhy = sTab !== 's21'
+    ? 'Switch to S21 to send its markers to the path loss table'
+    : s21Loss.length === 0
+      ? 'Sweep S21 first'
+      : `Write the ${s21Loss.length} S21 marker${s21Loss.length === 1 ? '' : 's'} into the path loss table`
 
   const busy =
     connectM.isPending || disconnectM.isPending || setFreqM.isPending ||
@@ -408,26 +433,14 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
           panel
           action={
             <Stack direction="row" alignItems="center" spacing={1.5}>
-              {/* Both parameters are read at the same markers, so the tabs
-                  switch the view rather than the setup. Each keeps its own
-                  last result: switching should show what that parameter
-                  measured, not blank it. */}
-              <DenseTabs size="sm" value={sTab} onChange={(_, v) => setSTab(v)}>
-                <Tab value="s11" label="S11" />
-                <Tab value="s21" label="S21" />
-              </DenseTabs>
-              <MiniAction
-                disabled={!connected || busy || markerHzList.length === 0}
-                onClick={() => (sTab === 's11' ? measureM.mutate() : measureS21M.mutate())}
-                // One width for "Sweep S11" and "Sweep S21": switching tab must
-                // not shift the sweep summary beside it.
-                sx={{ width: 84 }}
-              >
-                Sweep {sName}
-              </MiniAction>
-              {/* Always there, at one width, showing a dash until the first
+              {/* The same order as the Markers card beside it: what is
+                  there, then the keys against the edge. The keys sat between
+                  the tabs and this 232 px summary, so they floated mid-heading
+                  with an empty run to their right.
+
+                  Always there, at one width, showing a dash until the first
                   result: mounting it on that result shoved the tabs and the
-                  Sweep key along the heading. */}
+                  keys along the heading. */}
               <Typography
                 noWrap
                 title={shown ? undefined : 'No sweep yet'}
@@ -440,6 +453,42 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
                   ? `${fmtHz(shown.start_hz)} → ${fmtHz(shown.stop_hz)} · ${shown.points} pts`
                   : DASH}
               </Typography>
+              {/* Both parameters are read at the same markers, so the tabs
+                  switch the view rather than the setup. Each keeps its own
+                  last result: switching should show what that parameter
+                  measured, not blank it. */}
+              <DenseTabs size="sm" value={sTab} onChange={(_, v) => setSTab(v)}>
+                <Tab value="s11" label="S11" />
+                <Tab value="s21" label="S21" />
+              </DenseTabs>
+              {/* The two keys as one pair, spaced as Add and Apply are. */}
+              <Stack direction="row" alignItems="center" spacing={0.5}>
+                <MiniAction
+                  disabled={!connected || busy || markerHzList.length === 0}
+                  onClick={() => (sTab === 's11' ? measureM.mutate() : measureS21M.mutate())}
+                  // One width for "Sweep S11" and "Sweep S21": switching tab
+                  // must not shift the keys around it.
+                  sx={{ width: 84 }}
+                >
+                  Sweep {sName}
+                </MiniAction>
+                {/* There on both tabs, so switching tab moves nothing; only
+                    S21 has a loss to give. Text only, as Sweep beside it:
+                    with an icon it was the one key in the row wearing one,
+                    and a rows glyph read as a menu. The wrapper (the tooltip
+                    needs one on a disabled key) is inline-flex, not a block
+                    span, which sat the key half a pixel below Sweep. */}
+                <Tooltip title={exportLossWhy}>
+                  <Box component="span" sx={{ display: 'inline-flex' }}>
+                    <MiniAction
+                      disabled={sTab !== 's21' || s21Loss.length === 0 || busy}
+                      onClick={exportLoss}
+                    >
+                      To path loss
+                    </MiniAction>
+                  </Box>
+                </Tooltip>
+              </Stack>
             </Stack>
           }
         >
@@ -541,6 +590,16 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
           ) : null}
         </Section>
       </PageBody>
+
+      <PathLossReplaceDialog
+        open={confirmLoss}
+        current={lossPoints}
+        next={s21Loss}
+        defaultDb={lossDefaultDb}
+        onCancel={() => setConfirmLoss(false)}
+        onConfirm={writeLoss}
+      />
+      <PathLossModal open={lossTableOpen} onClose={() => setLossTableOpen(false)} />
     </Box>
   )
 }

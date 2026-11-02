@@ -54,11 +54,15 @@ export interface LoadPullPageSnapshot {
   freqSpec?: string
   powerSpec?: string
   attEnabled?: boolean
-  /** Attenuator sweep, first and last setting in dB. Either order. */
+  /** Attenuator settings, as a spec ("0-20:2", "0-5, 8, 9, 20"). */
+  attSpec?: string
+  /** Superseded by `attSpec`: first and last setting and the step between,
+   *  read only to build a spec for a page saved before it. */
   attStartDb?: number
   attStopDb?: number
-  /** Superseded by `attStopDb` (the sweep always started at 0); read as its
-   *  default so a saved ceiling carries over. */
+  attStepDb?: number
+  /** Superseded by `attStopDb` (the sweep always started at 0), and that by
+   *  `attSpec`; read so a saved ceiling carries over. */
   attMaxDb?: number
   paMode?: number
   settleMs?: number
@@ -67,6 +71,13 @@ export interface LoadPullPageSnapshot {
   zeroPulses?: number | null
   endPulses?: number | null
   results?: LoadPullResultRow[]
+  /**
+   * The plan `results` were measured against (see `planKey` on the page) and
+   * when that run started. Continue compares the key with the current plan,
+   * so a run is only ever resumed into the points it was going to take.
+   */
+  runKey?: string | null
+  runStartedAt?: number | null
   // `pathAck` is deliberately absent. Confirming the RF path asserts how the
   // bench is cabled right now — the one precondition the app cannot check for
   // itself — so it is held in component state and starts false every session.

@@ -30,6 +30,7 @@ from .ble import manager as ble_manager
 from .motor import manager as motor_manager
 from .servo import manager as servo_manager
 from .sweep import runner as sweep_runner
+from .loadpull.runner import runner as load_pull_runner
 
 # Resolved through `paths` rather than from __file__: frozen into the desktop
 # bundle there is no repo above this module, and the built SPA sits beside the
@@ -106,6 +107,8 @@ async def _release_hardware() -> None:
         # Except a running sweep, which goes before even that: releasing the
         # link under it failed every remaining step and keyed nothing down.
         ("sweep", sweep_runner.shutdown),
+        # Same reason, for a Load Pull run now that it is driven from here.
+        ("load pull", load_pull_runner.shutdown),
         ("BLE", ble_manager.disconnect),
         ("instruments", instruments_close_all),
         ("servo", lambda: asyncio.to_thread(servo_manager.disconnect)),

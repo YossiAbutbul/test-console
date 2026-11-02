@@ -27,7 +27,7 @@ import {
   DEFAULT_SETTLE_MS as SHARED_DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs,
 } from '../../lib/settle'
 import { uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch } from '../../lib/earfcn'
-import { scrollBehavior, CONTROL_H, GRID_GAP, MiniAction, Section, SegmentedChoice, TEXT,
+import { scrollBehavior, FollowLatest, useFollowBottom, CONTROL_H, GRID_GAP, MiniAction, Section, SegmentedChoice, TEXT,
   FAIL_ROW_SX, HeadCell, NUM_CELL_SX, VerdictMark, deltaText,
   VerdictTally, type VerdictFilter,
 } from '../../ui'
@@ -748,11 +748,8 @@ export function AutomationPanel({
     if (body) body.scrollTo({ top: body.scrollHeight, behavior: scrollBehavior() })
   }, [rows.length])
 
-  useEffect(() => {
-    const el = resultsScrollRef.current
-    if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: scrollBehavior() })
-  }, [results.length])
+  // Follow the newest row, unless the operator has scrolled up to read one.
+  const follow = useFollowBottom(resultsScrollRef, results.length)
 
   const cellSx = { '& .MuiInputBase-root': { height: CONTROL_H.md } }
   const isEarfcn = unit === 'earfcn'
@@ -1247,6 +1244,7 @@ export function AutomationPanel({
                 ))}
               </TableBody>
             </Table>
+            <FollowLatest follow={follow} />
           </Box>
         )}
       </Section>

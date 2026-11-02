@@ -11,6 +11,51 @@ turns that heading into the version and date.
 ## [Unreleased]
 
 ### Added
+- Load Pull Smith chart: a Statistics card under the point card with the min,
+  average and max of Pout, efficiency or current (one at a time, picked on
+  the card), for everything shown and per attenuator setting. Each row has a
+  min-to-max bar with a tick at the average, on one scale across the rows,
+  in the setting's colour when the chart is coloured by Att. A min or max,
+  hovered, names its point and lights its dot. It follows the dialog's
+  filters and updates live; failed rows are left out.
+- Load Pull: the attenuator prompt takes the setting you actually dial in.
+  The value is a field (Enter confirms), with the sweep's next settings as
+  chips under it and a line saying what the value does. A later setting of
+  the sweep jumps to it, skipping the cycles between (counted as done, never
+  measured); any other value runs this cycle only, its rows recording it, and
+  the sweep carries on. Continue is refused after either, as where to resume
+  is no longer known.
+- Load Pull Smith chart: an Att filter beside Freq and Power, for a run that
+  swept the attenuator. A checklist of the settings, with Show all and Hide
+  all, so one setting ("4") or a few can be compared without the rest of the
+  trajectories over them. All are shown by default, and a setting the run
+  reaches after the filter was set is shown too.
+- Load Pull Smith chart: Graph options (the sliders key in its title) turn
+  the connecting lines and the grid off, set the dot size, and colour the
+  points by attenuator setting instead of efficiency, with a legend to match
+  in the dialog and in Copy chart. Kept between sessions; Reset restores them.
+- Load Pull (LoRa and LTE): VNA span (Controls card) picks one of the plan's
+  frequencies, or takes any typed one, and Apply (or Enter) puts the analyzer on the span and marker the run
+  reads it on (±0.5 %, 897.79-906.81 MHz for 902.3), so what a point
+  measures can be seen on the VNA before running. It leaves the RF switch
+  where it is.
+- Network Analyzer: "To path loss" (Marker readings, S21 tab) writes the last
+  S21 sweep's markers into the path loss table, one row per marker at its
+  frequency with the loss as a positive dB (S21 −20.5 dB → 20.5). A table
+  that already has points asks first, showing the table as it is beside what
+  replaces it, a row per frequency marked changed, added or removed; the
+  default loss is kept. The path loss table opens afterwards.
+- Load Pull: Continue (Results header) resumes a run that was stopped or cut
+  short by a crash, running only the points after the saved rows and
+  appending to them. Rows are saved the moment each is taken during a run,
+  and with the plan they belong to; Continue refuses if the settings that
+  decide the points have changed. The first resumed point re-drives the
+  trombone, re-reads the VNA, asks for the attenuator again and (LTE)
+  restarts the modem. Works after Stop as well as after a crash.
+- Load Pull refuses a plan whose rows would not fit in browser storage (4 M
+  characters of Chrome's ~5 MB, less whatever else is saved, at 350 per row:
+  ~11 400 points with nothing else stored), so no row is ever lost to
+  Continue.
 - LTE Load Pull Test (LTE → Load Pull Test): the Load Pull run keyed with LTE
   CW instead of LoRa. Channels in the LTE pages' unit (EARFCN or MHz, within
   the selected bands), 0–23 dBm, no PA mode. The modem is turned on at the
@@ -35,6 +80,32 @@ turns that heading into the version and date.
   after one sweep per step. The Run sheet records the source and settings.
 
 ### Fixed
+- Load Pull Smith chart: the point list no longer opens blank until scrolled.
+  A list scrolled before the dialog closed kept its old scroll offset while
+  the reopened list started at the top, so it drew rows below the view.
+- Load Pull: the trombone's soft limits are per page. Only the Load Pull page
+  on screen sends its Zero and End as the motor's limits, none does during a
+  run, and a run sets them from its own plan when it starts. Both pages are
+  mounted together and each pushed its own, so after a backend restart the
+  LoRa page's ends were left on the motor and an LTE run's last two positions
+  failed in every cycle ("target 51822 outside soft limits").
+- Results tables (Load Pull, Mode Sweep, the CW and Modulated automation
+  panels) follow new rows only while scrolled to the bottom. Scrolling up to
+  read an older row during a run stops the jump back down, and a "↓ N new
+  rows" pill floats over the table until you are back; it, scrolling to the
+  bottom, or Clear resumes following (`useFollowBottom` and `FollowLatest`
+  in the kit). Only a wheel, key, scrollbar drag or touch stops it, never the
+  scroll position moving by itself.
+- The Smith chart left open through a run no longer rebuilds every dot and
+  list row on each new point: dots and rows are memoised and the list renders
+  only the rows in view. At 890 live rows, ~10-115 ms per point (was 233 ms
+  and growing) and half the DOM. Its swatch colours and the top progress
+  bar's width are plain styles, not generated classes.
+- A long Load Pull run no longer freezes the page and crashes the tab ("Aw,
+  Snap!"). The results table rebuilt every row on every render (each point,
+  the 500 ms ETA tick, the motor poll): ~1.9 s and ~100 MB per render at 5000
+  rows. It is its own memoised component now and renders only the rows in
+  view: ~95 ms per page render and 142 MB heap at 5000 rows (was 941 MB).
 - Load Pull's Test setup and Smith chart dialogs dim the toolbar too, as any
   dialog does. Only during a run do they stop below it, so E-STOP and Stop
   stay reachable.
@@ -67,14 +138,38 @@ turns that heading into the version and date.
   answer from 172.16.10.1:5555 …") instead of a bare "timed out".
 
 ### Changed
+- Instruments dialog: each row's Connect is the filled blue primary key (as
+  Sweep S21), and Disconnect (each row, and Disconnect all) the soft red of
+  the DUT's Disconnect key, instead of two outlined keys that differed by
+  hue alone, so which instruments are connected reads at a glance.
+- Load Pull (LoRa and LTE) runs in the backend (`backend/loadpull/runner.py`,
+  `/test/load-pull/run|status|rows|att|cancel`) instead of in the page. A tab
+  that crashes, reloads or closes no longer stops the run or leaves the DUT
+  keyed; the page re-attaches on load and copies the rows in. The attenuator
+  prompt is raised by the backend and answered from the page, and comes back
+  after a reload. One Load Pull run at a time across both pages. Graceful
+  backend shutdown stops a run and keys the DUT down first.
+- Load Pull reads the VNA on a span of ±0.5 % around each frequency (995–1005
+  MHz for 1000 MHz), one sweep per frequency per position, instead of on
+  whatever span the analyzer was left at, where a marker snapped to a sweep
+  point up to MHz away. Each span change waits one settle before the read,
+  so a position now costs one settle per frequency.
+- LTE Load Pull names the channels the selected bands cannot resolve and the
+  band each needs ("725, 747.9 (band 28) · 1930 (band 1 or 65)"), and has an
+  Edit bands key, instead of only counting them.
 - No em dashes in toasts or tooltips (run-complete toast, import errors and
   notices, meter info results, field validation, the Measurement card's
   failure tooltip, the Mode Sweep chart). Empty-value dashes are unchanged.
 - Load Pull: the trombone cards' controls fill the card instead of stopping
   at 232 px with empty card to their right.
-- Load Pull (LoRa and LTE): the attenuator sweep has Att start and Att stop
-  (0–20 dB, 1 dB steps, either direction) instead of an Att max that always
-  started at 0. A saved Att max carries over as the stop.
+- Load Pull (LoRa and LTE): the attenuator sweep is one Att values field
+  taking the same specs as DUT power, whole dB within 0–20: a range
+  ("0-20", or "20-0" downwards), a stepped range ("0-20:2") or any list
+  ("0-5, 8, 9, 20"), run in the order typed. It replaces an Att max that
+  always went from 0 in 1 dB steps; a saved Att max carries over as "0-max".
+- Frequency, channel and power specs on every page can mix ranges and single
+  values in one list ("0-5, 8, 9, 20"); a range used to have to be the whole
+  spec.
 - Load Pull's Frequency/Channel and DUT power tooltips are four short examples
   (One, Range, Step, List) in the field's own unit instead of a sentence; the
   LTE Channel's follow the EARFCN/MHz setting.

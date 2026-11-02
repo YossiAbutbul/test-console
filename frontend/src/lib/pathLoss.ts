@@ -45,3 +45,21 @@ export function findLoss(
   )
   return hit ? { db: hit.db, calibrated: true } : { db: defaultDb, calibrated: false }
 }
+
+/**
+ * The path loss table's rows from an S21 sweep: one per marker, at the
+ * marker's configured frequency (what the table is looked up by), with the
+ * loss as a positive figure -- S21 of a lossy path is negative, and the table
+ * holds the dB to add back to a reading (20.5, not -20.5).
+ */
+export function pathLossFromS21(
+  markers: Array<{ requested_hz: number; mag_db: number }>,
+): PathLossPoint[] {
+  const byFreq = new Map<number, number>()
+  for (const m of markers) {
+    if (!Number.isFinite(m.mag_db)) continue
+    const freqMhz = Math.round(m.requested_hz) / 1e6
+    byFreq.set(freqMhz, Math.round(-m.mag_db * 100) / 100)
+  }
+  return [...byFreq].map(([freqMhz, db]) => ({ freqMhz, db })).sort((a, b) => a.freqMhz - b.freqMhz)
+}

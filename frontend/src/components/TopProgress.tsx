@@ -66,10 +66,12 @@ export function TopProgress({ pct = 0, indeterminate = false, hidden = false, co
         <Box
           sx={{
             height: '100%',
-            width: `${Math.max(0, Math.min(100, pct))}%`,
             bgcolor: bg,
             transition: 'width 0.25s ease',
           }}
+          // A plain style, not `sx`: the width changes with every point, and
+          // in `sx` each new value became another generated CSS class.
+          style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
         />
       )}
     </Box>,

@@ -394,19 +394,31 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, focused,
 
         {/* Col 3: the key */}
         <Stack direction="row" alignItems="center" sx={{ flexShrink: 0 }}>
-          {/* Outlined: the footer's Connect all is the one filled key here.
+          {/* Connect filled blue, the primary key the pages' own actions
+              (Sweep S21) wear. Disconnect the soft red the DUT's Disconnect
+              wears (theme `actions.disconnect`) -- an outlined grey key beside
+              an outlined blue one differed by hue alone, and in a list of
+              both the operator could not tell at a glance which was which.
               The label holds while connecting -- the spinner says it -- so
               the word does not jump inside the key. */}
           <Button
             ref={keyRef}
             size="small"
-            variant="outlined"
-            color={connected ? 'inherit' : 'primary'}
+            variant={connected ? 'outlined' : 'contained'}
+            color="primary"
             onClick={() => (connected ? disconnect(id) : connect(id))}
             disabled={inst.placeholder || (!connected && !inst.address.trim()) || busy}
             startIcon={busy ? <KeySpinner /> : undefined}
             // Fixed: Connect and Disconnect share one box.
-            sx={{ width: 120, minWidth: 120, height: 32, fontSize: 12.5, whiteSpace: 'nowrap' }}
+            sx={{
+              width: 120, minWidth: 120, height: 32, fontSize: 12.5, whiteSpace: 'nowrap',
+              ...(connected && {
+                bgcolor: p.actions.disconnect.bg,
+                color: p.actions.disconnect.fg,
+                borderColor: p.actions.disconnect.border,
+                '&:hover': { bgcolor: p.actions.disconnect.bgHover, borderColor: p.actions.disconnect.bgHover },
+              }),
+            }}
           >
             {connected ? 'Disconnect' : 'Connect'}
           </Button>
@@ -535,14 +547,23 @@ export function InstrumentsModal() {
         primary: (
           <Button
             variant={allKey.mode === 'disconnect' ? 'outlined' : 'contained'}
-            color={allKey.mode === 'disconnect' ? 'inherit' : 'primary'}
+            color="primary"
             onClick={() => {
               setPressedKey(idleKey)
               void (idleKey.mode === 'disconnect' ? disconnectAll() : connectAll())
             }}
             disabled={allKey.count === 0 || busyAll}
             startIcon={busyAll ? <KeySpinner /> : undefined}
-            sx={{ width: 188, minWidth: 188, height: CONTROL_H.md, fontSize: 13, whiteSpace: 'nowrap' }}
+            // The rows' Disconnect red, so "all" reads as the same action.
+            sx={{
+              width: 188, minWidth: 188, height: CONTROL_H.md, fontSize: 13, whiteSpace: 'nowrap',
+              ...(allKey.mode === 'disconnect' && {
+                bgcolor: p.actions.disconnect.bg,
+                color: p.actions.disconnect.fg,
+                borderColor: p.actions.disconnect.border,
+                '&:hover': { bgcolor: p.actions.disconnect.bgHover, borderColor: p.actions.disconnect.bgHover },
+              }),
+            }}
           >
             {allKey.mode === 'disconnect'
               ? `Disconnect all (${allKey.count})`

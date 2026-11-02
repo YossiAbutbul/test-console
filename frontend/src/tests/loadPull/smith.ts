@@ -106,19 +106,23 @@ export function vswrLabel(row: LoadPullResultRow): string {
  * `idx + 1` equal to the table's number.
  *
  * Rows that predate the sweep carry no frequency or power; they are the whole
- * run, so no filter applies to them. Attenuation is deliberately not filtered:
- * sweeping it is what moves the load, so every setting belongs on the same
- * chart. Frequency and power are the axes that make one chart mean one thing.
+ * run, so no filter applies to them. Attenuation is on one chart by default:
+ * sweeping it is what moves the load, so every setting belongs together.
+ * Frequency and power are the axes that make one chart mean one thing.
+ * `hiddenAtt` takes settings off to compare a few (rows with no attenuation
+ * are never hidden by it).
  */
 export function chartRows(
   results: LoadPullResultRow[],
   freq: number | null,
   power: number | null,
+  hiddenAtt: ReadonlySet<number> = new Set(),
 ): Array<{ row: LoadPullResultRow; idx: number }> {
   const out: Array<{ row: LoadPullResultRow; idx: number }> = []
   results.forEach((row, idx) => {
     if (row.freq_mhz != null && freq != null && row.freq_mhz !== freq) return
     if (row.power_dbm_setting != null && power != null && row.power_dbm_setting !== power) return
+    if (row.att_db != null && hiddenAtt.has(row.att_db)) return
     out.push({ row, idx })
   })
   return out

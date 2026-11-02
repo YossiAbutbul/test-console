@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findLoss, type PathLossPoint } from './pathLoss'
+import { findLoss, pathLossFromS21, type PathLossPoint } from './pathLoss'
 
 const TABLE: PathLossPoint[] = [
   { freqMhz: 902.3, db: 20.5 },
@@ -46,5 +46,30 @@ describe('findLoss', () => {
   it('ignores a row with a broken frequency rather than matching it', () => {
     const broken: PathLossPoint[] = [{ freqMhz: NaN, db: 9 }, { freqMhz: 915, db: 21.1 }]
     expect(findLoss(broken, 0, 915)).toEqual({ db: 21.1, calibrated: true })
+  })
+})
+
+describe('pathLossFromS21', () => {
+  it('turns each marker into a positive loss at its configured frequency, sorted', () => {
+    expect(pathLossFromS21([
+      { requested_hz: 927.5e6, mag_db: -21.83 },
+      { requested_hz: 902.3e6, mag_db: -20.456 },
+    ])).toEqual([
+      { freqMhz: 902.3, db: 20.46 },
+      { freqMhz: 927.5, db: 21.83 },
+    ])
+  })
+
+  it('keeps one row per frequency and drops unreadable markers', () => {
+    expect(pathLossFromS21([
+      { requested_hz: 915e6, mag_db: -21 },
+      { requested_hz: 915e6, mag_db: -21.1 },
+      { requested_hz: 868e6, mag_db: Number.NaN },
+    ])).toEqual([{ freqMhz: 915, db: 21.1 }])
+  })
+
+  it('gives rows the lookup finds as calibrated', () => {
+    const table = pathLossFromS21([{ requested_hz: 902.3e6, mag_db: -20.5 }])
+    expect(findLoss(table, 0, 902.3)).toEqual({ db: 20.5, calibrated: true })
   })
 })

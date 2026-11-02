@@ -67,4 +67,15 @@ describe('parseRangeSpec', () => {
     expect(parseRangeSpec('0')).toEqual([0])
     expect(parseRangeSpec('0,10,23')).toEqual([0, 10, 23])
   })
+
+  it('mixes ranges and single values, in the order typed', () => {
+    expect(parseRangeSpec('0-5, 8,9, 20')).toEqual([0, 1, 2, 3, 4, 5, 8, 9, 20])
+    expect(parseRangeSpec('20, 0-10:5')).toEqual([20, 0, 5, 10])
+    expect(parseRangeSpec('0 - 2, 5')).toEqual([0, 1, 2, 5])
+    expect(parseRangeSpec('1 2 3')).toEqual([1, 2, 3])
+    expect(parseRangeSpec('-10--8, 0')).toEqual([-10, -9, -8, 0])
+  })
+  it('rejects a list holding a zero-step range', () => {
+    expect(parseRangeSpec('0-5:0, 8')).toEqual([])
+  })
 })

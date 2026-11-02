@@ -1,14 +1,15 @@
-"""One measured Load Pull point, as the browser reports it.
+"""Load Pull rows, the export request, and the run the backend drives.
 
-The run loop lives in the frontend for this test — the trombone, switch, VNA
-and DUT are driven from there — so rows arrive over the wire rather than out of
-a backend runner.
+Rows come back two ways: out of `loadpull.runner` for a run measured here,
+and over the wire with an export request, since the page holds the table.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
+
+from ..sweep.models import DEFAULT_SETTLE_MS, MIN_SETTLE_MS, RunState
 
 
 class LoadPullRow(BaseModel):
@@ -89,3 +90,102 @@ class LoadPullMeta(BaseModel):
 class LoadPullExportRequest(BaseModel):
     rows: list[LoadPullRow]
     meta: Optional[LoadPullMeta] = None
+
+# ---------- The run itself ----------
+#
+# The loop used to live in the browser, so a tab that crashed took the run
+# with it -- twice at ~890 points of an attenuator sweep. It runs here now:
+# the page sends the plan, then only watches it and answers the attenuator
+# prompts, and a reloaded page re-attaches to the run still in progress.
+
+#: Trombone pulses per millimetre. Mirrors PULSES_PER_MM in
+#: frontend/src/lib/trombone.ts.
+PULSES_PER_MM = 400
+
+#: The modem's ceiling; mirrors MAX_TX_POWER_DBM in device/lte.py.
+LTE_MAX_POWER_DBM = 23
+
+#: More points than this is not a run anyone meant to start. The page caps a
+#: plan at what its browser storage can hold (~11 400 rows), well under this.
+MAX_PLAN_POINTS = 20_000
+
+
+class PlanPoint(BaseModel):
+    """One measurement of the plan, as the page laid it out."""
+    pos: int
+    freq_mhz: float = Field(gt=0)
+    #: LTE only: the channel sent to the modem; `freq_mhz` is its uplink.
+    earfcn: Optional[int] = Field(default=None, ge=0)
+    power_dbm: float
+    #: Null when the run is not sweeping the attenuator.
+    att_db: Optional[float] = None
+
+
+class LoadPullRunConfig(BaseModel):
+    radio: Literal["LoRa", "LTE"]
+    #: The whole plan, in the order it is measured.
+    points: list[PlanPoint] = Field(min_length=1, max_length=MAX_PLAN_POINTS)
+    #: Points already measured, for Continue: the run starts at this index.
+    start_index: int = Field(default=0, ge=0)
+    settle_ms: int = Field(default=DEFAULT_SETTLE_MS, ge=MIN_SETTLE_MS, le=60_000)
+    #: LoRa only. 0=OFF 1=ON 2=AUTO.
+    pa_mode: int = Field(default=2, ge=0, le=2)
+    #: Path loss for every frequency in the plan, already resolved by the page
+    #: (which owns the table); added to the sensor reading.
+    path_loss: list[PathLossPoint] = []
+    #: VNA span either side of each frequency, as a fraction of it.
+    vna_half_span_frac: float = Field(default=0.005, gt=0, le=0.5)
+    #: The page's identity for the plan, echoed in the status so a reloaded
+    #: page can tell whether the run in progress is the one it has rows for.
+    plan_key: Optional[str] = None
+    cmd_timeout_s: float = Field(default=5.0, ge=0.1, le=30.0)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> "LoadPullRunConfig":
+        if self.start_index >= len(self.points):
+            raise ValueError("start_index is past the end of the plan")
+        for i, p in enumerate(self.points):
+            if self.radio == "LTE":
+                if p.earfcn is None:
+                    raise ValueError(f"point {i + 1} has no EARFCN")
+                if not 0 <= p.power_dbm <= LTE_MAX_POWER_DBM:
+                    raise ValueError(f"point {i + 1}: power must be 0-{LTE_MAX_POWER_DBM} dBm")
+            elif p.power_dbm != int(p.power_dbm) or not 0 <= p.power_dbm <= 255:
+                # The LoRa power frame carries a whole dBm.
+                raise ValueError(f"point {i + 1}: LoRa power must be a whole 0-255 dBm")
+        return self
+
+
+class AttPrompt(BaseModel):
+    """The run is waiting for the operator to set the attenuator."""
+    #: Increments per prompt, so a page answers each one exactly once.
+    seq: int
+    db: float
+    #: 0-based attenuator step, of `cycles`.
+    cycle: int
+    cycles: int
+    #: The plan's later settings, in order -- the ones a jump can go to.
+    upcoming: list[float] = []
+
+
+class LoadPullStatus(BaseModel):
+    state: RunState
+    radio: Optional[str] = None
+    #: Points done, counting the ones a Continue started past.
+    completed: int = 0
+    total: int = 0
+    start_index: int = 0
+    #: Rows this run has measured so far.
+    rows: int = 0
+    #: Points passed over by jumping the attenuator ahead; counted in
+    #: `completed`, never measured.
+    skipped: int = 0
+    errors: int = 0
+    #: What the run is doing right now, for the page: "modem", "moving",
+    #: "vna", "measuring", "attenuator", or None.
+    phase: Optional[str] = None
+    att_prompt: Optional[AttPrompt] = None
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    error: Optional[str] = None
+    plan_key: Optional[str] = None

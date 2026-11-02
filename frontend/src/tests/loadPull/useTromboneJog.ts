@@ -20,6 +20,10 @@ const MOTOR_WAIT_TIMEOUT_MS = 60_000
 
 export interface TromboneJogArgs {
   running: boolean
+  /** This page is the one on screen. */
+  active: boolean
+  /** A Load Pull run is going, this page's or the other radio's. */
+  anyRunning: boolean
   zeroPulses: number | null
   endPulses: number | null
   jogSpeed: number
@@ -27,7 +31,9 @@ export interface TromboneJogArgs {
   abortRef: RefObject<AbortController>
 }
 
-export function useTromboneJog({ running, zeroPulses, endPulses, jogSpeed, abortRef }: TromboneJogArgs) {
+export function useTromboneJog({
+  running, active, anyRunning, zeroPulses, endPulses, jogSpeed, abortRef,
+}: TromboneJogArgs) {
   const { log } = useLog()
   const notify = useNotify()
   const qc = useQueryClient()
@@ -91,13 +97,22 @@ export function useTromboneJog({ running, zeroPulses, endPulses, jogSpeed, abort
   // The captured zero & end define the travel range — push them to the backend
   // as soft limits. While either is unset, limits are cleared so the user can
   // jog freely to find the ends.
+  //
+  // The limits are the motor's, one pair, but the ends are per page: LoRa and
+  // LTE Load Pull are mounted together, and each used to push its own on any
+  // change, so whichever ran last won. After a backend restart that was the
+  // LoRa page's, and an LTE run's last two positions were refused as outside
+  // them in every cycle. So only the page on screen pushes, and no page does
+  // while a run is going: the run sets them from its own plan, and the page on
+  // screen takes them back when it ends.
   useEffect(() => {
+    if (!active || anyRunning) return
     const apply = zeroPulses != null && endPulses != null
       ? motor.setLimits(Math.min(zeroPulses, endPulses), Math.max(zeroPulses, endPulses))
       : motor.setLimits(null, null)
     void apply.then(() => refreshMotor()).catch(() => { /* ignore */ })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zeroPulses, endPulses])
+  }, [zeroPulses, endPulses, active, anyRunning])
 
   // Keyboard jog: hold ← / → while the jog pad is focused; release/blur stops.
   const [jogFocused, setJogFocused] = useState(false)

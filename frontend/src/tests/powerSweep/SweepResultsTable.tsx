@@ -1,10 +1,10 @@
-import { memo, useEffect, useRef } from 'react'
+import { memo, useRef } from 'react'
 import {
   Box, Table, TableBody, TableCell, TableHead, TableRow,
 } from '@mui/material'
 import type { ResultRow } from '../../types/models'
 import { fmt } from '../../lib/format'
-import { scrollBehavior, HeadCell, NUM_CELL_SX, RESULTS_H } from '../../ui'
+import { FollowLatest, useFollowBottom, HeadCell, NUM_CELL_SX, RESULTS_H } from '../../ui'
 
 /**
  * Columns follow the sweep's configuration — Power, PA DC, HP Max — and mirror
@@ -41,12 +41,8 @@ const Row = memo(function Row({ r }: { r: ResultRow }) {
 export function SweepResultsTable({ rows }: { rows: ResultRow[] }) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
-  // Follow the run: the row that just landed is the one worth seeing.
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: scrollBehavior() })
-  }, [rows.length])
+  // Follow the newest row, unless the operator has scrolled up to read one.
+  const follow = useFollowBottom(scrollRef, rows.length)
 
   // No "no data yet" line: with no rows the table still shows, header and
   // an empty body, so the panel looks the same before the first row as after.
@@ -89,6 +85,7 @@ export function SweepResultsTable({ rows }: { rows: ResultRow[] }) {
           {rows.map((r) => <Row key={r.idx} r={r} />)}
         </TableBody>
       </Table>
+      <FollowLatest follow={follow} />
     </Box>
   )
 }

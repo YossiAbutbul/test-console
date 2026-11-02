@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Box, Button, Divider, IconButton, MenuItem, Stack, Table, TableBody,
-  TableCell, TableHead, TableRow, TextField,
+  Autocomplete, Box, Button, Divider, IconButton, MenuItem, Stack, TextField,
   Tooltip, Typography,
 } from '@mui/material'
 import FirstPageIcon from '@mui/icons-material/FirstPageRounded'
@@ -11,6 +10,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineRounded'
 import DownloadIcon from '@mui/icons-material/DownloadRounded'
 import UploadFileIcon from '@mui/icons-material/UploadFileRounded'
 import ScatterPlotIcon from '@mui/icons-material/ScatterPlotRounded'
+import PlayArrowIcon from '@mui/icons-material/PlayArrowRounded'
 // A block-and-wire diagram, which is what the setup picture is.
 import SchemaIcon from '@mui/icons-material/SchemaRounded'
 import { useMutation } from '@tanstack/react-query'
@@ -21,15 +21,14 @@ import type { CourseStep } from '../../components/courseSteps'
 import { LabeledField } from '../../components/LabeledField'
 import { motor } from '../../api/motor'
 import { servo } from '../../api/servo'
-import { vna, type VnaMarkerResult } from '../../api/networkAnalyzer'
 import { device } from '../../api/device'
-import { instrumentsApi } from '../../api/instruments'
+import { vna } from '../../api/networkAnalyzer'
 import { useInstrumentValue } from '../../context/InstrumentsContext'
 import { useConnection } from '../../context/ConnectionContext'
 import { usePathLoss } from '../../context/PathLossContext'
 import { useLog } from '../../context/LogContext'
 import { useNotify } from '../../context/NotifyContext'
-import { formatDuration, sleep } from '../../lib/async'
+import { formatDuration } from '../../lib/async'
 import { estimateRunMs } from '../../lib/eta'
 import { TopProgress } from '../../components/TopProgress'
 import { usePublishLiveOutput } from '../../context/liveOutput'
@@ -37,40 +36,37 @@ import { formatRunTiming, useRunEta } from '../../ui/useRunEta'
 import { parseRangeSpec } from '../../lib/numericList'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import { saveBlob } from '../../lib/download'
-import { fmt } from '../../lib/format'
-import { vswr, vswrLabel } from './smith'
+import { fmt, num } from '../../lib/format'
+import { vswr } from './smith'
 import {
-  scrollBehavior,
   ACTION_W, CONTROL_H, EmergencyStop, FieldGrid, MONO, PageBody,
   RunControls, Section, StatusChip, TEXT, TwoCol,
-  HeadCell, NUM_CELL_SX,
   HazardGlyph, hazardRingSx,
-  GRID_GAP, JogPad, CheckMark, KeySpinner, MiniAction, RESULTS_H, SegmentedChoice, type CheckState,
+  GRID_GAP, JogPad, CheckMark, KeySpinner, MiniAction, SegmentedChoice, type CheckState,
 } from '../../ui'
 import { useAppPalette } from '../../context/ThemeModeContext'
 import type { TestPageProps } from '../types'
 import {
-  loadPullPageSnapshot, lteLoadPullPageStore, persistLoadPullPage,
+  flushLoadPullPage, loadPullPageSnapshot, lteLoadPullPageStore, persistLoadPullPage,
   type LoadPullPageSnapshot, type LoadPullResultRow,
 } from '../../store/loadPullPageStore'
-import { useLteModem } from '../lte/useLteModem'
+import { STORAGE_KEYS } from '../../store/keys'
+import { BandsModal } from '../lte/BandsModal'
 import { useLteBands, useLteChannelUnit } from '../lte/channel'
 import { uplinkFromEarfcn, uplinkFromMhz } from '../../lib/earfcn'
-import type { LteCwRequest } from '../../types/models'
 import { SmithChartModal } from './SmithChartModal'
-import { runSequence } from '../engine/runSequence'
+import { LoadPullResultsTable } from './ResultsTable'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import { planPositions } from './plan'
 import { useTromboneJog } from './useTromboneJog'
-import { loadPullApi } from '../../api/loadPull'
+import { loadPullApi, type LoadPullRunStatus } from '../../api/loadPull'
 import { useChatSource } from '../../context/ChatContext'
 import { mA } from '../../lib/chatRows'
 import { useAttPrompt } from './AttPrompt'
 import { parseLoadPullCsv } from './importCsv'
 import { SetupDiagramModal } from './SetupDiagramModal'
-import { confidenceColor, powerConfidence } from './powerConfidence'
 // Shared with the Trombone page so both agree on what a mm is.
 import { JOG_SPEEDS, PULSES_PER_MM } from '../../lib/trombone'
 import { selectOnFocus } from '../../lib/selectOnFocus'
@@ -83,7 +79,7 @@ const REQUIRED_INSTRUMENTS: InstrumentId[] = [
 /**
  * Rough costs for the pre-run estimate, on top of the settle delays.
  *
- * Per position: the trombone move, two switch moves and a VNA acquisition.
+ * Per position: the trombone move, two switch moves and the VNA reads.
  * Per point: the TX command, the power/current read and TX off. Guesses, not
  * measurements -- once the run is going the remaining time follows the
  * measured rate. Operator waits at attenuator steps are not in either.
@@ -91,34 +87,42 @@ const REQUIRED_INSTRUMENTS: InstrumentId[] = [
 const EST_POSITION_OVERHEAD_MS = 6000
 const EST_POINT_OVERHEAD_MS = 500
 
-/** Budget for the motor travel, switching and measuring around the delays. */
-const STEP_OVERHEAD_TIMEOUT_MS = 90_000
+/**
+ * Browser storage a run's saved rows may use, in characters.
+ *
+ * Rows are saved as they are taken so Continue can resume after a crash, and
+ * that storage is ~5 MB per origin in Chrome, shared by every page. Past it a
+ * save fails silently and the rows after it would be lost to Continue, so a
+ * plan that cannot fit is refused instead. Held well under the limit.
+ */
+const STORAGE_BUDGET_CHARS = 4_000_000
+/** One saved row, generously: 284 characters measured, ~340 with an error. */
+const ROW_CHARS = 350
 
 /**
- * LTE: per-point CW duration, a backstop only. Each point is aborted as soon
- * as it has measured; this just bounds a transmission whose abort was missed.
- * Same figure and reasoning as the LTE CW sweep (CW_TIME_MS there).
+ * The VNA span around each frequency, as a fraction of it either side, sent
+ * with the run (vna_half_span_frac on the backend):
+ * 1000 MHz is read on a 995-1005 MHz sweep.
+ *
+ * The run used to read on whatever span the analyzer was left on, often its
+ * full range, where the marker snaps to the nearest of a few hundred points --
+ * 900.21 MHz answering for 902.3 on a 201-point 3 GHz sweep. Zoomed, the same
+ * points sit tens of kHz apart.
  */
-const LTE_CW_TIME_MS = 20_000
+const VNA_HALF_SPAN_FRAC = 0.005
+
+/** The span and marker the run reads `freqMhz` on, in Hz, rounded as the
+ *  backend rounds them (`_hz`, then `round(hz * vna_half_span_frac)`). */
+function vnaSpanHz(freqMhz: number) {
+  const hz = Math.round(freqMhz * 1e6)
+  const half = Math.round(hz * VNA_HALF_SPAN_FRAC)
+  return { hz, startHz: hz - half, stopHz: hz + half }
+}
+
 /** The modem's ceiling; mirrors MAX_TX_POWER_DBM on the backend. */
 const LTE_MAX_POWER_DBM = 23
-/** The modem power-cycle at the start of an LTE run; see `useLteModem.cycle`. */
+/** The modem power-cycle at the start of an LTE run, for the estimate. */
 const LTE_MODEM_RESTART_MS = 10_000
-
-const blankRow = (item: PlanPoint): LoadPullResultRow => ({
-  pos_pulses: item.pos,
-  pos_mm: mm(item.pos),
-  freq_mhz: item.freqMhz,
-  ...(item.earfcn == null ? {} : { earfcn: item.earfcn }),
-  power_dbm_setting: item.powerDbm,
-  ...(item.attDb == null ? {} : { att_db: item.attDb }),
-  power_dbm: null,
-  current_a: null,
-  r_ohm: null,
-  x_ohm: null,
-  s11_db: null,
-  error: null,
-})
 
 const mm = (p: number) => p / PULSES_PER_MM
 
@@ -134,18 +138,25 @@ interface PlanPoint {
   attDb: number | null
 }
 
-/** Attenuator sweep. Fixed 1 dB steps from a start to a stop setting, either
- *  way round, within the attenuator's 0-20 dB. */
-const ATT_STEP_DB = 1
+/** The attenuator's range. It is set by hand in whole dB. */
 const ATT_MAX_LIMIT_DB = 20
 
-/** A typed attenuator setting, or null while empty or out of range. */
-function parseAttDb(text: string): number | null {
-  const t = text.trim()
-  if (t === '') return null
-  const n = Number(t)
-  if (!Number.isFinite(n) || n < 0 || n > ATT_MAX_LIMIT_DB) return null
-  return Math.round(n)
+/** The attenuator settings a spec names, in the order typed ("20-0:5",
+ *  "0-5, 8, 9, 20"), or null while it is empty or names a setting that is
+ *  not a whole dB within 0-20. */
+function parseAttSpec(text: string): number[] | null {
+  const vs = parseRangeSpec(text)
+  return vs.length > 0 && vs.every((v) => Number.isInteger(v) && v >= 0 && v <= ATT_MAX_LIMIT_DB)
+    ? vs : null
+}
+
+/** The spec a snapshot saved before the single field had: its start, stop
+ *  and step (or the older Att max, which always started at 0). */
+function legacyAttSpec(snap: LoadPullPageSnapshot): string {
+  const start = snap.attStartDb ?? 0
+  const stop = snap.attStopDb ?? snap.attMaxDb ?? ATT_MAX_LIMIT_DB
+  const step = snap.attStepDb ?? 1
+  return step === 1 ? `${start}-${stop}` : `${start}-${stop}:${step}`
 }
 
 /** One height for every control in the drive column. Four kinds of control —
@@ -153,7 +164,8 @@ function parseAttDb(text: string): number | null {
  *  unrelated widgets rather than one panel for one motor. */
 const DRIVE_H = 32
 
-/** What the Frequency and DUT power fields accept (see lib/numericList). */
+/** What the Frequency, DUT power and Att values fields accept (see
+ *  lib/numericList). Any of them can also mix ranges and values. */
 /** Examples of the four forms, in the field's own unit. */
 const SPEC_EXAMPLES = {
   mhz: ['915', '900-930', '900-930:5', '902.3, 915'],
@@ -161,6 +173,7 @@ const SPEC_EXAMPLES = {
   earfcn: ['18900', '18700-19100', '18700-19100:100', '18700, 18900'],
   dbm: ['14', '10-20', '10-20:2', '10, 14, 20'],
   lteDbm: ['23', '10-23', '10-23:1', '10, 17, 23'],
+  att: ['10', '0-20', '0-20:2', '0-5, 8, 9, 20'],
 } as const
 
 /**
@@ -184,14 +197,23 @@ function SpecTip({ examples }: { examples: readonly string[] }) {
 
 
 /** Write fields to this radio's page snapshot and schedule the save. */
-function saveSnapshot(isLte: boolean, patch: Partial<LoadPullPageSnapshot>) {
+function saveSnapshot(isLte: boolean, patch: Partial<LoadPullPageSnapshot>, now = false) {
   if (isLte) {
     Object.assign(lteLoadPullPageStore.snapshot, patch)
-    lteLoadPullPageStore.persist()
+    if (now) lteLoadPullPageStore.flush()
+    else lteLoadPullPageStore.persist()
   } else {
     Object.assign(loadPullPageSnapshot, patch)
-    persistLoadPullPage()
+    if (now) flushLoadPullPage()
+    else persistLoadPullPage()
   }
+}
+
+/** Whether a saved row is the plan point it should be -- Continue's sanity
+ *  check on top of the plan key. */
+function rowIsPoint(r: LoadPullResultRow | undefined, p: PlanPoint | undefined): boolean {
+  return !!r && !!p && r.pos_pulses === p.pos && r.freq_mhz === p.freqMhz
+    && r.power_dbm_setting === p.powerDbm && (r.att_db ?? null) === p.attDb
 }
 
 /** Row label in the drive column, matching the bounds grid opposite it. */
@@ -396,10 +418,9 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const { lossAt, defaultDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
   const hasBackend = protocol === 'LoRa' || isLte
-  // Called on both pages (hooks cannot be conditional); only LTE's uses it.
-  const modem = useLteModem({ pageId: isLte ? pageId : undefined })
   const [channelUnit] = useLteChannelUnit()
-  const [lteBands] = useLteBands()
+  const [lteBands, setLteBands] = useLteBands()
+  const [bandsOpen, setBandsOpen] = useState(false)
 
   const ps = useInstrumentValue('power-sensor')
   const dc = useInstrumentValue('dc-analyzer')
@@ -440,21 +461,15 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const [attEnabled, setAttEnabled] = useState<boolean>(
     () => snap.attEnabled ?? false,
   )
-  // Held as text: a number field bound to a number cannot be cleared — the
-  // moment it is empty the parse gives 0 and 0 is written straight back.
-  const [attStartText, setAttStartText] = useState<string>(
-    () => String(snap.attStartDb ?? 0),
-  )
-  const [attStopText, setAttStopText] = useState<string>(
-    () => String(snap.attStopDb ?? snap.attMaxDb ?? ATT_MAX_LIMIT_DB),
-  )
-  const attStartDb = parseAttDb(attStartText)
-  const attStopDb = parseAttDb(attStopText)
-  /** Both ends typed and in range -- what a sweep needs. */
-  const attRangeOk = attStartDb != null && attStopDb != null
+  // One spec, as Frequency and DUT power take, so a sweep can be a range,
+  // a stepped range or any list of settings ("0-5, 8, 9, 20").
+  const [attSpec, setAttSpec] = useState<string>(() => snap.attSpec ?? legacyAttSpec(snap))
+  const attValues = parseAttSpec(attSpec)
+  /** Every setting a whole dB in range -- what a sweep needs. */
+  const attRangeOk = attValues != null
 
-  // Text for the same reason as the attenuator fields: bound to a number, the field cannot
-  // be emptied — a blank parses to 0 and 0 is written straight back.
+  // Held as text: bound to a number, the field cannot be emptied — a blank
+  // parses to 0 and 0 is written straight back.
   const [settleText, setSettleText] = useState<string>(
     () => String(clampSettleMs(snap.settleMs ?? DEFAULT_SETTLE_MS)),
   )
@@ -477,6 +492,11 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // cabled *now*, which is the one precondition nothing here can verify.
   const [pathAck, setPathAck] = useState(false)
   const [results, setResults] = useState<LoadPullResultRow[]>(() => snap.results ?? [])
+  // The plan the rows in `results` belong to, or null for none (cleared,
+  // imported). See `planKey`.
+  const [runKey, setRunKey] = useState<string | null>(() => snap.runKey ?? null)
+  // Rows a continued run started with; 0 for a fresh one. For the ETA.
+  const [resumeBase, setResumeBase] = useState(0)
   const [smithOpen, setSmithOpen] = useState(false)
   const [setupOpen, setSetupOpen] = useState(false)
 
@@ -512,44 +532,46 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   useEffect(() => { saveSnapshot(isLte, { freqSpec }) }, [freqSpec, isLte])
   useEffect(() => { saveSnapshot(isLte, { powerSpec }) }, [powerSpec, isLte])
   useEffect(() => { saveSnapshot(isLte, { attEnabled }) }, [attEnabled, isLte])
-  useEffect(() => {
-    // Only a usable value is persisted; a half-typed field is not worth
-    // restoring on the next visit.
-    if (attStartDb != null) { saveSnapshot(isLte, { attStartDb }) }
-  }, [attStartDb, isLte])
-  useEffect(() => {
-    if (attStopDb != null) { saveSnapshot(isLte, { attStopDb }) }
-  }, [attStopDb, isLte])
+  useEffect(() => { saveSnapshot(isLte, { attSpec }) }, [attSpec, isLte])
   useEffect(() => {
     if (settleMs != null) { saveSnapshot(isLte, { settleMs }) }
   }, [settleMs, isLte])
   useEffect(() => { saveSnapshot(isLte, { deltaXmm }) }, [deltaXmm, isLte])
   useEffect(() => { saveSnapshot(isLte, { jogSpeed }) }, [jogSpeed, isLte])
   useEffect(() => { saveSnapshot(isLte, { zeroPulses }) }, [zeroPulses, isLte])
+  useEffect(() => { saveSnapshot(isLte, { runKey }, true) }, [runKey, isLte])
   useEffect(() => { saveSnapshot(isLte, { endPulses }) }, [endPulses, isLte])
-  useEffect(() => { saveSnapshot(isLte, { results }) }, [results, isLte])
 
   // One frequency per run, so the correction is decided once.
 
-  const [running, setRunning] = useState(false)
-  const [progressIdx, setProgressIdx] = useState(0)
+  // ---------- The run, driven by the backend ----------
+  //
+  // The loop used to run in this page and died with the tab: twice at ~890
+  // points of an attenuator sweep Chrome killed the page mid-run. The backend
+  // drives it now (backend/loadpull/runner.py). This page sends the plan,
+  // polls the run, copies its rows into the table and answers its attenuator
+  // prompts, and a reloaded page picks the run back up on its first poll.
+  const radio: 'LoRa' | 'LTE' = isLte ? 'LTE' : 'LoRa'
+  const [runStatus, setRunStatus] = useState<LoadPullRunStatus | null>(null)
+  /** The backend run, when it is this page's radio. */
+  const mine = runStatus?.radio === radio ? runStatus : null
+  const running = mine?.state === 'running'
+  /** The other Load Pull page's run holds the rig: one run at a time. */
+  const otherRunning = runStatus?.state === 'running' && runStatus.radio !== radio
+  // Written at once during a run rather than on the debounce, so a tab that
+  // crashes or freezes mid-run has every finished row saved for Continue: a
+  // frozen page never fires the timer the debounced write waits on.
+  useEffect(() => { saveSnapshot(isLte, { results }, running) }, [results, isLte, running])
+  // The point in hand, 1-based, as the run controls show it.
+  const progressIdx = mine ? mine.completed + (running ? 1 : 0) : 0
   // Replaced per run. Stop aborts it, which cancels in-flight requests and
   // wakes every settle delay immediately.
   const abortRef = useRef(new AbortController())
   const attPrompt = useAttPrompt()
-  const resultsScrollRef = useRef<HTMLDivElement | null>(null)
-  // Position the trombone is currently parked at, so the plan's remaining
-  // points at that position skip the move. Reset per run, never read for
-  // rendering — a ref rather than state.
-  const posRef = useRef<number | null>(null)
   // Epoch seconds of the run the table holds, for the workbook's Run sheet.
   // Cleared on import and Clear, so a file's rows are never stamped with the
   // timing of whatever run happened to precede them.
   const runTimesRef = useRef<{ started_at: number; finished_at: number | null } | null>(null)
-  // Attenuator setting the operator has confirmed for the cycle in progress.
-  const attRef = useRef<number | null>(null)
-  // VNA markers for the current position, keyed by requested frequency (Hz).
-  const markersRef = useRef<Map<number, VnaMarkerResult>>(new Map())
   // Set while the table is showing a file rather than a run of this rig.
   // Cleared by Clear and by starting a run, so it can never outlive the
   // rows it describes.
@@ -571,6 +593,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         : parseLoadPullCsv(await file.text())
       setResults(rows)
       setImportedName(file.name)
+      setRunKey(null)
       runTimesRef.current = null
       // The preamble's frequency and path loss are reported, not applied:
       // silently rewriting the run's settings from a file would change what
@@ -585,20 +608,17 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     }
   }
 
-  useEffect(() => {
-    const el = resultsScrollRef.current
-    if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: scrollBehavior() })
-  }, [results.length])
-
   // Trombone status + jog + soft-limit sync + wait-for-idle, all in one hook.
   const {
     motorConnected, motorMoving, motorPos,
     jogDir, jogFocused, setJogFocused,
     startJog, stopJog, onJogKeyDown, onJogKeyUp,
     goMinM, goMaxM, motorJogBusy,
-    travelMin, travelMax, waitForMotorIdle,
-  } = useTromboneJog({ running, zeroPulses, endPulses, jogSpeed, abortRef })
+    travelMin, travelMax,
+  } = useTromboneJog({
+    running, active: !!active, anyRunning: running || otherRunning,
+    zeroPulses, endPulses, jogSpeed, abortRef,
+  })
 
   // Manual RF switch routing — same servo presets the run loop uses.
   const swConnected = sw.status === 'connected'
@@ -638,7 +658,58 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       })
     : specValues.filter((f) => f > 0).map((f) => ({ freqMhz: f }))
   const unresolvedChannels = isLte ? specValues.length - channels.length : 0
+  /**
+   * The values that did not resolve, grouped by what they would need.
+   *
+   * A count alone ("3 channels not in the selected bands") left the operator
+   * to work out which of a pasted list were wrong and which band each wanted;
+   * this names both, so the fix is one trip to Edit bands.
+   */
+  const channelProblems: string[] = (() => {
+    if (!isLte || unresolvedChannels === 0) return []
+    const groups = new Map<string, number[]>()
+    const add = (why: string, v: number) => groups.set(why, [...(groups.get(why) ?? []), v])
+    for (const v of specValues) {
+      if (channelUnit === 'earfcn') {
+        if (!Number.isInteger(v) || v < 0 || !uplinkFromEarfcn(v)) add('unknown EARFCN', v)
+        continue
+      }
+      const sel = uplinkFromMhz(v, lteBands)
+      if (sel.length === 1) continue
+      if (sel.length > 1) { add(`in bands ${sel.map((h) => h.band).join(' and ')}, keep one`, v); continue }
+      const any = uplinkFromMhz(v).map((h) => h.band)
+      add(any.length ? `band ${any.join(' or ')}` : 'in no LTE uplink band', v)
+    }
+    return [...groups].map(([why, vs]) => `${vs.join(', ')} (${why})`)
+  })()
   const freqs = channels.map((c) => c.freqMhz)
+
+  // VNA span: puts the analyzer on the span and marker the run reads a
+  // frequency on (one of the plan's, or any typed), so what a point will measure can be seen on
+  // the instrument (and the Smith chart) before running. Only the VNA: the RF
+  // switch is left where it is, on its own keys above.
+  // Any frequency can be typed as well as picked from the plan's; empty
+  // means the plan's first, so the field never needs filling in to be used.
+  const [spanText, setSpanText] = useState('')
+  const spanTyped = spanText.trim() === '' ? null : Number(spanText)
+  const spanTypedOk = spanTyped != null && Number.isFinite(spanTyped) && spanTyped > 0
+  const spanFreq: number | null = spanTyped == null ? (channels[0]?.freqMhz ?? null)
+    : spanTypedOk ? spanTyped : null
+  const spanM = useMutation({
+    mutationFn: async (freqMhz: number) => {
+      const { hz, startHz, stopHz } = vnaSpanHz(freqMhz)
+      await vna.setFreq(startHz, stopHz)
+      await vna.setMarkers([hz])
+    },
+    onSuccess: (_d, f) => {
+      const { startHz, stopHz } = vnaSpanHz(f)
+      log('VNA', `span ${num(startHz / 1e6, 2)}-${num(stopHz / 1e6, 2)} MHz, marker ${num(f, 3)} MHz`)
+    },
+    onError: (e: Error) => {
+      log('VNA', `span failed: ${e.message}`, 'error')
+      notify.error(e.message, { title: 'VNA span' })
+    },
+  })
   const powers = parseRangeSpec(powerSpec)
   // The modem takes 0-23 dBm and refuses anything else, so an out-of-range
   // power is a setup error here rather than forty failed rows.
@@ -646,14 +717,9 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     && powers.some((p) => p < 0 || p > LTE_MAX_POWER_DBM)
   // Attenuation is the outermost axis: it is set by hand, so the run does a
   // whole trombone cycle at one setting before asking for the next.
-  // Start to stop in either direction, so a sweep can run down from the most
-  // attenuation as well as up from the least.
-  const attSteps: Array<number | null> = attEnabled && attRangeOk
-    ? Array.from(
-        { length: Math.floor(Math.abs(attStopDb - attStartDb) / ATT_STEP_DB) + 1 },
-        (_v, i) => attStartDb + Math.sign(attStopDb - attStartDb) * i * ATT_STEP_DB,
-      )
-    : [null]
+  // In the order typed, so a sweep can run down from the most attenuation
+  // as well as up from the least.
+  const attSteps: Array<number | null> = attEnabled && attValues ? attValues : [null]
   const plan: PlanPoint[] = []
   for (const attDb of attSteps) {
     for (const pos of positions) {
@@ -663,20 +729,52 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     }
   }
   const totalPoints = plan.length
+  // What else is in storage, so the cap is what is really left for this page:
+  // the other Load Pull page's saved rows count against the same 5 MB.
+  // Re-read when a run starts or ends and when the page is shown, not every
+  // render -- the other page's rows can be megabytes of string to copy.
+  const ownKey = isLte ? STORAGE_KEYS.lteLoadPullPage : STORAGE_KEYS.loadPullPage
+  const otherChars = useMemo(() => {
+    let n = 0
+    try {
+      for (const k of Object.keys(localStorage)) {
+        if (k !== ownKey) n += k.length + (localStorage.getItem(k)?.length ?? 0)
+      }
+    } catch { /* storage blocked: nothing to subtract */ }
+    return n
+  }, [ownKey, active, running]) // eslint-disable-line react-hooks/exhaustive-deps
+  const maxPoints = Math.max(0, Math.floor((STORAGE_BUDGET_CHARS - otherChars) / ROW_CHARS))
+  const planTooBig = totalPoints > maxPoints
+  /**
+   * What decides the plan's points, in order. Saved with a run's rows, so
+   * Continue only resumes into the plan those rows were taken against --
+   * a changed channel list or Delta X would otherwise splice two different
+   * runs into one table. Settle is left out: it changes timing, not points.
+   */
+  const planKey = JSON.stringify({
+    c: channels, p: powers, a: attSteps, z: zeroPulses, e: endPulses, d: deltaPulses,
+    m: isLte ? null : paMode,
+  })
   // Each attenuator step re-runs the trombone cycle, and every position visit
   // settles twice (VNA, then PCB) on top of each point's own settle.
   const positionVisits = totalPoints > 0 ? attSteps.length * positions.length : 0
   const estimatedRunMs = estimateRunMs(
     totalPoints,
     settleEffectiveMs + EST_POINT_OVERHEAD_MS,
-    positionVisits * (2 * settleEffectiveMs + EST_POSITION_OVERHEAD_MS)
+    // A settle per zoomed VNA span, and one more back on the PCB.
+    positionVisits * ((freqs.length + 1) * settleEffectiveMs + EST_POSITION_OVERHEAD_MS)
       // An LTE run power-cycles the modem once before its first point.
       + (isLte && totalPoints > 0 ? LTE_MODEM_RESTART_MS : 0),
   )
   // runSequence reports the 1-based point in hand.
   const completedPoints = Math.max(0, progressIdx - 1)
+  // A continued run is timed on the points it has left, so the rate is not
+  // flattered by the rows it started with.
   const runEta = useRunEta({
-    running, completed: completedPoints, total: totalPoints, plannedTotalMs: estimatedRunMs,
+    running,
+    completed: Math.max(0, completedPoints - resumeBase),
+    total: totalPoints - resumeBase,
+    plannedTotalMs: totalPoints > 0 ? estimatedRunMs * (totalPoints - resumeBase) / totalPoints : 0,
   })
   // A "Run" pill in the top bar, visible from every page while this runs:
   // it moves the trombone and keys the DUT. The id is this page's registry id.
@@ -699,6 +797,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // about as well as saying nothing.
   const blockers: string[] = []
   if (!hasBackend) blockers.push(`${protocol} has no backend wired up`)
+  if (otherRunning) blockers.push(`wait for the ${runStatus?.radio} Load Pull run to finish`)
   if (!dutConnected) blockers.push('connect the DUT over BLE')
   if (missingRig.length) blockers.push(`connect the ${missingRig.join(', ')}`)
   if (!pathAck) blockers.push('confirm the RF path')
@@ -707,21 +806,39 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   if (deltaXmm <= 0) blockers.push('set Delta X above 0')
   if (freqs.length === 0) blockers.push(isLte ? 'enter at least one channel' : 'enter at least one frequency')
   if (unresolvedChannels > 0) {
-    blockers.push(`${unresolvedChannels} channel${unresolvedChannels === 1 ? '' : 's'} not in the selected bands`)
+    blockers.push(`channels not in the selected bands: ${channelProblems.join('; ')}`)
   }
   if (powers.length === 0) blockers.push('enter at least one power')
   if (powersOutOfRange) blockers.push(`keep power within 0–${LTE_MAX_POWER_DBM} dBm`)
+  if (planTooBig) {
+    blockers.push(`cut the plan to ${maxPoints.toLocaleString()} points or fewer (it is ${totalPoints.toLocaleString()}), so its rows fit in browser storage`)
+  }
   if (settleMs == null) blockers.push(`set a settle of at least ${MIN_SETTLE_MS} ms`)
   if (attEnabled && !attRangeOk) {
-    blockers.push(`set the attenuator start and stop (0–${ATT_MAX_LIMIT_DB} dB)`)
+    blockers.push(`set the attenuator values (whole dB, 0–${ATT_MAX_LIMIT_DB})`)
   }
   const canRun = blockers.length === 0 && !running
+
+  // Continue: the saved rows are a prefix of this plan, short of its end.
+  const doneRows = results.length
+  const sameRun = runKey === planKey && rowIsPoint(results[doneRows - 1], plan[doneRows - 1])
+  const canResume = canRun && !importedName && sameRun && doneRows > 0 && doneRows < totalPoints
+  const resumeWhy = running ? ''
+    : importedName ? 'The table holds an imported file, not a run'
+      : doneRows === 0 ? 'No run to continue'
+        // Same plan, rows out of step with it: the attenuator was jumped or
+        // set off the plan at a prompt, and where to resume is not known.
+        : !sameRun && runKey === planKey ? 'The attenuator was changed mid-run, so where to continue is unknown'
+        : !sameRun ? 'The settings changed since this run, so its remaining points are unknown'
+          : doneRows >= totalPoints ? 'This run finished'
+            : blockers.length ? `Continue from point ${doneRows + 1} of ${totalPoints} once ${blockers[0]}`
+              : `Run the remaining ${totalPoints - doneRows} of ${totalPoints} points, from point ${doneRows + 1}`
 
   // The course on top of the page. Same facts as `blockers`, grouped by the
   // section that settles them, so the rail says which part of a long page is
   // holding Run.
   const pointOk = freqs.length > 0 && powers.length > 0 && settleMs != null
-    && !(attEnabled && !attRangeOk) && unresolvedChannels === 0 && !powersOutOfRange
+    && !(attEnabled && !attRangeOk) && unresolvedChannels === 0 && !powersOutOfRange && !planTooBig
   const tromboneOk = zeroPulses != null && endPulses != null && deltaXmm > 0
   /** The first check still in the way, named on the Run button and the Run
    *  step. Same order as the rail. */
@@ -755,7 +872,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         : freqs.length === 0 ? (isLte ? 'no channel' : 'no frequency')
           : unresolvedChannels > 0 ? 'channel not in bands'
             : powers.length === 0 ? 'no power'
-              : powersOutOfRange ? 'power out of range' : 'settle or attenuator',
+              : powersOutOfRange ? 'power out of range'
+                : planTooBig ? `over ${maxPoints.toLocaleString()} points` : 'settle or attenuator',
       targetId: anchor('test-point'),
     },
     {
@@ -769,181 +887,100 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     },
   ]
 
-  /** The LTE CW frame for a point: at the channel centre, as on the CW sweep. */
-  const lteParams = (item: PlanPoint): LteCwRequest => ({
-    earfcn: item.earfcn ?? 0,
-    time_ms: LTE_CW_TIME_MS,
-    tx_power_dbm: item.powerDbm,
-    offset_hz: 0,
-  })
+  // Poll the run: every second while one is live, every few while this page
+  // is on screen (to notice a run started from another tab), and once on
+  // mount, so a page reloaded mid-run re-attaches whichever page it lands on.
+  const pollMs = running ? 1000 : active ? (otherRunning ? 1000 : 3000) : 0
+  const pollStatus = useCallback(async () => {
+    try { setRunStatus(await loadPullApi.status()) } catch { /* backend down: keep the last */ }
+  }, [])
+  useEffect(() => { void pollStatus() }, [pollStatus])
+  useEffect(() => {
+    if (!pollMs) return
+    const id = window.setInterval(() => { void pollStatus() }, pollMs)
+    return () => window.clearInterval(id)
+  }, [pollMs, pollStatus])
 
-  /**
-   * Key the DUT for one point -- the only step that differs by radio.
-   *
-   * LTE records the test as live on the modem, so Stop, E-Stop and the top
-   * bar's TX pill can abort it with the parameters it was started with.
-   */
-  const txOn = async (item: PlanPoint, freqHz: number, signal: AbortSignal) => {
-    if (!isLte) {
-      return device.loraPower(
-        { freq_hz: freqHz, power_dbm: item.powerDbm, pa_mode: paMode },
-        { signal },
-      )
-    }
-    const params = lteParams(item)
-    const tx = await device.lteCw({ ...params, start: true }, { signal })
-    if (tx.ok) modem.setRunning({ label: 'CW', abort: () => device.lteCw({ ...params, start: false }) })
-    return tx
-  }
+  // Copy new rows into the table -- only for the run these rows belong to
+  // (same plan key), and appended after the rows a Continue started from.
+  const resultsRef = useRef(results)
+  useEffect(() => { resultsRef.current = results }, [results])
+  const runRows = mine?.rows ?? 0
+  const runBase = mine?.start_index ?? 0
+  const runPlanKey = mine?.plan_key ?? null
+  useEffect(() => {
+    if (runPlanKey == null || runPlanKey !== runKey) return
+    const have = resultsRef.current.length - runBase
+    if (have < 0 || runRows <= have) return
+    let stale = false
+    loadPullApi.rows(have)
+      .then((rows) => {
+        if (stale || rows.length === 0) return
+        // Appended only onto the table the request was made from, so two
+        // overlapping fetches cannot add the same rows twice.
+        setResults((prev) => (prev.length === runBase + have ? [...prev, ...rows] : prev))
+      })
+      .catch(() => { /* the next poll tries again */ })
+    return () => { stale = true }
+  }, [runRows, runBase, runPlanKey, runKey])
 
-  /**
-   * Un-key after a point, on success and failure alike. Never throws.
-   *
-   * On LTE this is not tidiness: the modem takes one test at a time and drops
-   * a START that arrives while another runs, so a point left un-aborted would
-   * have every later point silently measure its channel.
-   */
-  const txOff = async (item: PlanPoint) => {
-    try {
-      if (!isLte) { await device.stop(); return }
-      await device.lteCw({ ...lteParams(item), start: false })
-      modem.setRunning(null)
-    } catch { /* the end-of-run stop tries again */ }
-  }
-
-  /** Abort whatever the page last keyed, wherever the run is. Never throws. */
-  const stopTx = async () => {
-    if (!isLte) { try { await device.stop() } catch { /* ignore */ } return }
-    const live = modem.getRunning()
-    if (!live) return
-    try { await live.abort() } catch { /* ignore */ }
-    modem.setRunning(null)
-  }
-
-  // One plan point. The trombone moves only when the position changes, and the
-  // VNA is read once per position for every frequency in the plan — both are
-  // the expensive parts, and repeating them per (freq, power) combination would
-  // multiply a run by the size of the electrical sweep for no new information.
-  //
-  // Never throws: failures are recorded on the returned row.
-  const measurePoint = async (item: PlanPoint): Promise<LoadPullResultRow> => {
-    const { signal } = abortRef.current
-    const row = blankRow(item)
-    const freqHz = Math.round(item.freqMhz * 1_000_000)
-    try {
-      if (posRef.current !== item.pos) {
-        // 1. trombone -> position (once per position)
-        await motor.move(item.pos, true)
-        await waitForMotorIdle()
-        if (signal.aborted) return row
-
-        // 2. switch -> VNA and read every frequency this position needs in one
-        //    acquisition, keyed by the frequency that was asked for.
-        await servo.goto('VNA')
-        await sleep(settleEffectiveMs, signal)
-        if (signal.aborted) return row
-        const m = await vna.measure(freqs.map((f) => Math.round(f * 1_000_000)))
-        markersRef.current = new Map(
-          (m.markers ?? []).map((mk) => [Math.round(mk.requested_hz), mk]),
-        )
-        if ((m.markers?.length ?? 0) === 0) {
-          // A measure that fails raises, so an empty marker list means the sweep
-          // ran and returned nothing at the requested frequencies. The power and
-          // current here are still valid, so this is not an error row.
-          reporter.note(`no VNA markers at ${mm(item.pos).toFixed(2)} mm`, 'warn')
-        }
-
-        // 3. switch -> PCB, also once per position
-        await servo.goto('PCB')
-        await sleep(settleEffectiveMs, signal)
-        if (signal.aborted) return row
-        posRef.current = item.pos
-      }
-
-      const mk = markersRef.current.get(freqHz)
-      if (mk) {
-        row.r_ohm = mk.r_ohm
-        row.x_ohm = mk.x_ohm
-        row.s11_db = mk.s11_mag_db
-      }
-
-      // 4. TX on at this frequency and power
-      const tx = await txOn(item, freqHz, signal)
-      if (!tx.ok) {
-        row.error = (row.error ? row.error + '; ' : '') + `tx status=${tx.status}`
-      } else {
-        await sleep(settleEffectiveMs, signal)
-        // 5. measure power + CC; correct with the loss for *this* frequency
-        const meas = await instrumentsApi.measure(freqHz, { signal })
-        const pl = lossAt(item.freqMhz)
-        // Both: the corrected figure is what the run is measuring, the raw one
-        // is what says whether the sensor was anywhere near the edge of its
-        // range when it measured it.
-        row.power_dbm_raw = meas.power_dbm
-        row.power_dbm = meas.power_dbm == null ? null : meas.power_dbm + pl.db
-        row.current_a = meas.current_a
-        if (meas.error) row.error = (row.error ? row.error + '; ' : '') + meas.error
-      }
-      // 6. TX off
-      await txOff(item)
-    } catch (e) {
-      // A cancelled request is the operator stopping, not a measurement fault.
-      if (!signal.aborted) row.error = (e as Error).message
-      await txOff(item)
-    }
-    return row
-  }
-
-  /**
-   * Stop at each attenuator step and wait for the operator.
-   *
-   * Runs outside the per-point timeout: the wait is unbounded by nature, and
-   * inside `measurePoint` it counted against the step budget and failed the
-   * point with "timed out after 92s" while the run was only waiting to be
-   * answered.
-   */
-  const beforeItem = async (item: PlanPoint) => {
-    if (item.attDb == null || attRef.current === item.attDb) return
-    // Park the switch on the VNA before asking. The DUT is not transmitting
-    // between cycles, so the analyzer is the only way to watch the attenuator
-    // take effect while it is being dialled in.
-    try {
-      await servo.goto('VNA')
-    } catch (e) {
-      // Non-fatal: the operator can still set the attenuator blind, and the
-      // next point re-routes the switch itself.
-      reporter.note(`could not park the switch on VNA: ${(e as Error).message}`, 'warn')
-    }
-    const idx = attSteps.indexOf(item.attDb)
-    const ok = await attPrompt.ask(item.attDb, Math.max(0, idx), attSteps.length)
-    if (!ok) {
-      abortRef.current.abort()
+  // The attenuator prompt: shown once per prompt the run raises, answered back.
+  // One answered from another tab disappears from the status, and this copy
+  // closes; the stale answer it posts is ignored by the backend.
+  const promptSeqRef = useRef(0)
+  const prompt = mine?.att_prompt ?? null
+  const promptSeq = prompt?.seq ?? 0
+  useEffect(() => {
+    if (!prompt) {
+      if (promptSeqRef.current) attPrompt.cancel()
       return
     }
-    attRef.current = item.attDb
-    // Forget where the trombone is, so the first point of the new cycle drives
-    // it back to the start rather than assuming it is already there.
-    posRef.current = null
-  }
+    if (prompt.seq === promptSeqRef.current) return
+    promptSeqRef.current = prompt.seq
+    const seq = prompt.seq
+    void attPrompt.ask(prompt.db, prompt.cycle, prompt.cycles, prompt.upcoming ?? []).then((a) => {
+      if (a.db != null) log('LoadPull', `attenuator set to ${a.db} dB (asked ${prompt.db} dB)`)
+      loadPullApi.answerPrompt(seq, a.proceed, a.db)
+        .then(setRunStatus)
+        .catch((e: Error) => reporter.note(`could not answer the attenuator prompt: ${e.message}`, 'error'))
+    })
+  }, [promptSeq]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Report the end of a run once, whichever way it ended.
+  const lastStateRef = useRef<string | null>(null)
+  const runState = mine?.state ?? null
+  useEffect(() => {
+    const prev = lastStateRef.current
+    lastStateRef.current = runState
+    if (prev !== 'running' || runState === 'running' || !mine) return
+    if (runTimesRef.current) {
+      runTimesRef.current.finished_at = mine.finished_at ?? Date.now() / 1000
+    }
+    // Points jumped over at the attenuator prompt were never going to be
+    // measured, so they are not "of" the total either.
+    const summary = {
+      completed: mine.rows, total: mine.total - mine.start_index - (mine.skipped ?? 0), errors: mine.errors,
+    }
+    if (runState === 'done') reporter.finished(summary)
+    else if (runState === 'cancelled') {
+      reporter.stopped(summary)
+      if (mine.error) reporter.note(mine.error, 'warn')
+    } else if (runState === 'error') reporter.failed(mine.error ?? 'run failed')
+  }, [runState]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const runM = useMutation({
-    mutationFn: async () => {
+    // `resume` continues the saved rows instead of starting over: only the
+    // plan points after them are run, appended to them. The backend
+    // re-establishes everything it assumes about the bench -- the trombone is
+    // driven to the next point's position, the VNA re-read there, the
+    // attenuator asked for again and (LTE) the modem restarted.
+    mutationFn: async (resume: boolean) => {
       if (!(await preflight.run())) {
         reporter.note('cancelled — instruments not ready', 'warn')
         return
       }
-      const abort = new AbortController()
-      abortRef.current = abort
-      setRunning(true)
-      setResults([])
-      setImportedName(null)
-      setProgressIdx(0)
-      runTimesRef.current = { started_at: Date.now() / 1000, finished_at: null }
-      posRef.current = null
-      attRef.current = null
-      markersRef.current = new Map()
-      // Per frequency now that a run sweeps several: named once each rather
-      // than once per point, which would repeat the same line all run.
+      const start = resume ? results.length : 0
+      // Per frequency: named once each rather than once per point.
       const uncal = freqs.filter((f) => !lossAt(f).calibrated)
       if (uncal.length) {
         reporter.note(
@@ -953,49 +990,39 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           'warn',
         )
       }
-      try {
-        await runSequence<PlanPoint, LoadPullResultRow>({
-          items: plan,
-          abort,
-          markRowError: (item, _i, message) => ({ ...blankRow(item), error: message }),
-          // A point moves the trombone and settles three times, so its budget
-          // has to cover the motor travel as well as the delays.
-          stepTimeoutMs: settleEffectiveMs * 3 + STEP_OVERHEAD_TIMEOUT_MS,
-          before: async () => {
-            try { await vna.setMarkers(freqs.map((f) => Math.round(f * 1_000_000))) }
-            catch (e) { reporter.note(`setMarkers failed: ${(e as Error).message}`, 'warn') }
-            // Once per run, as on the LTE CW sweep: down and up again, so the
-            // run starts from a known modem with nothing left running on it.
-            // A modem that will not come up fails the run here, before the
-            // trombone has moved.
-            if (isLte) {
-              reporter.note('restarting the modem')
-              await modem.cycle()
-            }
-          },
-          beforeItem,
-          measure: (item) => measurePoint(item),
-          // TX off only; an LTE run powers the modem down in `finally` below.
-          after: stopTx,
-          rowHasError: (r) => !!r.error,
-          onRows: setResults,
-          onProgress: setProgressIdx,
-          reporter,
-        })
-      } finally {
-        // LTE: the run owns the modem from its first point to its last, so it
-        // hands it back off once every cycle is done -- or the run was stopped
-        // or failed, including a modem that never came up. Here rather than
-        // in `after`, which a failed start skips. A refusal is most likely a
-        // modem that was already down, which is where this was going.
-        if (isLte) {
-          try { await modem.powerOff() } catch (e) {
-            reporter.note(`modem off failed: ${(e as Error).message}`, 'warn')
-          }
-        }
-        if (runTimesRef.current) runTimesRef.current.finished_at = Date.now() / 1000
-        setRunning(false)
-      }
+      const status = await loadPullApi.start({
+        radio,
+        points: plan.map((p) => ({
+          pos: p.pos, freq_mhz: p.freqMhz, earfcn: p.earfcn ?? null,
+          power_dbm: p.powerDbm, att_db: p.attDb,
+        })),
+        start_index: start,
+        settle_ms: settleEffectiveMs,
+        ...(isLte ? {} : { pa_mode: paMode }),
+        path_loss: freqs.map((f) => {
+          const l = lossAt(f)
+          return { freq_mhz: f, db: l.db, calibrated: l.calibrated }
+        }),
+        vna_half_span_frac: VNA_HALF_SPAN_FRAC,
+        plan_key: planKey,
+      })
+      // Only once the backend has taken the run: a refused start must not
+      // clear the table or claim its rows for a plan that never ran.
+      if (!resume) setResults([])
+      setImportedName(null)
+      setRunKey(planKey)
+      setResumeBase(start)
+      const startedAt = resume
+        ? (runTimesRef.current?.started_at ?? snap.runStartedAt ?? Date.now() / 1000)
+        : Date.now() / 1000
+      runTimesRef.current = { started_at: startedAt, finished_at: null }
+      saveSnapshot(isLte, { runStartedAt: startedAt }, true)
+      promptSeqRef.current = 0
+      lastStateRef.current = 'running'
+      setRunStatus(status)
+      reporter.started(totalPoints - start)
+      if (resume) reporter.note(`continuing from point ${start + 1} of ${totalPoints}`)
+      if (isLte) reporter.note('restarting the modem')
     },
     onError: (e: Error) => reporter.failed(e.message),
   })
@@ -1052,8 +1079,9 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     // Releases a run waiting on the attenuator prompt, which would otherwise
     // sit there after the abort.
     attPrompt.cancel()
-    abortRef.current.abort()
-    void stopTx()
+    // The backend stops the run and keys the DUT down; the motor is halted
+    // here as well so the carriage stops even if that request is slow.
+    void loadPullApi.cancel().then(setRunStatus).catch(() => { /* ignore */ })
     void motor.stop().catch(() => { /* ignore */ })
   }
 
@@ -1073,7 +1101,10 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     })
     abortRef.current.abort()
     stopJog()
-    void stopTx()
+    void loadPullApi.cancel().then(setRunStatus).catch(() => { /* ignore */ })
+    // LoRa keys down straight away, run or not; an LTE run's CW is aborted by
+    // the backend as it stops, and a CW outside a run ends by itself.
+    if (!isLte) void device.stop().catch(() => { /* ignore */ })
     log('Motor', 'EMERGENCY STOP — run aborted, motor halted', 'error')
   }
 
@@ -1092,8 +1123,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
             running={running}
             canRun={canRun}
             blockedBy={firstBlocked}
-            progress={`${progressIdx}/${totalPoints}`}
-            onRun={() => runM.mutate()}
+            progress={mine?.phase === 'modem' ? 'Modem…' : `${progressIdx}/${totalPoints}`}
+            onRun={() => runM.mutate(false)}
             onStop={onStop}
           >
             <EmergencyStop onStop={onEmergencyStop} />
@@ -1254,24 +1285,17 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               <MenuItem value={0}>Off</MenuItem>
               <MenuItem value={1}>Sweep</MenuItem>
             </LabeledField>
-            <LabeledField
-              label="Att start" hint={`dB · 0–${ATT_MAX_LIMIT_DB}`}
-              type="number" value={attStartText}
-              onChange={(e) => setAttStartText(e.target.value)}
-              onBlur={() => setAttStartText((t) => (attStartDb == null ? t : String(attStartDb)))}
-              disabled={running || !attEnabled}
-              error={attEnabled && attStartDb == null}
-              inputProps={{ min: 0, max: ATT_MAX_LIMIT_DB, step: ATT_STEP_DB }}
-            />
-            <LabeledField
-              label="Att stop" hint={`dB · 0–${ATT_MAX_LIMIT_DB}`}
-              type="number" value={attStopText}
-              onChange={(e) => setAttStopText(e.target.value)}
-              onBlur={() => setAttStopText((t) => (attStopDb == null ? t : String(attStopDb)))}
-              disabled={running || !attEnabled}
-              error={attEnabled && attStopDb == null}
-              inputProps={{ min: 0, max: ATT_MAX_LIMIT_DB, step: ATT_STEP_DB }}
-            />
+            <Tooltip title={<SpecTip examples={SPEC_EXAMPLES.att} />} placement="top-start">
+              <Box>
+                <LabeledField
+                  label="Att values" hint={`dB · 0–${ATT_MAX_LIMIT_DB}`} value={attSpec}
+                  onChange={(e) => setAttSpec(e.target.value)}
+                  disabled={running || !attEnabled}
+                  error={attEnabled && !attRangeOk}
+                  placeholder="0-20, 0-20:2 or 0-5, 8, 20"
+                />
+              </Box>
+            </Tooltip>
           </FieldGrid>
           {/* The plan multiplies out fast — three positions of a 30-point
               trombone sweep across four powers is 360 points — so say what it
@@ -1279,18 +1303,38 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               on the Plan tile and beside Delta X; this line is only the
               factors. Always one line tall, so the card does not grow when
               the plan becomes complete. */}
-          <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 1, minHeight: 18 }}>
+          {/* LTE: the same line names any channel the selected bands cannot
+              resolve, and carries Edit bands, so the band list can be fixed
+              here rather than only on the LTE CW page. One line either way,
+              cut with an ellipsis, so the card keeps its height. */}
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1, minHeight: isLte ? 26 : 18 }}>
+          {channelProblems.length > 0 ? (
+            <Typography
+              title={`Not in bands ${lteBands.join(', ')}: ${channelProblems.join('; ')}`}
+              sx={{ ...TEXT.micro, color: 'warning.main', flexGrow: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+            >
+              Not in bands {lteBands.join(', ')}: {channelProblems.join(' · ')}
+            </Typography>
+          ) : (
+          <Typography sx={{ ...TEXT.micro, color: 'text.secondary', flexGrow: 1, minWidth: 0 }}>
             {positions.length > 0 && freqs.length > 0 && powers.length > 0 ? (
               <>
                 {positions.length} {positions.length === 1 ? 'position' : 'positions'}
                 {' × '}{freqs.length} {isLte ? (freqs.length === 1 ? 'channel' : 'channels') : (freqs.length === 1 ? 'freq' : 'freqs')}
                 {' × '}{powers.length} {powers.length === 1 ? 'power' : 'powers'}
                 {attEnabled && attRangeOk && (
-                  <>{' × '}{attSteps.length} att ({ATT_STEP_DB} dB steps)</>
+                  <>{' × '}{attSteps.length} att</>
                 )}
               </>
             ) : ' '}
           </Typography>
+          )}
+          {isLte && (
+            <MiniAction onClick={() => setBandsOpen(true)} disabled={running}>
+              Edit bands
+            </MiniAction>
+          )}
+          </Stack>
         </Section>
 
         {/* The trombone step as three short cards in a row: moving the
@@ -1422,6 +1466,75 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                     End
                   </Button>
                 </Box>
+
+                <DriveLabel>VNA span</DriveLabel>
+                <Box sx={PAIR_SX}>
+                  <Autocomplete
+                    // The chevron freeSolo hides, so it reads as the list it is.
+                    size="small" freeSolo disableClearable openOnFocus forcePopupIcon
+                    options={channels.map((c) => num(c.freqMhz, 3))}
+                    // Every plan frequency stays listed whatever is typed: the
+                    // field is a picker first, and filtering left one option
+                    // or none once a value was in it.
+                    filterOptions={(o) => o}
+                    // As wide as its rows, not the field: in a narrow window
+                    // the field is ~140 px and every option wrapped in two.
+                    slotProps={{ paper: { sx: { width: 'max-content', minWidth: '100%' } } }}
+                    inputValue={spanText}
+                    onInputChange={(_e, v) => setSpanText(v ?? '')}
+                    disabled={running}
+                    renderOption={(props, o) => {
+                      const { startHz, stopHz } = vnaSpanHz(Number(o))
+                      return (
+                        <Box
+                          component="li" {...props} key={o}
+                          sx={{
+                            display: 'flex', justifyContent: 'space-between', gap: 2,
+                            fontSize: 13, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums',
+                          }}
+                        >
+                          <span>{o} MHz</span>
+                          <Box component="span" sx={{ ...TEXT.hint, color: 'text.secondary' }}>
+                            span {num(startHz / 1e6, 2)}-{num(stopHz / 1e6, 2)}
+                          </Box>
+                        </Box>
+                      )
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        placeholder={channels.length ? `${num(channels[0].freqMhz, 3)} MHz` : 'MHz'}
+                        error={spanTyped != null && !spanTypedOk}
+                        inputProps={{ ...params.inputProps, 'aria-label': 'Frequency to show the VNA span of, MHz' }}
+                        // Enter applies, as the key beside it does.
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && spanFreq != null && na.status === 'connected' && !spanM.isPending) {
+                            spanM.mutate(spanFreq)
+                          }
+                        }}
+                        // Pointer, as a menu: it opens the plan's list on a
+                        // click. The text caret comes back once focused, for typing.
+                        sx={{
+                          '& .MuiInputBase-root': { height: DRIVE_H, fontSize: 13, py: 0 },
+                          '& .MuiInputBase-root, & input': { cursor: 'pointer' },
+                          '& .Mui-focused input': { cursor: 'text' },
+                        }}
+                      />
+                    )}
+                  />
+                  <Button
+                    size="small" variant="outlined"
+                    startIcon={spanM.isPending ? <KeySpinner /> : undefined}
+                    onClick={() => { if (spanFreq != null) spanM.mutate(spanFreq) }}
+                    disabled={na.status !== 'connected' || spanM.isPending || running || spanFreq == null}
+                    title={spanFreq != null
+                      ? `VNA to ${num(vnaSpanHz(spanFreq).startHz / 1e6, 2)}-${num(vnaSpanHz(spanFreq).stopHz / 1e6, 2)} MHz, marker on ${num(spanFreq, 3)}`
+                      : undefined}
+                    sx={{ height: DRIVE_H }}
+                  >
+                    Apply
+                  </Button>
+                </Box>
             </Box>
           </Section>
 
@@ -1480,6 +1593,19 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           panel
           action={
             <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
+              {/* Always on the row, disabled with the reason on hover when
+                  there is nothing to continue, so the actions never shift. */}
+              <Tooltip title={resumeWhy}>
+                <span>
+                  <MiniAction
+                    startIcon={<PlayArrowIcon />}
+                    onClick={() => runM.mutate(true)}
+                    disabled={!canResume}
+                  >
+                    Continue
+                  </MiniAction>
+                </span>
+              </Tooltip>
               <MiniAction
                 startIcon={<ScatterPlotIcon />}
                 onClick={() => setSmithOpen(true)}
@@ -1509,7 +1635,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               <MiniAction
                 tone="destructive"
                 startIcon={<DeleteSweepIcon />}
-                onClick={() => { setResults([]); setImportedName(null); runTimesRef.current = null }}
+                onClick={() => { setResults([]); setImportedName(null); setRunKey(null); runTimesRef.current = null }}
                 disabled={results.length === 0 || running}
               >
                 Clear
@@ -1531,123 +1657,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
             }}
           />
 
-          {/* One height, whatever is in it. `maxHeight` let the panel grow with
-              the first rows and collapse again on Clear, so everything below —
-              and the page's scroll position — moved on its own. */}
-          {/* No "no data yet" line: the table itself, header and an empty
-              body, so the panel looks the same before the first row as after. */}
-          {(
-            <Box
-              ref={resultsScrollRef}
-              sx={{
-                height: RESULTS_H,
-                // `scroll`, not `auto`: a scrollbar that appears with the ninth
-                // row would resize the columns under the cursor.
-                overflowY: 'scroll',
-                // Only below this does the table stop being readable; above it
-                // the percentages below make every column fit with no sideways
-                // scroll at all.
-                overflowX: 'auto',
-              }}
-            >
-              <Table
-                size="small"
-                stickyHeader
-                sx={{ tableLayout: 'fixed', width: '100%', minWidth: 780 }}
-              >
-                {/* One <col> per column — there were eight for ten columns after
-                    Freq and Set were added, and under `table-layout: fixed` the
-                    two with no width ran off the right-hand edge. */}
-                <colgroup>
-                  {/* Set and Att wide enough for "Set [dBm]", "Att [dB]" and
-                      "Power [dBm]" whole;
-                      the room comes from Status, which holds "ok". */}
-                  <col style={{ width: 40 }} />
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: '9%' }} />
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: '11%' }} />
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: '9%' }} />
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: '8%' }} />
-                </colgroup>
-                <TableHead>
-                  <TableRow>
-                    <HeadCell label="#" numeric />
-                    <HeadCell label="Pos" unit="mm" numeric />
-                    {/* A row is only identified by position, frequency and
-                        power together now that a run sweeps all three. */}
-                    <HeadCell label="Freq" unit="MHz" numeric />
-                    <HeadCell label="Set" unit="dBm" numeric />
-                    <HeadCell label="Att" unit="dB" numeric />
-                    <HeadCell label="Power" unit="dBm" numeric />
-                    <HeadCell label="CC" unit="mA" numeric />
-                    <HeadCell label="R" unit="Ω" numeric />
-                    <HeadCell label="X" unit="Ω" numeric />
-                    <HeadCell label="S11" unit="dB" numeric />
-                    <HeadCell label="VSWR" numeric />
-                    <HeadCell label="Status" />
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {results.map((r, i) => {
-                    // Judged on the raw reading. Older rows have none, so the
-                    // correction is undone with the loss for that row's own
-                    // frequency -- exact for anything this app measured, and
-                    // the best available for a file imported from elsewhere.
-                    const raw = r.power_dbm_raw
-                      ?? (r.power_dbm == null ? null : r.power_dbm - lossAt(r.freq_mhz).db)
-                    const confidence = powerConfidence(raw)
-                    return (
-                    <TableRow key={i}>
-                      <TableCell sx={NUM_CELL_SX}>{i + 1}</TableCell>
-                      <TableCell sx={NUM_CELL_SX}>{fmt(r.pos_mm, 2)}</TableCell>
-                      <TableCell sx={NUM_CELL_SX}>{fmt(r.freq_mhz ?? null, 2)}</TableCell>
-                      <TableCell sx={NUM_CELL_SX}>{fmt(r.power_dbm_setting ?? null, 0)}</TableCell>
-                      <TableCell sx={NUM_CELL_SX}>{fmt(r.att_db ?? null, 0)}</TableCell>
-                      <TableCell
-                        sx={{
-                          ...NUM_CELL_SX,
-                          color: confidenceColor(confidence),
-                          fontWeight: confidence === 'ok' ? undefined : 600,
-                        }}
-                      >
-                        {fmt(r.power_dbm, 2)}
-                      </TableCell>
-                      <TableCell sx={NUM_CELL_SX}>{fmt(r.current_a == null ? null : r.current_a * 1000, 1)}</TableCell>
-                      <TableCell sx={NUM_CELL_SX}>{fmt(r.r_ohm, 2)}</TableCell>
-                      <TableCell sx={NUM_CELL_SX}>{fmt(r.x_ohm, 2)}</TableCell>
-                      <TableCell sx={NUM_CELL_SX}>{fmt(r.s11_db, 2)}</TableCell>
-                      {/* Derived from the point's own S11, not stored on it, so
-                          an imported file shows one whether or not it was
-                          exported with the column. */}
-                      <TableCell sx={NUM_CELL_SX}>{vswrLabel(r)}</TableCell>
-                      {/* The numeric cells' type and baseline, left-aligned,
-                          so "ok" sits on the same line as the figures beside
-                          it. One line like them: a long error is cut with an
-                          ellipsis and given in full on hover. */}
-                      <TableCell
-                        title={r.error ?? undefined}
-                        sx={{
-                          ...NUM_CELL_SX, textAlign: 'left', verticalAlign: 'middle',
-                          overflow: 'hidden', textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {r.error
-                          ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
-                          : <Box component="span" sx={{ color: 'text.secondary' }}>ok</Box>}
-                      </TableCell>
-                    </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </Box>
-          )}
+          <LoadPullResultsTable results={results} lossAt={lossAt} />
         </Section>
       </PageBody>
 
@@ -1661,7 +1671,14 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
 
       {attPrompt.dialog}
       {preflight.dialog}
-      {isLte && modem.dialog}
+      {isLte && (
+        <BandsModal
+          open={bandsOpen}
+          onClose={() => setBandsOpen(false)}
+          bands={lteBands}
+          onSave={setLteBands}
+        />
+      )}
     </Box>
   )
 }
