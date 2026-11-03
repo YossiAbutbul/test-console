@@ -10,6 +10,8 @@ turns that heading into the version and date.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-03
+
 ### Added
 - Load Pull: remeasure a point. Double-click a dot on the Smith chart (or its
   row in the point list) for a Remeasure dialog with the point's settings and
@@ -260,5 +262,6 @@ The first versioned release.
 - DESIGN.md, the user manual and the testing guide describe this release.
   Manual screenshots still show the previous design.
 
-[Unreleased]: https://github.com/YossiAbutbul/test-console/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/YossiAbutbul/test-console/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/YossiAbutbul/test-console/releases/tag/v1.1.0
 [1.0.0]: https://github.com/YossiAbutbul/test-console/releases/tag/v1.0.0
