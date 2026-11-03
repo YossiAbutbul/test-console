@@ -5,7 +5,7 @@ import {
 } from '@mui/material'
 import type { SxProps, Theme } from '@mui/material/styles'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import { TEXT } from './tokens'
+import { TEXT, TOP_BAR_H } from './tokens'
 
 /** The three places a dialog key can sit. Each slot takes the key itself, so a
  *  caller keeps its own spinner, hazard glyph or disabled rule:
@@ -35,6 +35,10 @@ interface ModalShellProps {
   dividers?: boolean
   contentSx?: SxProps<Theme>
   paperSx?: SxProps<Theme>
+  /** Stop below the toolbar, scrim included, and leave focus free -- for a
+   *  dialog that is up while hardware is live, so E-STOP and Stop stay in
+   *  reach (as the Smith chart and attenuator prompt do during a run). */
+  keepToolbar?: boolean
   children: ReactNode
   footer?: ModalFooter
 }
@@ -49,7 +53,7 @@ interface ModalShellProps {
  */
 export function ModalShell({
   open, onClose, title, subtitle, headerActions, maxWidth, dividers,
-  contentSx, paperSx, children, footer,
+  contentSx, paperSx, keepToolbar, children, footer,
 }: ModalShellProps) {
   const titleId = useId()
   return (
@@ -59,7 +63,12 @@ export function ModalShell({
       maxWidth={maxWidth}
       fullWidth
       aria-labelledby={titleId}
-      slotProps={paperSx ? { paper: { sx: paperSx } } : undefined}
+      sx={keepToolbar ? { top: TOP_BAR_H } : undefined}
+      disableEnforceFocus={keepToolbar}
+      slotProps={{
+        ...(paperSx ? { paper: { sx: paperSx } } : null),
+        ...(keepToolbar ? { backdrop: { sx: { top: TOP_BAR_H } } } : null),
+      }}
     >
       <DialogTitle
         component="div"

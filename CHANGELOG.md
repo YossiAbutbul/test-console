@@ -11,6 +11,13 @@ turns that heading into the version and date.
 ## [Unreleased]
 
 ### Added
+- Load Pull: remeasure a point. Double-click a dot on the Smith chart (or its
+  row in the point list) for a Remeasure dialog with the point's settings and
+  saved reading. Remeasure takes it again at those settings (position,
+  frequency or channel, power, attenuator) as a one-point backend run, so Stop,
+  E-STOP and the attenuator prompt work as in a run; the new reading shows
+  beside the saved one and replaces it only on Use new. Go to position moves
+  the trombone there without measuring. `ModalShell` gains `keepToolbar`.
 - Load Pull Smith chart: a Statistics card under the point card with the min,
   average and max of Pout, efficiency or current (one at a time, picked on
   the card), for everything shown and per attenuator setting. Each row has a
@@ -80,6 +87,10 @@ turns that heading into the version and date.
   after one sweep per step. The Run sheet records the source and settings.
 
 ### Fixed
+- Load Pull results: the Power cell is red only when the raw sensor reading is
+  outside the sensor's range, −25 to +15 dBm, and its tooltip gives the raw
+  value. An amber band from +10 to +16 dBm flagged readings well inside the
+  range (+14 at full power) and is gone.
 - Load Pull Smith chart: the point list no longer opens blank until scrolled.
   A list scrolled before the dialog closed kept its old scroll offset while
   the reopened list started at the top, so it drew rows below the view.
@@ -136,8 +147,24 @@ turns that heading into the version and date.
   client that reconnected after it.
 - A timed-out instrument call keeps the driver's own message ("no SCPI
   answer from 172.16.10.1:5555 …") instead of a bare "timed out".
+- Resizing the inspector tracks the pointer instead of trailing it: the
+  column's open/close transition no longer runs during the drag, the width
+  is painted once a frame without re-rendering the app, and it is saved once,
+  on release. The edge no longer jumps by where the handle was grabbed.
+- Stop on the LoRa CW, Modulated and Debug pages is disabled while no DUT is
+  connected, as Send is; it stayed pressable with nothing to stop.
 
 ### Changed
+- Load Pull Smith chart, layout and density: the point card is half its
+  height (step and attenuator in a head line, efficiency and Pout large, the
+  rest in a captioned 2 x 2 grid), and with no point hovered it is a centred
+  "Hover a point" with the efficiency formula as a small key at its foot. The
+  point list has fixed columns on one grid, figures right-aligned, so a
+  three-digit step no longer runs into its position and a long Z is cut
+  rather than pushing the row; its head no longer collapses. The Att filter
+  opens a sheet of chips (All / None in its head, double-click for one)
+  instead of a tall list. The Remeasure dialog gives the point's settings in
+  one line and Saved / New in one grouped block, a changed figure marked.
 - Instruments dialog: each row's Connect is the filled blue primary key (as
   Sweep S21), and Disconnect (each row, and Disconnect all) the soft red of
   the DUT's Disconnect key, instead of two outlined keys that differed by
@@ -202,14 +229,6 @@ turns that heading into the version and date.
 - Readout tiles show an empty value instead of a "—" when there is no
   reading; the caption already says why. Captions share one baseline across
   the strip.
-
-### Fixed
-- Resizing the inspector tracks the pointer instead of trailing it: the
-  column's open/close transition no longer runs during the drag, the width
-  is painted once a frame without re-rendering the app, and it is saved once,
-  on release. The edge no longer jumps by where the handle was grabbed.
-- Stop on the LoRa CW, Modulated and Debug pages is disabled while no DUT is
-  connected, as Send is; it stayed pressable with nothing to stop.
 
 ## [1.0.0] - 2026-10-21
 

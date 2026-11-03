@@ -8,6 +8,7 @@ import CloseIcon from '@mui/icons-material/CloseRounded'
 import ContentCopyIcon from '@mui/icons-material/ContentCopyRounded'
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import TuneIcon from '@mui/icons-material/TuneRounded'
+import AdsClickIcon from '@mui/icons-material/AdsClickRounded'
 import { usePersistedState } from '../../store/persistent'
 import { STORAGE_KEYS } from '../../store/keys'
 import { useAppPalette, useThemeMode } from '../../context/ThemeModeContext'
@@ -228,6 +229,13 @@ function StatsCard({
   )
 }
 
+/** Stands in for `onRemeasure` when there is none, so the memoised dots and
+ *  rows are handed the same function every render. */
+const NO_PICK = () => {}
+
+/** An empty reading in the point card. */
+const DASH_TXT = '—'
+
 /** Point-list rows rendered beyond each edge of the view. */
 const LIST_OVERSCAN = 10
 /** Height of one point-list row before the first is measured. */
@@ -243,10 +251,11 @@ const LIST_ROW_H_GUESS = 26
  * only when their own colour or hover changes.
  */
 const Dot = memo(function Dot({
-  x, y, idx, r, fill, stroke, hover, onHover,
+  x, y, idx, r, fill, stroke, hover, onHover, onPick,
 }: {
   x: number; y: number; idx: number; r: number; fill: string; stroke: string; hover: boolean
   onHover: (idx: number | null) => void
+  onPick: (idx: number) => void
 }) {
   return (
     <circle
@@ -257,6 +266,7 @@ const Dot = memo(function Dot({
       strokeWidth={hover ? 2 : 0.8}
       style={{ cursor: 'pointer' }}
       onMouseEnter={() => onHover(idx)}
+      onDoubleClick={() => onPick(idx)}
     />
   )
 })
@@ -264,17 +274,41 @@ const Dot = memo(function Dot({
 /** Shared by every list row, so they resolve to one class between them. */
 const LIST_ROW_SX = {
   px: 1.25, py: 0.5, cursor: 'default',
-  fontFamily: MONO, fontSize: 12,
+  fontFamily: MONO, fontSize: 11.5, fontVariantNumeric: 'tabular-nums',
+  display: 'grid', columnGap: '6px', alignItems: 'center',
   '&:hover': { bgcolor: 'action.hover' },
   '&[data-on="true"]': { bgcolor: 'action.selected' },
 } as const
 
+/** Width of the point list. */
+const LIST_W = 320
+
+/**
+ * The point list's columns, shared by its head and every row: #, Pos, Att
+ * (with a sweep), Z, Pout, Eff. Fixed widths, the figures right-aligned in
+ * tabular digits; only Z takes what is left, and cuts with an ellipsis.
+ *
+ * They were flex shares sized by their content, so the columns drifted row
+ * to row: a three-digit step ran into its position ("13" and "3.9" read as
+ * "133.9"), and a long impedance pushed Pout and Eff along.
+ */
+const listCols = (hasAtt: boolean) =>
+  `40px 42px ${hasAtt ? '22px ' : ''}minmax(0, 1fr) 36px 44px`
+
+/** A list cell: numbers right, one line, cut rather than overflowing. */
+const cellSx = (align: 'left' | 'right') => ({
+  textAlign: align, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
+}) as const
+const NUM_SX = cellSx('right')
+const TXT_SX = cellSx('left')
+
 /** One row of the point list. See Dot for why it is memoised. */
 const ListRow = memo(function ListRow({
-  pt, color, hasAtt, on, onHover, rowRef,
+  pt, color, hasAtt, on, onHover, onPick, rowRef,
 }: {
   pt: Pt; color: string; hasAtt: boolean; on: boolean
   onHover: (idx: number | null) => void
+  onPick: (idx: number) => void
   rowRef?: Ref<HTMLDivElement>
 }) {
   return (
@@ -284,9 +318,11 @@ const ListRow = memo(function ListRow({
       data-on={on}
       onMouseEnter={() => onHover(pt.idx)}
       onMouseLeave={() => onHover(null)}
+      onDoubleClick={() => onPick(pt.idx)}
       sx={LIST_ROW_SX}
+      style={{ gridTemplateColumns: listCols(hasAtt) }}
     >
-      <Box sx={{ width: 26, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
         {/* The same colour the point carries on the chart, so a row and
             its dot are findable from each other. A plain style: the colour
             changes with the efficiency range, and in `sx` every new value
@@ -296,23 +332,25 @@ const ListRow = memo(function ListRow({
         }} />
         {pt.idx + 1}
       </Box>
-      <Box sx={{ flex: 1, textAlign: 'left' }}>{pt.row.pos_mm.toFixed(1)}</Box>
+      <Box sx={NUM_SX}>{pt.row.pos_mm.toFixed(1)}</Box>
       {/* Every attenuation is on the chart at once, so the
           list is where a dot says which cycle it came from. */}
       {hasAtt && (
-        <Box sx={{ flex: 0.8, textAlign: 'left' }}>
+        <Box sx={NUM_SX}>
           {pt.row.att_db == null ? '—' : pt.row.att_db}
         </Box>
       )}
-      <Box sx={{ flex: 1.2, textAlign: 'left' }}>
+      <Box sx={{ ...TXT_SX, pl: 0.75 }} title={pt.row.r_ohm == null || pt.row.x_ohm == null ? undefined
+        : `${pt.row.r_ohm.toFixed(1)} ${pt.row.x_ohm >= 0 ? '+' : '−'} j${Math.abs(pt.row.x_ohm).toFixed(1)} Ω`}
+      >
         {pt.row.r_ohm == null || pt.row.x_ohm == null
           ? '—'
           : `${pt.row.r_ohm.toFixed(0)}${pt.row.x_ohm >= 0 ? '+' : '−'}j${Math.abs(pt.row.x_ohm).toFixed(0)}`}
       </Box>
-      <Box sx={{ flex: 1, textAlign: 'left' }}>
+      <Box sx={NUM_SX}>
         {pt.row.power_dbm == null ? '—' : pt.row.power_dbm.toFixed(1)}
       </Box>
-      <Box sx={{ flex: 0.9, textAlign: 'left' }}>
+      <Box sx={NUM_SX}>
         {pt.eff == null ? '—' : `${(pt.eff * 100).toFixed(1)}%`}
       </Box>
     </Stack>
@@ -365,22 +403,52 @@ function Picker({
 }
 
 /**
- * Which attenuator settings are on the chart, as a checklist. Every setting
- * belongs on one chart (sweeping it is what moves the load), but with a dozen
- * trajectories overlaid, comparing two or three of them meant reading
- * through the rest.
+ * Which attenuator settings are on the chart. Every setting belongs on one
+ * chart (sweeping it is what moves the load), but with a dozen trajectories
+ * overlaid, comparing two or three of them meant reading through the rest.
+ *
+ * The field is the same select as Freq beside it; it opens a small sheet,
+ * not a list. The list was a tall column of rows each tinted blue with a
+ * tick -- nine identical loud rows that said "all on" by shouting -- with All
+ * and None as two more rows of it. Here the settings are chips in a grid, a
+ * shown one softly filled and ticked, a hidden one plain and dimmed; All and
+ * None are quiet keys in the sheet's head. Double-click a chip for only that
+ * setting. With the chart coloured by attenuator each chip carries its dot.
  */
 function AttPicker({
-  options, hidden, onChange,
+  options, hidden, onChange, colorOf,
 }: {
   options: number[]
   hidden: ReadonlySet<number>
   onChange: (hidden: Set<number>) => void
+  /** The setting's colour on the chart, when the chart is coloured by it. */
+  colorOf?: (att: number) => string
 }) {
+  const pal = useAppPalette()
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const shown = options.filter((o) => !hidden.has(o))
   const label = shown.length === options.length ? 'All'
     : shown.length === 0 ? 'None'
     : shown.join(', ')
+  const toggle = (o: number) => {
+    const next = new Set(hidden)
+    if (next.has(o)) next.delete(o)
+    else next.add(o)
+    onChange(next)
+  }
+  const quietKey = (text: string, onClick: () => void, disabled: boolean) => (
+    <ButtonBase
+      onClick={onClick}
+      disabled={disabled}
+      sx={{
+        ...PRESS_SX, fontSize: 12, fontWeight: 500, borderRadius: '6px', px: 0.75, py: 0.25,
+        color: 'primary.main', '&.Mui-disabled': { color: 'text.disabled' },
+        '&:hover': { bgcolor: alpha(pal.sidebar.text, 0.06) },
+      }}
+    >
+      {text}
+    </ButtonBase>
+  )
   return (
     <Stack direction="row" spacing={0.75} alignItems="center">
       <Typography sx={{ ...TEXT.label, color: 'text.secondary', whiteSpace: 'nowrap' }}>
@@ -389,20 +457,12 @@ function AttPicker({
       <TextField
         select
         size="small"
-        // The value is the settings shown; `renderValue` writes them out.
-        value={shown}
+        value="shown"
         SelectProps={{
-          multiple: true,
+          // Never opens its own list: the sheet below is the menu.
+          open: false,
+          onOpen: (e) => setAnchor((e.currentTarget as HTMLElement).closest('.MuiInputBase-root') as HTMLElement),
           renderValue: () => label,
-          MenuProps: { slotProps: { paper: { sx: { maxHeight: 360 } } } },
-        }}
-        onChange={(e) => {
-          const v = e.target.value as unknown as Array<number | 'all' | 'none'>
-          // "All" and "None" are rows of the list, so they arrive as values.
-          if (v.includes('all')) return onChange(new Set())
-          if (v.includes('none')) return onChange(new Set(options))
-          const on = new Set(v as number[])
-          onChange(new Set(options.filter((o) => !on.has(o))))
         }}
         inputProps={{ 'aria-label': 'Attenuator settings shown (dB)' }}
         sx={{
@@ -411,30 +471,82 @@ function AttPicker({
           '& .MuiSelect-select': { fontFamily: MONO, fontSize: 12.5, py: 0.5 },
         }}
       >
-        {/* A rule under these rather than a Divider, which a select's
-            list takes for one more option. The settings carry the theme's
-            own tick when shown. */}
-        <MenuItem value="all" dense sx={{ fontSize: 12.5 }}>Show all</MenuItem>
-        <MenuItem value="none" dense sx={{ fontSize: 12.5, borderBottom: 1, borderColor: 'divider', mb: 0.5 }}>
-          Hide all
-        </MenuItem>
-        {options.map((o) => (
-          <MenuItem key={o} value={o} dense sx={{ fontFamily: MONO, fontSize: 12.5 }}>
-            {o}
-          </MenuItem>
-        ))}
+        <MenuItem value="shown">{label}</MenuItem>
       </TextField>
       <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>dB</Typography>
+
+      <Popover
+        open={!!anchor}
+        anchorEl={anchor}
+        onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        slotProps={{
+          paper: {
+            sx: {
+              mt: 0.75, p: 1.25, width: 232, borderRadius: '12px', border: 1, borderColor: 'divider',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)',
+            },
+          },
+        }}
+      >
+        <Stack direction="row" alignItems="center" sx={{ px: 0.5, mb: 1 }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, flexGrow: 1 }}>Attenuator</Typography>
+          {quietKey('All', () => onChange(new Set()), hidden.size === 0)}
+          {quietKey('None', () => onChange(new Set(options)), shown.length === 0)}
+        </Stack>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0.5 }}>
+          {options.map((o) => {
+            const on = !hidden.has(o)
+            return (
+              <ButtonBase
+                key={o}
+                aria-pressed={on}
+                aria-label={`${o} dB`}
+                onClick={() => toggle(o)}
+                onDoubleClick={() => onChange(new Set(options.filter((x) => x !== o)))}
+                sx={{
+                  ...PRESS_SX,
+                  height: 30, borderRadius: '8px', gap: 0.5,
+                  fontFamily: MONO, fontSize: 12.5, fontWeight: on ? 600 : 400,
+                  color: on ? 'text.primary' : 'text.disabled',
+                  bgcolor: on ? alpha(pal.sidebar.text, 0.08) : 'transparent',
+                  boxShadow: on ? 'none' : `inset 0 0 0 1px ${alpha(pal.sidebar.text, 0.1)}`,
+                  '&:hover': { bgcolor: alpha(pal.sidebar.text, on ? 0.12 : 0.05) },
+                }}
+              >
+                {colorOf ? (
+                  <Box
+                    component="span"
+                    sx={{
+                      width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                      bgcolor: on ? colorOf(o) : 'transparent',
+                      boxShadow: on ? 'none' : `inset 0 0 0 1.5px ${colorOf(o)}`,
+                    }}
+                  />
+                ) : on && <CheckRoundedIcon sx={{ fontSize: 13, color: 'primary.main' }} />}
+                {o}
+              </ButtonBase>
+            )
+          })}
+        </Box>
+        <Typography sx={{ ...TEXT.micro, color: 'text.disabled', px: 0.5, mt: 1 }}>
+          Double-click a setting to show only it
+        </Typography>
+      </Popover>
     </Stack>
   )
 }
 
 export function SmithChartModal({
-  open, onClose, results, keepToolbar,
+  open, onClose, results, keepToolbar, onRemeasure = NO_PICK,
 }: {
   open: boolean
   onClose: () => void
   results: LoadPullResultRow[]
+  /** Double-click on a point or its row: remeasure that point (its index in
+   *  `results`). Keep it stable -- dots and rows are memoised on it. */
+  onRemeasure?: (idx: number) => void
   /** Stop below the toolbar instead of covering it -- pass while a run is on. */
   keepToolbar?: boolean
 }) {
@@ -697,7 +809,6 @@ export function SmithChartModal({
   const listFirst = Math.max(0, Math.floor(listTop / listRowH) - LIST_OVERSCAN)
   const listLast = Math.min(points.length, listFirst + Math.ceil(listH / listRowH) + LIST_OVERSCAN * 2)
   const dotStroke = mode === 'light' ? alpha(pal.sidebar.text, 0.35) : pal.paper
-  const fmtPct = (e: number | null) => (e == null ? '—' : `${(e * 100).toFixed(1)} %`)
 
   return (
     <Dialog
@@ -847,7 +958,10 @@ export function SmithChartModal({
             />
           )}
           {atts.length > 1 && (
-            <AttPicker options={atts} hidden={hiddenAtt} onChange={setHiddenAtt} />
+            <AttPicker
+              options={atts} hidden={hiddenAtt} onChange={setHiddenAtt}
+              colorOf={byAtt ? attColor : undefined}
+            />
           )}
 
           <Box sx={{ flexGrow: 1 }} />
@@ -876,7 +990,7 @@ export function SmithChartModal({
                 slid out from under it. Its own column cannot be pushed. */}
             {points.length > 0 && (
               <Box sx={{
-                width: 290, flexShrink: 0,
+                width: LIST_W, flexShrink: 0,
                 // Grows with the list and stops at the row's height — a short
                 // run gets a short box, a long one fills the dialog and scrolls
                 // inside. Fixing the height instead left rows at the top of an
@@ -886,27 +1000,37 @@ export function SmithChartModal({
                 borderRadius: 1.5, border: 1, borderColor: 'divider',
                 bgcolor: 'background.paper', overflow: 'hidden',
               }}>
-                <Stack
-                  direction="row"
+                <Box
                   sx={{
-                    px: 1.25, py: 0.75, borderBottom: 1, borderColor: 'divider',
+                    display: 'grid', gridTemplateColumns: listCols(hasAtt), columnGap: '6px',
+                    px: 1.25, py: 0.5, borderBottom: 1, borderColor: 'divider',
                     ...TEXT.micro, color: 'text.disabled', fontWeight: 700,
+                    // The list's scrollbar narrows the rows below; the head
+                    // keeps the same lane so its columns sit over theirs. The
+                    // lane needs a clipping box, and a clipping box in this
+                    // flex column may shrink below its text: the column
+                    // squeezed it to 12 px and cut the labels. So it never
+                    // shrinks.
+                    flexShrink: 0, lineHeight: '20px', scrollbarGutter: 'stable', overflowY: 'hidden',
                   }}
                 >
-                  <Box sx={{ width: 26 }}>#</Box>
-                  <Box sx={{ flex: 1, textAlign: 'left' }}>Pos</Box>
-                  {hasAtt && <Box sx={{ flex: 0.8, textAlign: 'left' }}>Att</Box>}
-                  <Box sx={{ flex: 1.2, textAlign: 'left' }}>Z (Ω)</Box>
-                  <Box sx={{ flex: 1, textAlign: 'left' }}>Pout</Box>
-                  <Box sx={{ flex: 0.9, textAlign: 'left' }}>Eff</Box>
-                </Stack>
+                  <Box>#</Box>
+                  <Box sx={NUM_SX}>Pos</Box>
+                  {hasAtt && <Box sx={NUM_SX}>Att</Box>}
+                  <Box sx={{ ...TXT_SX, pl: 0.75 }}>Z [Ω]</Box>
+                  <Box sx={NUM_SX}>Pout</Box>
+                  <Box sx={NUM_SX}>Eff</Box>
+                </Box>
                 {/* No height of its own: it is as tall as its rows, and the
                     cap above turns that into a scroll once the dialog runs out
                     of room. Scrolling beats losing the chart to a table. */}
                 <Box
                   ref={attachList}
                   onScroll={(e) => setListTop(e.currentTarget.scrollTop)}
-                  sx={{ minHeight: 0, overflowY: 'auto' }}
+                  // The scrollbar's lane kept whether or not it is showing,
+                  // as in the head, so a list that starts to scroll does not
+                  // narrow its rows and shift the columns.
+                  sx={{ minHeight: 0, overflowY: 'auto', scrollbarGutter: 'stable' }}
                 >
                   {/* Only the rows in view; the spacers stand in for the rest
                       so the scrollbar is the whole list's. */}
@@ -919,6 +1043,7 @@ export function SmithChartModal({
                       hasAtt={hasAtt}
                       on={pt.idx === hover}
                       onHover={setHover}
+                      onPick={onRemeasure}
                       rowRef={j === 0 ? listRowRef : undefined}
                     />
                   ))}
@@ -973,6 +1098,7 @@ export function SmithChartModal({
                       stroke={isHover ? pal.sidebar.text : dotStroke}
                       hover={isHover}
                       onHover={setHover}
+                      onPick={onRemeasure}
                     />
                   )
                 })}
@@ -1040,41 +1166,109 @@ export function SmithChartModal({
                   start and does not grow and shrink as the cursor crosses
                   points. */}
               <Box sx={{
-                p: 2, borderRadius: 1.5, border: 1, borderColor: 'divider', bgcolor: 'background.paper',
+                p: 1.75, borderRadius: 1.5, border: 1, borderColor: 'divider', bgcolor: 'background.paper',
                 display: 'grid',
               }}>
+                {/* Compact on purpose: it was nine stacked label/value rows,
+                    a third of the column's height for one point. Now a
+                    header, the two figures read first (efficiency in its
+                    ramp colour, Pout with its watts), and the rest as a
+                    captioned two-by-two grid. */}
                 <Box sx={{ gridArea: '1 / 1', visibility: hp ? 'visible' : 'hidden' }} aria-hidden={!hp}>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-                    Measurement
-                  </Typography>
-                  <Typography sx={{ fontSize: 16, fontWeight: 700, mb: 1.5 }}>
-                    {hp ? `Step ${hp.idx + 1} · pos ${hp.row.pos_mm.toFixed(2)} mm` : '—'}
-                  </Typography>
-                  <Stack spacing={0.75}>
-                    <Row label="Efficiency" value={fmtPct(hp?.eff ?? null)} strong color={hp ? effColor(hp.eff) : undefined} />
-                    <Row label="Pout" value={hp?.row.power_dbm == null ? '—' : `${hp.row.power_dbm.toFixed(2)} dBm`} />
-                    <Row label="Pout (W)" value={hp?.row.power_dbm == null ? '—' : dbmToW(hp.row.power_dbm).toFixed(3)} />
-                    <Row label="Icc" value={hp?.row.current_a == null ? '—' : `${(hp.row.current_a * 1000).toFixed(1)} mA`} />
-                    <Row label="Z" value={hp?.row.r_ohm == null || hp.row.x_ohm == null ? '—'
-                      : `${hp.row.r_ohm.toFixed(1)} ${hp.row.x_ohm >= 0 ? '+' : '−'} j${Math.abs(hp.row.x_ohm).toFixed(1)} Ω`} />
-                    <Row label="|S11|" value={hp?.row.s11_db == null ? '—' : `${hp.row.s11_db.toFixed(2)} dB`} />
-                    <Row label="Γ" value={hp ? `${hp.gr.toFixed(3)} ${hp.gi >= 0 ? '+' : '−'} j${Math.abs(hp.gi).toFixed(3)}` : '—'} />
+                  <Stack direction="row" alignItems="baseline" spacing={1}>
+                    <Typography sx={{ fontSize: 14, fontWeight: 700, letterSpacing: '-0.01em', flexGrow: 1 }}>
+                      {hp ? `Step ${hp.idx + 1}` : DASH_TXT}
+                    </Typography>
                     {/* Reserved for the whole run once any row has one, so
-                        moving between cycles does not add and drop a line. */}
+                        moving between cycles does not add and drop it. */}
                     {hasAtt && (
-                      <Row label="Attenuator" value={hp?.row.att_db == null ? '—' : `${hp.row.att_db} dB`} />
+                      <Typography sx={{ ...TEXT.micro, color: 'text.secondary', fontFamily: MONO }}>
+                        att {hp?.row.att_db == null ? DASH_TXT : `${hp.row.att_db} dB`}
+                      </Typography>
                     )}
-                    <Row label="Pos (pulses)" value={hp ? hp.row.pos_pulses.toLocaleString() : '—'} />
                   </Stack>
+                  <Typography sx={{ ...TEXT.micro, color: 'text.secondary', fontFamily: MONO, mb: 1.25 }}>
+                    {hp ? `${hp.row.pos_mm.toFixed(2)} mm · ${hp.row.pos_pulses.toLocaleString()} pulses` : DASH_TXT}
+                  </Typography>
+
+                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 1.5, mb: 1.25 }}>
+                    <Box>
+                      <Typography
+                        sx={{
+                          fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em',
+                          color: hp ? effColor(hp.eff) : 'text.disabled',
+                        }}
+                      >
+                        {hp?.eff == null ? DASH_TXT : `${(hp.eff * 100).toFixed(1)}%`}
+                      </Typography>
+                      <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>efficiency</Typography>
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
+                        {hp?.row.power_dbm == null ? DASH_TXT : hp.row.power_dbm.toFixed(2)}
+                        <Box component="span" sx={{ fontSize: 12, fontWeight: 500, color: 'text.secondary', ml: 0.5 }}>dBm</Box>
+                      </Typography>
+                      <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>
+                        Pout{hp?.row.power_dbm == null ? '' : ` · ${dbmToW(hp.row.power_dbm).toFixed(3)} W`}
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  <Box
+                    sx={{
+                      display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 1.5, rowGap: 0.75,
+                      pt: 1, borderTop: 1, borderColor: 'divider',
+                    }}
+                  >
+                    {([
+                      ['Icc', hp?.row.current_a == null ? DASH_TXT : `${(hp.row.current_a * 1000).toFixed(1)} mA`],
+                      ['|S11|', hp?.row.s11_db == null ? DASH_TXT : `${hp.row.s11_db.toFixed(2)} dB`],
+                      ['Z', hp?.row.r_ohm == null || hp.row.x_ohm == null ? DASH_TXT
+                        : `${hp.row.r_ohm.toFixed(1)} ${hp.row.x_ohm >= 0 ? '+' : '−'} j${Math.abs(hp.row.x_ohm).toFixed(1)} Ω`],
+                      ['Γ', hp ? `${hp.gr.toFixed(3)} ${hp.gi >= 0 ? '+' : '−'} j${Math.abs(hp.gi).toFixed(3)}` : DASH_TXT],
+                    ] as const).map(([k, v]) => (
+                      <Box key={k} sx={{ minWidth: 0 }}>
+                        <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>{k}</Typography>
+                        <Typography sx={{ fontFamily: MONO, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {v}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
                   {hp?.row.error && (
-                    <Typography sx={{ fontSize: 12, color: 'error.main', mt: 1 }}>{hp.row.error}</Typography>
+                    <Typography sx={{ ...TEXT.micro, color: 'error.main', mt: 1 }}>{hp.row.error}</Typography>
                   )}
                 </Box>
-                <Box sx={{ gridArea: '1 / 1', visibility: hp ? 'hidden' : 'visible' }} aria-hidden={!!hp}>
-                  <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 1.5 }}>
-                    Hover a point to see its measurement. Color = efficiency:
-                  </Typography>
-                  <EfficiencyFormula vcc={VCC} />
+                {/* The idle state shares the measurement's cell, so it has
+                    that height to fill: what to do, centred, then the colour
+                    key as a quiet inset at the foot -- rather than a sentence
+                    at the top, the formula as the largest thing in the card,
+                    and empty space under both. */}
+                <Box
+                  sx={{
+                    gridArea: '1 / 1', visibility: hp ? 'hidden' : 'visible',
+                    display: 'flex', flexDirection: 'column', gap: 1.5,
+                  }}
+                  aria-hidden={!!hp}
+                >
+                  <Stack alignItems="center" justifyContent="center" spacing={0.5} sx={{ flexGrow: 1, textAlign: 'center' }}>
+                    <Box
+                      sx={{
+                        width: 32, height: 32, borderRadius: '50%', display: 'grid', placeItems: 'center',
+                        bgcolor: alpha(pal.sidebar.text, 0.06), color: 'text.secondary', mb: 0.5,
+                      }}
+                    >
+                      <AdsClickIcon sx={{ fontSize: 18 }} />
+                    </Box>
+                    <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Hover a point</Typography>
+                    <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
+                      to see its measurement. Double-click to remeasure.
+                    </Typography>
+                  </Stack>
+                  <Box sx={{ borderRadius: '10px', bgcolor: alpha(pal.sidebar.text, 0.04), px: 1.25, py: 1 }}>
+                    <Typography sx={{ ...TEXT.micro, color: 'text.disabled', mb: 0.25 }}>Colour = efficiency</Typography>
+                    <EfficiencyFormula vcc={VCC} />
+                  </Box>
                 </Box>
               </Box>
 
@@ -1110,8 +1304,8 @@ function EfficiencyFormula({ vcc }: { vcc: number }) {
     <Box sx={{
       display: 'flex', alignItems: 'center', gap: 1,
       fontFamily: FORMULA_SERIF, fontStyle: 'italic',
-      fontSize: 22, color: 'text.primary',
-      px: 1, py: 0.5,
+      fontSize: 17, color: 'text.primary',
+      px: 0.5, py: 0.25,
     }}>
       <Box component="span" sx={{ fontStyle: 'normal' }}>eff</Box>
       <Box component="span" sx={{ fontStyle: 'normal' }}>=</Box>
@@ -1131,20 +1325,5 @@ function EfficiencyFormula({ vcc }: { vcc: number }) {
         </Box>
       </Box>
     </Box>
-  )
-}
-
-function Row({ label, value, strong, color }: { label: string; value: string; strong?: boolean; color?: string }) {
-  return (
-    <Stack direction="row" justifyContent="space-between" alignItems="baseline" spacing={2}>
-      <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>{label}</Typography>
-      <Typography sx={{
-        fontSize: strong ? 14 : 12.5, fontWeight: strong ? 700 : 500,
-        fontFamily: MONO,
-        color: color ?? 'text.primary',
-      }}>
-        {value}
-      </Typography>
-    </Stack>
   )
 }

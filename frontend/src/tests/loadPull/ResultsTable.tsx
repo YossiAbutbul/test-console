@@ -5,7 +5,7 @@ import { HeadCell, NUM_CELL_SX, RESULTS_H, FollowLatest, useFollowBottom } from 
 import type { PathLossAt } from '../../lib/pathLoss'
 import type { LoadPullResultRow } from '../../store/loadPullPageStore'
 import { vswrLabel } from './smith'
-import { confidenceColor, powerConfidence } from './powerConfidence'
+import { SENSOR_MAX_DBM, SENSOR_MIN_DBM, confidenceColor, powerConfidence } from './powerConfidence'
 
 /** Columns in the table, for the spacer rows' colSpan. */
 const COLS = 12
@@ -138,6 +138,11 @@ export const LoadPullResultsTable = memo(function LoadPullResultsTable({ results
                 <TableCell sx={NUM_CELL_SX}>{fmt(r.power_dbm_setting ?? null, 0)}</TableCell>
                 <TableCell sx={NUM_CELL_SX}>{fmt(r.att_db ?? null, 0)}</TableCell>
                 <TableCell
+                  // Says why it is red: the corrected figure in the cell can
+                  // look perfectly ordinary while the sensor was out of range.
+                  title={confidence === 'poor' && raw != null
+                    ? `Sensor read ${raw.toFixed(2)} dBm, outside its ${SENSOR_MIN_DBM} to +${SENSOR_MAX_DBM} dBm range`
+                    : undefined}
                   sx={{
                     ...NUM_CELL_SX,
                     color: confidenceColor(confidence),

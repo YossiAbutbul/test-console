@@ -55,6 +55,7 @@ import { BandsModal } from '../lte/BandsModal'
 import { useLteBands, useLteChannelUnit } from '../lte/channel'
 import { uplinkFromEarfcn, uplinkFromMhz } from '../../lib/earfcn'
 import { SmithChartModal } from './SmithChartModal'
+import { RemeasureDialog } from './RemeasureDialog'
 import { LoadPullResultsTable } from './ResultsTable'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'
@@ -110,6 +111,10 @@ const ROW_CHARS = 350
  * points sit tens of kHz apart.
  */
 const VNA_HALF_SPAN_FRAC = 0.005
+
+/** Plan-key prefix of a one-point remeasure run, which the page keeps out of
+ *  the table and the run reports. */
+const REMEASURE_KEY = 'remeasure:'
 
 /** The span and marker the run reads `freqMhz` on, in Hz, rounded as the
  *  backend rounds them (`_hz`, then `round(hz * vna_half_span_frac)`). */
@@ -953,6 +958,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     const prev = lastStateRef.current
     lastStateRef.current = runState
     if (prev !== 'running' || runState === 'running' || !mine) return
+    // A remeasure reports in its own dialog, not as a run finishing.
+    if (mine.plan_key?.startsWith(REMEASURE_KEY)) return
     if (runTimesRef.current) {
       runTimesRef.current.finished_at = mine.finished_at ?? Date.now() / 1000
     }
@@ -967,6 +974,89 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       if (mine.error) reporter.note(mine.error, 'warn')
     } else if (runState === 'error') reporter.failed(mine.error ?? 'run failed')
   }, [runState]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Remeasure: one saved point taken again, from the Smith chart. It runs as
+  // a one-point run on the backend, so the move, VNA read, attenuator prompt,
+  // Stop and E-STOP all behave as in a run; its own plan key keeps its row
+  // out of the table until Use new puts it in place of the old one.
+  const [remeasureIdx, setRemeasureIdx] = useState<number | null>(null)
+  const [remeasureFresh, setRemeasureFresh] = useState<LoadPullResultRow | null>(null)
+  const [remeasureErr, setRemeasureErr] = useState<string | null>(null)
+  const [remeasureKey, setRemeasureKey] = useState<string | null>(null)
+  const openRemeasure = useCallback((idx: number) => {
+    setRemeasureIdx(idx)
+    setRemeasureFresh(null)
+    setRemeasureErr(null)
+  }, [])
+  const remeasureRow = remeasureIdx != null ? results[remeasureIdx] ?? null : null
+  const remeasuring = running && remeasureKey != null && mine?.plan_key === remeasureKey
+  const remeasureBlocked = otherRunning ? `The ${isLte ? 'LoRa' : 'LTE'} Load Pull run is going`
+    : running && !remeasuring ? 'A run is going'
+      : !dutConnected ? 'Connect the DUT over BLE first'
+        : !pathAck ? 'Confirm the RF path first'
+          : settleMs == null ? `Set the settle (min ${MIN_SETTLE_MS} ms) first`
+            : null
+  const remeasureM = useMutation({
+    mutationFn: async (idx: number) => {
+      const r = results[idx]
+      if (!r || r.freq_mhz == null || r.power_dbm_setting == null) throw new Error('this row has no settings to remeasure at')
+      if (!(await preflight.run())) throw new Error('cancelled, instruments not ready')
+      // The row's own settings, not today's plan: the fields may have
+      // changed since it was taken. Settle and PA mode are the page's now.
+      const key = `${REMEASURE_KEY}${idx}:${Date.now()}`
+      const l = lossAt(r.freq_mhz)
+      const status = await loadPullApi.start({
+        radio,
+        points: [{
+          pos: r.pos_pulses, freq_mhz: r.freq_mhz, earfcn: r.earfcn ?? null,
+          power_dbm: r.power_dbm_setting, att_db: r.att_db ?? null,
+        }],
+        start_index: 0,
+        settle_ms: settleEffectiveMs,
+        ...(isLte ? {} : { pa_mode: paMode }),
+        path_loss: [{ freq_mhz: r.freq_mhz, db: l.db, calibrated: l.calibrated }],
+        vna_half_span_frac: VNA_HALF_SPAN_FRAC,
+        plan_key: key,
+      })
+      promptSeqRef.current = 0
+      lastStateRef.current = 'running'
+      setRemeasureKey(key)
+      setRemeasureFresh(null)
+      setRemeasureErr(null)
+      setRunStatus(status)
+      log('LoadPull', `remeasuring point #${idx + 1}`)
+    },
+    onError: (e: Error) => setRemeasureErr(e.message),
+  })
+  // Its reading, once the one-point run has ended.
+  const remeasureState = remeasureKey != null && mine?.plan_key === remeasureKey ? mine.state : null
+  useEffect(() => {
+    if (!remeasureKey || !remeasureState || remeasureState === 'running') return
+    setRemeasureKey(null)
+    if (remeasureState !== 'done') {
+      setRemeasureErr(remeasureState === 'cancelled' ? (mine?.error ?? 'Stopped') : (mine?.error ?? 'Remeasure failed'))
+      return
+    }
+    loadPullApi.rows(0)
+      .then((rows) => {
+        if (rows[0]) setRemeasureFresh(rows[0])
+        else setRemeasureErr('No reading came back')
+      })
+      .catch((e: Error) => setRemeasureErr(`could not fetch the reading: ${e.message}`))
+  }, [remeasureState]) // eslint-disable-line react-hooks/exhaustive-deps
+  const takeRemeasured = () => {
+    if (remeasureIdx == null || !remeasureFresh) return
+    const idx = remeasureIdx
+    const fresh = remeasureFresh
+    setResults((prev) => prev.map((r, i) => (i === idx ? fresh : r)))
+    log('LoadPull', `point #${idx + 1} replaced with its remeasurement`)
+    setRemeasureIdx(null)
+  }
+  const goToM = useMutation({
+    mutationFn: (pos: number) => motor.move(pos, true),
+    onSuccess: (_d, pos) => log('Motor', `go to ${fmt(pos / PULSES_PER_MM, 2)} mm ok`),
+    onError: (e: Error) => notify.error(e.message, { title: 'Trombone go to' }),
+  })
 
   const runM = useMutation({
     // `resume` continues the saved rows instead of starting over: only the
@@ -1666,6 +1756,23 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         onClose={() => setSmithOpen(false)}
         results={results}
         keepToolbar={running}
+        onRemeasure={openRemeasure}
+      />
+      <RemeasureDialog
+        idx={remeasureRow ? remeasureIdx : null}
+        row={remeasureRow}
+        fresh={remeasureFresh}
+        busy={remeasuring || remeasureM.isPending}
+        phase={remeasuring ? mine?.phase ?? null : null}
+        error={remeasureErr}
+        blocked={remeasureBlocked}
+        goToBusy={goToM.isPending}
+        goToBlocked={!motorConnected ? 'The trombone is not connected' : running ? 'A run is going' : null}
+        keepToolbar={running}
+        onGoTo={() => { if (remeasureRow) goToM.mutate(remeasureRow.pos_pulses) }}
+        onRemeasure={() => { if (remeasureIdx != null) remeasureM.mutate(remeasureIdx) }}
+        onReplace={takeRemeasured}
+        onClose={() => setRemeasureIdx(null)}
       />
       <SetupDiagramModal open={setupOpen} onClose={() => setSetupOpen(false)} keepToolbar={running} />
 
