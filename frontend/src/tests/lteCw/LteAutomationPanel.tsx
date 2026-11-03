@@ -26,7 +26,7 @@ import { parseLimit, tallyVerdicts, verdictWithinMargin } from '../../lib/verdic
 import {
   DEFAULT_SETTLE_MS as SHARED_DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs,
 } from '../../lib/settle'
-import { uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch } from '../../lib/earfcn'
+import { uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch, channelIssues, shortChannelIssue } from '../../lib/earfcn'
 import { scrollBehavior, FollowLatest, useFollowBottom, CONTROL_H, GRID_GAP, MiniAction, Section, SegmentedChoice, TEXT,
   FAIL_ROW_SX, HeadCell, NUM_CELL_SX, VerdictMark, deltaText,
   VerdictTally, type VerdictFilter,
@@ -831,10 +831,10 @@ export function LteAutomationPanel({
                   // fix is a band setting, not retyping the number.
                   const badSpec = r.earfcn.trim() !== '' && parsed.length === 0
                   const unresolved = parsed.length > 0 && good.length < parsed.length
-                  // Two ways a MHz value fails, needing different fixes: in no
-                  // selected band (tick one) versus in several (untick one).
-                  const ambiguous = !isEarfcn
-                    && parsed.some((m) => uplinkFromMhz(m, bands).length > 1)
+                  // Each value that does not resolve, named with the bands it
+                  // is in: "in more than one selected band" left the operator
+                  // to work out which value, and which bands to untick.
+                  const issues = unresolved ? channelIssues(parsed, isEarfcn, bands) : []
                   const badChannel = badSpec || unresolved
                   const powers = parseRangeSpec(r.power, Number(DEFAULT_POWER))
                   const inRange = powers.filter((p) => p >= 0 && p <= MAX_POWER_DBM)
@@ -874,11 +874,7 @@ export function LteAutomationPanel({
                                   ? 'Enter a value'
                                   : !unresolved
                                     ? 'Not a number, range or list'
-                                    : isEarfcn
-                                      ? 'Outside the known bands'
-                                      : ambiguous
-                                        ? 'In more than one selected band'
-                                        : 'Not in the selected bands'
+                                    : shortChannelIssue(issues) || 'Not in the selected bands'
                               }
                             />
                           ),

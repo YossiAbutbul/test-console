@@ -53,7 +53,7 @@ import {
 import { STORAGE_KEYS } from '../../store/keys'
 import { BandsModal } from '../lte/BandsModal'
 import { useLteBands, useLteChannelUnit } from '../lte/channel'
-import { uplinkFromEarfcn, uplinkFromMhz } from '../../lib/earfcn'
+import { channelIssues, describeChannelIssues, uplinkFromEarfcn, uplinkFromMhz } from '../../lib/earfcn'
 import { SmithChartModal } from './SmithChartModal'
 import { RemeasureDialog } from './RemeasureDialog'
 import { LoadPullResultsTable } from './ResultsTable'
@@ -670,23 +670,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
    * to work out which of a pasted list were wrong and which band each wanted;
    * this names both, so the fix is one trip to Edit bands.
    */
-  const channelProblems: string[] = (() => {
-    if (!isLte || unresolvedChannels === 0) return []
-    const groups = new Map<string, number[]>()
-    const add = (why: string, v: number) => groups.set(why, [...(groups.get(why) ?? []), v])
-    for (const v of specValues) {
-      if (channelUnit === 'earfcn') {
-        if (!Number.isInteger(v) || v < 0 || !uplinkFromEarfcn(v)) add('unknown EARFCN', v)
-        continue
-      }
-      const sel = uplinkFromMhz(v, lteBands)
-      if (sel.length === 1) continue
-      if (sel.length > 1) { add(`in bands ${sel.map((h) => h.band).join(' and ')}, keep one`, v); continue }
-      const any = uplinkFromMhz(v).map((h) => h.band)
-      add(any.length ? `band ${any.join(' or ')}` : 'in no LTE uplink band', v)
-    }
-    return [...groups].map(([why, vs]) => `${vs.join(', ')} (${why})`)
-  })()
+  const channelProblems: string[] = !isLte || unresolvedChannels === 0 ? []
+    : describeChannelIssues(channelIssues(specValues, channelUnit === 'earfcn', lteBands))
   const freqs = channels.map((c) => c.freqMhz)
 
   // VNA span: puts the analyzer on the span and marker the run reads a

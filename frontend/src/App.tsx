@@ -1,4 +1,4 @@
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { memo, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { alpha } from '@mui/material/styles'
 import {
@@ -102,7 +102,9 @@ function TestArea({ activeId }: { activeId: string }) {
   // All pages mount once on app start and we toggle visibility via `display`.
   // This trades a slightly slower first paint for instant sidebar navigation —
   // no remount, no useQuery refetch storm. Pages keep their internal state
-  // (form inputs, results tables) across switches automatically.
+  // (form inputs, results tables) across switches automatically. The page on
+  // screen mounts first and the rest follow one at a time when the browser
+  // is idle (see PageSlot), so the first paint waits for one page, not ~16.
   return (
     <Box
       sx={{
@@ -160,11 +162,25 @@ const PageSlot = memo(function PageSlot({ mod, shown, active, gated }: {
   gated: boolean
 }) {
   const { Page, protocol, group } = mod
+  // Mounted at once if it is the page on screen, else when its turn in the
+  // idle queue comes -- and from then on kept, like every page. Mounting
+  // all ~16 together held the first paint until the last had rendered.
+  const [mounted, setMounted] = useState(shown)
+  // Shown before its turn came (a click during start-up): mount now. State
+  // derived from a prop, set while rendering, as React documents for it.
+  if (shown && !mounted) setMounted(true)
+  useEffect(() => {
+    if (mounted) return
+    // As a transition, so React renders the page in slices and yields to
+    // the operator between them: mounted outright, each page held the main
+    // thread for its whole render -- 300-570 ms apiece in development.
+    return queueMount(() => startTransition(() => setMounted(true)))
+  }, [mounted])
   // Held as an element so a change of `shown` alone leaves the page tree be:
   // React skips an element that is the same object as last render.
   const page = useMemo(
-    () => <Page protocol={protocol} group={group} active={active} />,
-    [Page, protocol, group, active],
+    () => (mounted ? <Page protocol={protocol} group={group} active={active} /> : null),
+    [Page, protocol, group, active, mounted],
   )
   return (
     <Box
@@ -184,6 +200,36 @@ const PageSlot = memo(function PageSlot({ mod, shown, active, gated }: {
     </Box>
   )
 })
+
+/**
+ * Hidden pages waiting to mount, run one per idle slot in order, so start-up
+ * never renders two at once. Returns a cancel for a slot that unmounts (or
+ * mounts on its own) before its turn.
+ */
+const mountQueue: Array<{ run: () => void; live: boolean }> = []
+let mountDraining = false
+function queueMount(run: () => void): () => void {
+  const job = { run, live: true }
+  mountQueue.push(job)
+  if (!mountDraining) {
+    mountDraining = true
+    nextMount()
+  }
+  return () => { job.live = false }
+}
+function nextMount() {
+  const step = () => {
+    let job = mountQueue.shift()
+    while (job && !job.live) job = mountQueue.shift()
+    job?.run()
+    if (mountQueue.length) nextMount()
+    else mountDraining = false
+  }
+  // Idle time where there is any; a page's mount must not land on top of the
+  // operator's first click. `timeout` so a busy start still gets there.
+  if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(step, { timeout: 600 })
+  else setTimeout(step, 30)
+}
 
 const NARROW_QUERY = `(max-width:${SHELL_NARROW_W - 1}px)`
 

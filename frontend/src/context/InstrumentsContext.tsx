@@ -268,9 +268,11 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
     // rf-trombone backed by /motor (Arcus DMX-J-SA).
     try {
       const mo = await motor.status()
-      const idn = mo.connected
-        ? `device #${mo.device_index ?? 0}${mo.position != null ? ` · pos=${mo.position}` : ''}`
-        : null
+      // Identity only, no position: the position changes at every step of a
+      // run, and in here it changed the instruments state every refresh --
+      // re-rendering every page that reads it, every 5 s, all run long. The
+      // Trombone and Load Pull pages show the live position themselves.
+      const idn = mo.connected ? `device #${mo.device_index ?? 0}` : null
       apply('rf-trombone', { connected: mo.connected, idn })
     } catch { /* motor offline */ }
   }, [])
@@ -359,8 +361,9 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
       const name = cur.address.trim()
       const list = await motor.discover()
       const idx = Math.max(0, list.candidates.indexOf(name))
-      const r = await motor.connect(idx)
-      const idn = `${name || `device #${idx}`}${r.position != null ? ` · pos=${r.position}` : ''}`
+      await motor.connect(idx)
+      // No position in the identity (see refreshStatus).
+      const idn = name || `device #${idx}`
       patch(id, { status: 'connected', idn })
       return
     }

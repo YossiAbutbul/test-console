@@ -7,7 +7,7 @@ import { MeasurementCard } from '../../components/MeasurementCard'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
-import { uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch } from '../../lib/earfcn'
+import { uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch, channelIssues, shortChannelIssue } from '../../lib/earfcn'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import type { CommandResponse, LteCwRequest } from '../../types/models'
 import type { TestPageProps } from '../types'
@@ -213,7 +213,11 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
   // it sits in, so a long one wraps into a block that covers the field above.
   const channelError = (): string => {
     if (earfcn.trim() === '') return 'Enter a value'
-    if (resolved === 'ambiguous') return 'In more than one selected band'
+    // Names the bands, so the fix (which to untick, or tick) is in the
+    // message rather than left to work out.
+    const v = asNum(earfcn)
+    const issue = Number.isFinite(v) ? shortChannelIssue(channelIssues([v], unit === 'earfcn', bands)) : ''
+    if (issue) return issue
     return unit === 'earfcn'
       ? 'Outside the known bands'
       : 'Not in the selected bands'

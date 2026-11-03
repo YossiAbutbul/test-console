@@ -91,12 +91,35 @@ interface ChatCtx {
 }
 
 const Ctx = createContext<ChatCtx | null>(null)
+/*
+ * Registration alone, apart from the rest. Every page publishes its results
+ * through useChatSource, and while that read the whole chat context each
+ * status poll (every 20 s, every 2 s while cooling), each turn and each
+ * other page's registration re-rendered all of them -- at start-up, every
+ * page mounting re-rendered every page already mounted. registerSource never
+ * changes, so this context never re-renders anyone.
+ */
+const RegistryCtx = createContext<ChatCtx['registerSource'] | null>(null)
+
+/** The same poll answer twice is the same object, so nothing re-renders for
+ *  a poll that found nothing new. */
+const sameJson = <T,>(a: T, b: T) => {
+  try { return JSON.stringify(a) === JSON.stringify(b) } catch { return false }
+}
 
 /** Turns kept on screen and in storage. The backend trims what it sends on. */
 const MAX_TURNS = 60
 
 /** How often the quota counter re-reads. Slow enough to be invisible, fast
  *  enough that a backend restart repairs the panel on its own. */
+/**
+ * The assistant, as a whole. Off until it is built out: the panel is not
+ * shown, so nothing here may talk to the backend or gather page data for it
+ * -- no /chat/status polling, and pages' results are not registered for
+ * sending. Turning it on is this one line.
+ */
+const CHAT_FEATURE = false
+
 const STATUS_POLL_MS = 20_000
 
 /** While a rate-limit window is closed, so the countdown stays honest. */
@@ -153,10 +176,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // slow poll stays, so switching it on shows up without a page reload.
   const off = status?.enabled === false
   useEffect(() => {
+    if (!CHAT_FEATURE) return
     let alive = true
     const read = () => {
       getChatStatus()
-        .then((s) => { if (alive) { setStatus(s); setQuota(s.quota) } })
+        .then((s) => {
+          if (!alive) return
+          setStatus((p) => (p && sameJson(p, s) ? p : s))
+          setQuota((p) => (p && sameJson(p, s.quota) ? p : s.quota))
+        })
         .catch(() => { /* backend down or restarting; the next tick retries */ })
     }
     read()
@@ -174,6 +202,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const registerSource = useCallback((label: string, active: boolean, fn: SourceFn) => {
+    // Feature off: nothing is gathered, and pages registering cost nothing.
+    if (!CHAT_FEATURE) return () => {}
     sources.current.set(label, { active, fn })
     publish()
     return () => {
@@ -269,7 +299,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<ChatCtx>(() => ({
-    available: status?.enabled === true,
+    available: CHAT_FEATURE && status?.enabled === true,
     turns, busy, status, quota, attachments, pages: pageList, readPages,
     selectedPages, setSelectedPages, effectivePages, ask, attach,
     removeAttachment, toggleAttachment, clear, registerSource,
@@ -279,7 +309,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     toggleAttachment, turns,
   ])
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
+  return (
+    <RegistryCtx.Provider value={registerSource}>
+      <Ctx.Provider value={value}>{children}</Ctx.Provider>
+    </RegistryCtx.Provider>
+  )
 }
 
 export function useChat(): ChatCtx {
@@ -301,7 +335,8 @@ export function useChat(): ChatCtx {
  * either way, so a run you have navigated away from can still be asked about.
  */
 export function useChatSource(label: string, active: boolean, source: SourceFn): void {
-  const { registerSource } = useChat()
+  const registerSource = useContext(RegistryCtx)
+  if (!registerSource) throw new Error('useChatSource must be inside ChatProvider')
   const latest = useRef(source)
   // Assigned in an effect rather than during render: the source is only ever
   // invoked on send, which is well after the commit that updated it.

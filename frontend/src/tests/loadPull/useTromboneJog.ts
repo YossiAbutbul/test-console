@@ -44,7 +44,11 @@ export function useTromboneJog({
   const statusQ = useQuery({
     queryKey: ['motor', 'status'],
     queryFn: motor.status,
-    refetchInterval: POLL_MS,
+    // On screen, or mid-run (the page may be watched again at any moment).
+    // Two Load Pull pages and the Trombone page share this query; hidden,
+    // they kept /motor/status going twice a second on the motor's bus and
+    // re-rendered three pages at every step of the trombone.
+    refetchInterval: active || running ? POLL_MS : false,
     refetchOnWindowFocus: false,
   })
   const motorS = statusQ.data

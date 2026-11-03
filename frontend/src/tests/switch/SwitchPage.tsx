@@ -57,7 +57,7 @@ function pathOf(lastCommand: string | null): string | null {
   return null
 }
 
-export function SwitchPage({ group }: TestPageProps) {
+export function SwitchPage({ group, active }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
   // Quiet: a servo move is instant and the operator is looking straight at the
@@ -70,7 +70,10 @@ export function SwitchPage({ group }: TestPageProps) {
   const statusQ = useQuery({
     queryKey: ['servo', 'status'],
     queryFn: servo.status,
-    refetchInterval: (q) => (q.state.data?.connected ? POLL_MS : IDLE_POLL_MS),
+    // Only while the page is on screen: every page stays mounted, and hidden
+    // ones polling kept the instrument's bus busy and re-rendered pages no
+    // one was looking at. Showing the page polls again at once.
+    refetchInterval: (q) => (!active ? false : q.state.data?.connected ? POLL_MS : IDLE_POLL_MS),
     refetchOnWindowFocus: false,
   })
 

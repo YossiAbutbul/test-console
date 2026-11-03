@@ -138,3 +138,76 @@ export function describeEarfcn(earfcn: number): string | null {
   if (!ch) return null
   return `${(ch.freqHz / 1e6).toFixed(1)} MHz · Band ${ch.band}`
 }
+
+/**
+ * Why a typed channel value does not resolve to exactly one channel.
+ *
+ * - `several`: a MHz value inside more than one *selected* band, each with its
+ *   own EARFCN (`bands` lists them) -- untick all but one.
+ * - `unselected`: a MHz value in no selected band but in others (`bands`) --
+ *   tick one.
+ * - `none`: a MHz value in no LTE uplink band at all.
+ * - `unknown`: an EARFCN no band defines.
+ */
+export interface ChannelIssue {
+  value: number
+  kind: 'several' | 'unselected' | 'none' | 'unknown'
+  bands: number[]
+}
+
+/** The values of a channel spec that do not resolve, and why. */
+export function channelIssues(values: number[], isEarfcn: boolean, bands: number[]): ChannelIssue[] {
+  const out: ChannelIssue[] = []
+  for (const v of values) {
+    if (isEarfcn) {
+      if (!Number.isInteger(v) || v < 0 || !uplinkFromEarfcn(v)) out.push({ value: v, kind: 'unknown', bands: [] })
+      continue
+    }
+    const sel = uplinkFromMhz(v, bands)
+    if (sel.length === 1) continue
+    if (sel.length > 1) { out.push({ value: v, kind: 'several', bands: sel.map((h) => h.band) }); continue }
+    const any = uplinkFromMhz(v).map((h) => h.band)
+    out.push({ value: v, kind: any.length ? 'unselected' : 'none', bands: any })
+  }
+  return out
+}
+
+const andList = (xs: number[]) =>
+  xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`
+
+/** What to do about one kind of issue, for the long form. */
+function issueReason(i: ChannelIssue): string {
+  if (i.kind === 'several') return `in bands ${andList(i.bands)}, keep one`
+  if (i.kind === 'unselected') return `band ${i.bands.join(' or ')}`
+  if (i.kind === 'none') return 'in no LTE uplink band'
+  return 'unknown EARFCN'
+}
+
+/**
+ * Every issue, values with the same reason grouped:
+ * `["725, 747.9 (band 28)", "1880 (in bands 2, 25 and 39, keep one)"]`.
+ * For a line with room for all of it.
+ */
+export function describeChannelIssues(issues: ChannelIssue[]): string[] {
+  const groups = new Map<string, number[]>()
+  for (const i of issues) {
+    const why = issueReason(i)
+    groups.set(why, [...(groups.get(why) ?? []), i.value])
+  }
+  return [...groups].map(([why, vs]) => `${vs.join(', ')} (${why})`)
+}
+
+/**
+ * The first issue, short, with a count of the rest: `707.5: in bands 12, 17,
+ * 28 +2 more`. For a validation bubble, which cannot leave its panel -- a
+ * long one wraps into a block over the field above.
+ */
+export function shortChannelIssue(issues: ChannelIssue[]): string {
+  const [i] = issues
+  if (!i) return ''
+  const what = i.kind === 'several' ? `in bands ${i.bands.join(', ')}`
+    : i.kind === 'unselected' ? `band ${i.bands.join(' or ')}, not selected`
+      : i.kind === 'none' ? 'in no LTE band'
+        : 'unknown EARFCN'
+  return `${i.value}: ${what}${issues.length > 1 ? ` +${issues.length - 1} more` : ''}`
+}

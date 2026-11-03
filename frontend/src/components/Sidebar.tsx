@@ -20,7 +20,11 @@ import { useShellLayout } from '../ui/useShellLayout'
 import { testRegistry } from '../tests/registry'
 import { useInstrumentsUnavailableReason } from '../context/CapabilitiesContext'
 import type { TestModule } from '../tests/types'
-import { LatchingKey, PRESS_SX } from '../ui'
+import { LatchingKey, MONO, PRESS_SX } from '../ui'
+// The version the release script writes into package.json (with VERSION and
+// backend/main.py), so the tag below never needs editing by hand. A named
+// import: only the string is bundled, not the rest of the manifest.
+import { version as APP_VERSION } from '../../package.json'
 import { useDutLink } from '../context/dutLink'
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 import { selectOnFocus, useSelectOnFocusSetting } from '../lib/selectOnFocus'
@@ -388,18 +392,42 @@ function StatusFoot() {
   return (
     <Box sx={{ px: 2, pt: 1.25, pb: 1, borderTop: `1px solid ${s.border}` }}>
       <DcSupplySection />
-      <Typography noWrap sx={{ fontSize: 12, color: s.textDim, mt: 1 }}>
-        © {new Date().getFullYear()}{' '}
+      {/* The credit, and the version at the far end of the same line: which
+          build is on this bench, when asking "is the fix in this one?". A
+          quiet pill rather than more text, so it reads as a tag beside the
+          name, and it opens that version's release notes. */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+        <Typography noWrap sx={{ fontSize: 12, color: s.textDim, flexGrow: 1, minWidth: 0 }}>
+          © {new Date().getFullYear()}{' '}
+          <Box
+            component="a"
+            href="https://github.com/YossiAbutbul"
+            target="_blank"
+            rel="noopener noreferrer"
+            sx={{ color: s.textDim, textDecoration: 'none', fontWeight: 600, '&:hover': { textDecoration: 'underline', color: s.text } }}
+          >
+            Yossi Abutbul
+          </Box>
+        </Typography>
         <Box
           component="a"
-          href="https://github.com/YossiAbutbul"
+          href={`https://github.com/YossiAbutbul/test-console/releases/tag/v${APP_VERSION}`}
           target="_blank"
           rel="noopener noreferrer"
-          sx={{ color: s.textDim, textDecoration: 'none', fontWeight: 600, '&:hover': { textDecoration: 'underline', color: s.text } }}
+          title={`Version ${APP_VERSION}: release notes`}
+          sx={{
+            ...PRESS_SX,
+            flexShrink: 0, display: 'inline-block',
+            fontFamily: MONO, fontSize: 10.5, fontWeight: 600,
+            lineHeight: '16px', px: 0.75, borderRadius: '5px',
+            color: s.textDim, bgcolor: alpha(s.textDim, 0.12), textDecoration: 'none',
+            transition: 'background-color .15s, color .15s',
+            '&:hover': { color: s.text, bgcolor: alpha(s.textDim, 0.2) },
+          }}
         >
-          Yossi Abutbul
+          v{APP_VERSION}
         </Box>
-      </Typography>
+      </Box>
     </Box>
   )
 }

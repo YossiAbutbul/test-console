@@ -36,7 +36,7 @@ const MAX_MARKERS = 9
 
 
 
-export function NetworkAnalyzerPage({ group }: TestPageProps) {
+export function NetworkAnalyzerPage({ group, active }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
   const reporter = useActionReporter('VNA sweep', 'VNA')
@@ -58,7 +58,10 @@ export function NetworkAnalyzerPage({ group }: TestPageProps) {
     queryFn: vna.config,
     // Slower while disconnected, but never off: a connection made from the
     // Instruments modal has to reach this page without a second Connect.
-    refetchInterval: (q) => (q.state.data?.connected ? 5000 : 2000),
+    // Only while the page is on screen: every page stays mounted, and hidden
+    // ones polling kept the instrument's bus busy and re-rendered pages no
+    // one was looking at. Showing the page polls again at once.
+    refetchInterval: (q) => (!active ? false : q.state.data?.connected ? 5000 : 2000),
     refetchOnWindowFocus: false,
   })
 

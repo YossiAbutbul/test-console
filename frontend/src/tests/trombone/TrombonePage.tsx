@@ -53,7 +53,7 @@ const JOG_STEP_PULSES = mmToPulses(JOG_STEP_MM)
  *  columns and the keys never re-wrap 3+1 / 2+2 with the window. */
 const STEP_KEY_SX = { width: ACTION_W.default, minWidth: ACTION_W.default, height: CONTROL_H.md } as const
 
-export function TrombonePage({ group }: TestPageProps) {
+export function TrombonePage({ group, active }: TestPageProps) {
   const { log } = useLog()
   const qc = useQueryClient()
   const reporter = useActionReporter('Trombone move', 'Motor')
@@ -68,7 +68,10 @@ export function TrombonePage({ group }: TestPageProps) {
   const statusQ = useQuery({
     queryKey: ['motor', 'status'],
     queryFn: motor.status,
-    refetchInterval: (q) => (q.state.data?.connected ? POLL_MS : IDLE_POLL_MS),
+    // Only while the page is on screen: every page stays mounted, and hidden
+    // ones polling kept the instrument's bus busy and re-rendered pages no
+    // one was looking at. Showing the page polls again at once.
+    refetchInterval: (q) => (!active ? false : q.state.data?.connected ? POLL_MS : IDLE_POLL_MS),
     refetchOnWindowFocus: false,
   })
 

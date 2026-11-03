@@ -3,6 +3,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineRounded'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadRounded'
 import { useRef } from 'react'
 import { useLog } from '../context/LogContext'
+import { useLogEntries } from '../context/logEntries'
 import { MONO } from '../ui'
 
 interface Props {
@@ -10,7 +11,8 @@ interface Props {
 }
 
 export function LogPanel({ embedded = false }: Props) {
-  const { entries, clear } = useLog()
+  const { clear } = useLog()
+  const entries = useLogEntries()
   const ref = useRef<HTMLDivElement>(null)
   const view = [...entries].reverse()
 

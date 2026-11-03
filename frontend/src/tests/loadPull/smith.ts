@@ -55,6 +55,22 @@ export function rampColor(t: number): string {
 }
 
 /**
+ * Efficiency as bands rather than a continuous ramp, as a filled-contour
+ * plot steps its colours: shared by the point chart and the working area,
+ * so one efficiency is one colour on both.
+ */
+export const EFF_BANDS = 24
+
+/** The band a value falls in, 0..EFF_BANDS-1. A span too small to grade
+ *  puts everything in the middle band. */
+export function bandOf(v: number, range: { min: number; max: number }, minSpan = 0): number {
+  const span = range.max - range.min
+  if (span <= minSpan) return Math.floor(EFF_BANDS / 2)
+  return Math.min(EFF_BANDS - 1, Math.max(0, Math.floor(((v - range.min) / span) * EFF_BANDS)))
+}
+export const bandColor = (b: number): string => rampColor((b + 0.5) / EFF_BANDS)
+
+/**
  * |Γ| for a row, from whichever measurement it carries.
  *
  * The VNA marker reports |S11| in dB and the impedance behind it, both derived
@@ -126,4 +142,43 @@ export function chartRows(
     out.push({ row, idx })
   })
   return out
+}
+
+/** Γ → Z = Z0 (1 + Γ) / (1 − Γ). */
+export function impedance(gr: number, gi: number): { r: number; x: number } {
+  const den = (1 - gr) ** 2 + gi * gi || 1e-12
+  return { r: (Z0 * (1 - gr * gr - gi * gi)) / den, x: (Z0 * 2 * gi) / den }
+}
+
+/**
+ * The load at the PA, from the load the VNA reads at the tuner end of a
+ * lossless cable of delay τ:
+ *
+ *   θ = 2π f τ,  Z_PA = Z0 (Z_VNA + j Z0 tan θ) / (Z0 + j Z_VNA tan θ)
+ *
+ * Worked as Γ_PA = Γ_VNA · e^(−j2θ), the same thing, because tan θ runs off
+ * to infinity at a quarter wave and the rotation does not. A lossless line
+ * turns the load about the chart's centre and leaves |Γ| alone.
+ */
+export function deembed(rOhm: number, xOhm: number, freqMhz: number, tauPs: number): { r: number; x: number } {
+  const { gr, gi } = reflection(rOhm, xOhm)
+  const a = -2 * (2 * Math.PI * freqMhz * tauPs * 1e-6)
+  const c = Math.cos(a), s = Math.sin(a)
+  return impedance(gr * c - gi * s, gr * s + gi * c)
+}
+
+/**
+ * A run's rows with R and X moved to the PA's plane, for the chart.
+ *
+ * A row with no frequency (from before the sweep) has no angle to turn by and
+ * is left as measured. Everything else on the row stands: |S11| included,
+ * since the rotation keeps |Γ|.
+ */
+export function deembedRows(rows: LoadPullResultRow[], tauPs: number): LoadPullResultRow[] {
+  if (!tauPs) return rows
+  return rows.map((row) => {
+    if (row.r_ohm == null || row.x_ohm == null || row.freq_mhz == null) return row
+    const z = deembed(row.r_ohm, row.x_ohm, row.freq_mhz, tauPs)
+    return { ...row, r_ohm: z.r, x_ohm: z.x }
+  })
 }

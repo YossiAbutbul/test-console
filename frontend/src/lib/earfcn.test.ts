@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  KNOWN_BANDS, bandRangeMhz, describeEarfcn, uplinkFromEarfcn, uplinkFromMhz,
+  KNOWN_BANDS, bandRangeMhz, channelIssues, describeChannelIssues, describeEarfcn, shortChannelIssue,
+  uplinkFromEarfcn, uplinkFromMhz,
 } from './earfcn'
 
 describe('uplinkFromEarfcn', () => {
@@ -156,5 +157,29 @@ describe('band metadata', () => {
     expect(bandRangeMhz(2)).toEqual({ lo: 1850, hi: 1909.9 })
     expect(bandRangeMhz(12)).toEqual({ lo: 699, hi: 715.9 })
     expect(bandRangeMhz(999)).toBeNull()
+  })
+})
+
+describe('channelIssues', () => {
+  it('names the selected bands a MHz value is in more than one of', () => {
+    const issues = channelIssues([707.5, 1880], false, [2, 12, 17, 25])
+    expect(issues).toEqual([
+      { value: 707.5, kind: 'several', bands: [12, 17] },
+      { value: 1880, kind: 'several', bands: [2, 25] },
+    ])
+    expect(shortChannelIssue(issues)).toBe('707.5: in bands 12, 17 +1 more')
+    expect(describeChannelIssues(issues)).toEqual([
+      '707.5 (in bands 12 and 17, keep one)', '1880 (in bands 2 and 25, keep one)',
+    ])
+  })
+  it('says which band to tick for a value in none selected', () => {
+    const issues = channelIssues([1880], false, [1])
+    expect(issues[0].kind).toBe('unselected')
+    expect(shortChannelIssue(issues)).toBe(`1880: band ${issues[0].bands.join(' or ')}, not selected`)
+  })
+  it('passes a value that resolves to one channel, and flags unknown EARFCNs', () => {
+    expect(channelIssues([1880], false, [2])).toEqual([])
+    expect(channelIssues([18900], true, [])).toEqual([])
+    expect(channelIssues([5], true, [])[0].kind).toBe('unknown')
   })
 })

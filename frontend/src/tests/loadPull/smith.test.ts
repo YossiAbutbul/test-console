@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { reflection, dbmToW, efficiency, rampColor, RAMP, gammaMag, vswr, vswrLabel, chartRows } from './smith'
+import { reflection, dbmToW, efficiency, rampColor, RAMP, gammaMag, vswr, vswrLabel, chartRows, deembed, deembedRows } from './smith'
 import type { LoadPullResultRow } from '../../store/loadPullPageStore'
 
 const row = (p: Partial<LoadPullResultRow>): LoadPullResultRow => ({
@@ -122,5 +122,26 @@ describe('chartRows', () => {
     const results = [row({ att_db: 0 }), row({ att_db: 4 }), row({ att_db: 8 }), row({})]
     expect(chartRows(results, null, null, new Set([0, 8])).map((s) => s.idx)).toEqual([1, 3])
     expect(chartRows(results, null, null).map((s) => s.idx)).toEqual([0, 1, 2, 3])
+  })
+})
+
+describe('deembed', () => {
+  // The cable-correction table: 320.82 ps between PA and tuner.
+  it.each([
+    [902, 18.4, -26.3, 93.1, 81.8],
+    [915, 18.9, -27.9, 92.8, 82.1],
+    [928, 19.5, -29.4, 92.9, 81.9],
+  ])('%s MHz: %s%s j Ω at the VNA is %s + j%s Ω at the PA', (f, r, x, rPa, xPa) => {
+    const z = deembed(r, x, f, 320.82)
+    expect(z.r).toBeCloseTo(rPa, 0)
+    expect(z.x).toBeCloseTo(xPa, 0)
+  })
+  it('leaves a zero delay and rows without a frequency alone', () => {
+    const z = deembed(18.4, -26.3, 902, 0)
+    expect(z.r).toBeCloseTo(18.4)
+    expect(z.x).toBeCloseTo(-26.3)
+    const rows = [row({ r_ohm: 18.4, x_ohm: -26.3, freq_mhz: undefined })]
+    expect(deembedRows(rows, 320.82)[0].r_ohm).toBe(18.4)
+    expect(deembedRows(rows, 0)).toBe(rows)
   })
 })

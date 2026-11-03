@@ -1,6 +1,8 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type Ref } from 'react'
 import {
-  Box, ButtonBase, Dialog, DialogContent, DialogTitle, IconButton, MenuItem, Popover, Stack,
+  memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type Ref,
+} from 'react'
+import {
+  Box, Button, ButtonBase, Dialog, DialogContent, DialogTitle, IconButton, MenuItem, Popover, Stack,
   Switch, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { alpha } from '@mui/material/styles'
@@ -12,11 +14,22 @@ import AdsClickIcon from '@mui/icons-material/AdsClickRounded'
 import { usePersistedState } from '../../store/persistent'
 import { STORAGE_KEYS } from '../../store/keys'
 import { useAppPalette, useThemeMode } from '../../context/ThemeModeContext'
-import { MONO, MiniAction, PRESS_SX, SegmentedChoice, TEXT } from '../../ui'
+import {
+  ActivityIndicator, MONO, MiniAction, PRESS_SX, REDUCED_MOTION, SegmentedChoice, TEXT, useHeldFlag,
+} from '../../ui'
 import { TOP_BAR_H } from '../../ui/tokens'
 import type { LoadPullResultRow } from '../../store/loadPullPageStore'
-import { Z0, VCC, RAMP, reflection, dbmToW, efficiency, rampColor, chartRows } from './smith'
+import {
+  Z0, VCC, EFF_BANDS, reflection, dbmToW, efficiency, rampColor, bandColor, bandOf, chartRows, deembedRows,
+} from './smith'
+import { SmithGrid } from './SmithGrid'
 import { pointStats, type Extreme, type MetricStats, type PointStats } from './smithStats'
+import { AreaFigure, type AreaView } from './AreaFigure'
+import { AREA_GRID, type Quantity } from './areaCompute'
+import { useWorkingArea } from './useWorkingArea'
+import {
+  cellGamma, impedance, type Area, type Bound, type Limits, type Sample,
+} from './workingArea'
 
 interface Pt {
   x: number; y: number
@@ -39,6 +52,11 @@ interface SmithStyle {
 const STYLE_DEFAULT: SmithStyle = { lines: true, grid: true, dot: 'm', color: 'eff' }
 /** Dot radius at rest; a hovered dot grows by the same 2.5. */
 const DOT_R = { s: 3, m: 4.5, l: 6.5 } as const
+/** The efficiency scale in its bands, hard stops between them, as a CSS
+ *  background: the point chart's legend and the working area's colour bar
+ *  then step alike. */
+const BANDED_GRADIENT = `linear-gradient(to right, ${Array.from({ length: EFF_BANDS }, (_, b) =>
+  `${bandColor(b)} ${((b / EFF_BANDS) * 100).toFixed(2)}% ${(((b + 1) / EFF_BANDS) * 100).toFixed(2)}%`).join(', ')})`
 
 /**
  * One titled group of a settings sheet: a caption over a tinted, rounded
@@ -115,7 +133,12 @@ const STAT_GRID = '52px minmax(0, 1fr) 40px 40px 40px'
  * number does. A min or max names the point it came from and, hovered, lights
  * that dot -- the best and worst loads are what the figures are read for.
  */
-function StatsCard({
+/*
+ * Memoised, with its groups built once per change of data: it is the
+ * costliest part of the dialog to draw (~20-30 ms a pass in development),
+ * and every hover, tab switch and new row used to draw it again unchanged.
+ */
+const StatsCard = memo(function StatsCard({
   groups, results, onHover,
 }: {
   groups: Array<{ key: string; label: string; color: string; stats: PointStats }>
@@ -227,7 +250,7 @@ function StatsCard({
       </Box>
     </Box>
   )
-}
+})
 
 /** Stands in for `onRemeasure` when there is none, so the memoised dots and
  *  rows are handed the same function every render. */
@@ -251,23 +274,303 @@ const LIST_ROW_H_GUESS = 26
  * only when their own colour or hover changes.
  */
 const Dot = memo(function Dot({
-  x, y, idx, r, fill, stroke, hover, onHover, onPick,
+  x, y, idx, r, fill, stroke, hoverStroke, hovered, onPick,
 }: {
-  x: number; y: number; idx: number; r: number; fill: string; stroke: string; hover: boolean
-  onHover: (idx: number | null) => void
+  x: number; y: number; idx: number; r: number; fill: string; stroke: string; hoverStroke: string
+  /** The hovered point, held outside React state: see the dialog's
+   *  `hoverStore`. Each dot asks only whether it is the one. */
+  hovered: CursorStore
   onPick: (idx: number) => void
 }) {
+  const hover = useSyncExternalStore(hovered.subscribe, () => hovered.get() === idx)
   return (
     <circle
       cx={x} cy={y}
       r={hover ? r + 2.5 : r}
       fill={fill}
-      stroke={stroke}
+      stroke={hover ? hoverStroke : stroke}
       strokeWidth={hover ? 2 : 0.8}
       style={{ cursor: 'pointer' }}
-      onMouseEnter={() => onHover(idx)}
+      onMouseEnter={() => hovered.set(idx)}
       onDoubleClick={() => onPick(idx)}
     />
+  )
+})
+
+/**
+ * The hovered point in full. Its own component, subscribed to the hover
+ * store, so moving between points redraws this card and nothing else.
+ */
+const PointCard = memo(function PointCard({
+  hovered, points, hasAtt, effColor,
+}: {
+  hovered: CursorStore
+  points: Pt[]
+  hasAtt: boolean
+  effColor: (eff: number | null) => string
+}) {
+  const pal = useAppPalette()
+  const hover = useSyncExternalStore(hovered.subscribe, hovered.get)
+  const byIdx = useMemo(() => new Map(points.map((p) => [p.idx, p])), [points])
+  const hp = hover != null ? byIdx.get(hover) ?? null : null
+  return (
+    <>
+              {/* Both layouts are always laid out in one cell, the idle one
+                  hidden, so the card is the measurement's height from the
+                  start and does not grow and shrink as the cursor crosses
+                  points. */}
+              <Box sx={{
+                p: 1.75, borderRadius: 1.5, border: 1, borderColor: 'divider', bgcolor: 'background.paper',
+                display: 'grid',
+              }}>
+                {/* Compact on purpose: it was nine stacked label/value rows,
+                    a third of the column's height for one point. Now a
+                    header, the two figures read first (efficiency in its
+                    ramp colour, Pout with its watts), and the rest as a
+                    captioned two-by-two grid. */}
+                <Box sx={{ gridArea: '1 / 1', visibility: hp ? 'visible' : 'hidden' }} aria-hidden={!hp}>
+                  <Stack direction="row" alignItems="baseline" spacing={1}>
+                    <Typography sx={{ fontSize: 14, fontWeight: 700, letterSpacing: '-0.01em', flexGrow: 1 }}>
+                      {hp ? `Step ${hp.idx + 1}` : DASH_TXT}
+                    </Typography>
+                    {/* Reserved for the whole run once any row has one, so
+                        moving between cycles does not add and drop it. */}
+                    {hasAtt && (
+                      <Typography sx={{ ...TEXT.micro, color: 'text.secondary', fontFamily: MONO }}>
+                        att {hp?.row.att_db == null ? DASH_TXT : `${hp.row.att_db} dB`}
+                      </Typography>
+                    )}
+                  </Stack>
+                  <Typography sx={{ ...TEXT.micro, color: 'text.secondary', fontFamily: MONO, mb: 1.25 }}>
+                    {hp ? `${hp.row.pos_mm.toFixed(2)} mm · ${hp.row.pos_pulses.toLocaleString()} pulses` : DASH_TXT}
+                  </Typography>
+
+                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 1.5, mb: 1.25 }}>
+                    <Box>
+                      <Typography
+                        sx={{
+                          fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em',
+                          color: hp ? effColor(hp.eff) : 'text.disabled',
+                        }}
+                      >
+                        {hp?.eff == null ? DASH_TXT : `${(hp.eff * 100).toFixed(1)}%`}
+                      </Typography>
+                      <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>efficiency</Typography>
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
+                        {hp?.row.power_dbm == null ? DASH_TXT : hp.row.power_dbm.toFixed(2)}
+                        <Box component="span" sx={{ fontSize: 12, fontWeight: 500, color: 'text.secondary', ml: 0.5 }}>dBm</Box>
+                      </Typography>
+                      <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>
+                        Pout{hp?.row.power_dbm == null ? '' : ` · ${dbmToW(hp.row.power_dbm).toFixed(3)} W`}
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  <Box
+                    sx={{
+                      display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 1.5, rowGap: 0.75,
+                      pt: 1, borderTop: 1, borderColor: 'divider',
+                    }}
+                  >
+                    {([
+                      ['Icc', hp?.row.current_a == null ? DASH_TXT : `${(hp.row.current_a * 1000).toFixed(1)} mA`],
+                      ['|S11|', hp?.row.s11_db == null ? DASH_TXT : `${hp.row.s11_db.toFixed(2)} dB`],
+                      ['Z', hp?.row.r_ohm == null || hp.row.x_ohm == null ? DASH_TXT
+                        : `${hp.row.r_ohm.toFixed(1)} ${hp.row.x_ohm >= 0 ? '+' : '−'} j${Math.abs(hp.row.x_ohm).toFixed(1)} Ω`],
+                      ['Γ', hp ? `${hp.gr.toFixed(3)} ${hp.gi >= 0 ? '+' : '−'} j${Math.abs(hp.gi).toFixed(3)}` : DASH_TXT],
+                    ] as const).map(([k, v]) => (
+                      <Box key={k} sx={{ minWidth: 0 }}>
+                        <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>{k}</Typography>
+                        <Typography sx={{ fontFamily: MONO, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {v}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                  {hp?.row.error && (
+                    <Typography sx={{ ...TEXT.micro, color: 'error.main', mt: 1 }}>{hp.row.error}</Typography>
+                  )}
+                </Box>
+                {/* The idle state shares the measurement's cell, so it has
+                    that height to fill: what to do, centred, then the colour
+                    key as a quiet inset at the foot -- rather than a sentence
+                    at the top, the formula as the largest thing in the card,
+                    and empty space under both. */}
+                <Box
+                  sx={{
+                    gridArea: '1 / 1', visibility: hp ? 'hidden' : 'visible',
+                    display: 'flex', flexDirection: 'column', gap: 1.5,
+                  }}
+                  aria-hidden={!!hp}
+                >
+                  <Stack alignItems="center" justifyContent="center" spacing={0.5} sx={{ flexGrow: 1, textAlign: 'center' }}>
+                    <Box
+                      sx={{
+                        width: 32, height: 32, borderRadius: '50%', display: 'grid', placeItems: 'center',
+                        bgcolor: alpha(pal.sidebar.text, 0.06), color: 'text.secondary', mb: 0.5,
+                      }}
+                    >
+                      <AdsClickIcon sx={{ fontSize: 18 }} />
+                    </Box>
+                    <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Hover a point</Typography>
+                    <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
+                      to see its measurement. Double-click to remeasure.
+                    </Typography>
+                  </Stack>
+                  <Box sx={{ borderRadius: '10px', bgcolor: alpha(pal.sidebar.text, 0.04), px: 1.25, py: 1 }}>
+                    <Typography sx={{ ...TEXT.micro, color: 'text.disabled', mb: 0.25 }}>Colour = efficiency</Typography>
+                    <EfficiencyFormula vcc={VCC} />
+                  </Box>
+                </Box>
+              </Box>
+    </>
+  )
+})
+
+const TAB_OPTIONS = [{ value: 'points' as const, label: 'Points' }, { value: 'area' as const, label: 'Working area' }]
+const DOT_OPTIONS = [{ value: 's' as const, label: 'S' }, { value: 'm' as const, label: 'M' }, { value: 'l' as const, label: 'L' }]
+const COLOUR_BY_OPTIONS = [{ value: 'eff' as const, label: 'Efficiency' }, { value: 'att' as const, label: 'Att' }]
+
+/**
+ * The dialog's title bar: name, point count, the tab switch, graph options
+ * and Copy chart. Memoised, with stable callbacks: it redrew with every
+ * change in the dialog -- a hover, a live row, a style switch -- at 10-15 ms
+ * a time in development, for a bar that changes only with its own props.
+ */
+const SmithTitle = memo(function SmithTitle({
+  nPoints, tauPs, tab, onTab, style, onStyle, attsCount, copied, onCopy, onClose,
+}: {
+  nPoints: number
+  tauPs: number
+  tab: 'points' | 'area'
+  onTab: (v: 'points' | 'area') => void
+  style: SmithStyle
+  onStyle: (next: SmithStyle | ((prev: SmithStyle) => SmithStyle)) => void
+  attsCount: number
+  copied: 'idle' | 'done' | 'failed'
+  onCopy: () => void
+  onClose: () => void
+}) {
+  const pal = useAppPalette()
+  const [styleAnchor, setStyleAnchor] = useState<HTMLElement | null>(null)
+  const isDefaultStyle = (Object.keys(STYLE_DEFAULT) as Array<keyof SmithStyle>)
+    .every((k) => style[k] === STYLE_DEFAULT[k])
+  const setStyleOpt = <K extends keyof SmithStyle>(k: K, v: SmithStyle[K]) =>
+    onStyle((p) => ({ ...STYLE_DEFAULT, ...p, [k]: v }))
+  return (
+  <DialogTitle sx={{ display: 'flex', alignItems: 'center', py: 1.5 }}>
+    <Stack direction="row" spacing={1.5} alignItems="baseline" sx={{ minWidth: 0 }}>
+      <Typography sx={TEXT.dialog}>Smith chart</Typography>
+      <Typography sx={{ fontSize: 12, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+        {nPoints} point{nPoints === 1 ? '' : 's'} · Z₀ = {Z0} Ω
+        {tauPs ? ` · at the PA, τ = ${tauPs} ps` : ''}
+      </Typography>
+    </Stack>
+    <Box sx={{ ml: 2.5 }}>
+      <SegmentedChoice
+        text aria-label="View" value={tab}
+        options={TAB_OPTIONS}
+        onChange={onTab}
+      />
+    </Box>
+    <Box sx={{ flexGrow: 1 }} />
+    {/* The dialog's one action, so accent; fixed width so the three
+        labels it cycles through never move the close key beside it. */}
+    <Tooltip title="Graph options">
+      <IconButton
+        size="small" onClick={(e) => setStyleAnchor(e.currentTarget)}
+        aria-label="Graph options" sx={{ mr: 0.5 }}
+      >
+        <TuneIcon sx={{ fontSize: 18 }} />
+      </IconButton>
+    </Tooltip>
+    {/* A settings sheet in the macOS manner: inset groups of uniform
+        rows, the label on the left and its control on the right, so the
+        eye runs down one edge for names and the other for values. It was
+        switches glued to their labels on the left and the pickers on the
+        right, two alignments in one short list. Grows from the key that
+        opened it. */}
+    <Popover
+      open={!!styleAnchor}
+      anchorEl={styleAnchor}
+      onClose={() => setStyleAnchor(null)}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      slotProps={{
+        paper: {
+          sx: {
+            mt: 0.75, width: 300, p: 1.5, borderRadius: '12px',
+            border: 1, borderColor: 'divider',
+            boxShadow: '0 12px 32px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)',
+          },
+        },
+      }}
+    >
+      <Stack direction="row" alignItems="center" sx={{ px: 0.5, mb: 1.25 }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 600, flexGrow: 1 }}>Graph options</Typography>
+        {/* Quiet, and only live when there is something to reset. */}
+        <ButtonBase
+          onClick={() => onStyle(STYLE_DEFAULT)}
+          disabled={isDefaultStyle}
+          sx={{
+            ...PRESS_SX, fontSize: 12, fontWeight: 500, borderRadius: '6px', px: 0.75, py: 0.25,
+            color: 'primary.main', '&.Mui-disabled': { color: 'text.disabled' },
+            '&:hover': { bgcolor: alpha(pal.sidebar.text, 0.06) },
+          }}
+        >
+          Reset
+        </ButtonBase>
+      </Stack>
+
+      <SheetGroup title="Display">
+        <SheetRow label="Connecting lines" htmlFor="smith-opt-lines">
+          <Switch
+            id="smith-opt-lines" size="small" checked={style.lines}
+            onChange={(_e, c) => setStyleOpt('lines', c)}
+          />
+        </SheetRow>
+        <SheetRow label="Grid" htmlFor="smith-opt-grid">
+          <Switch
+            id="smith-opt-grid" size="small" checked={style.grid}
+            onChange={(_e, c) => setStyleOpt('grid', c)}
+          />
+        </SheetRow>
+      </SheetGroup>
+
+      <SheetGroup title="Points">
+        <SheetRow label="Size">
+          <SegmentedChoice
+            text aria-label="Dot size" value={style.dot}
+            options={DOT_OPTIONS}
+            onChange={(v) => setStyleOpt('dot', v)}
+          />
+        </SheetRow>
+        {/* Attenuator only means something on a run that swept it. */}
+        <SheetRow label="Colour by">
+          <SegmentedChoice
+            text aria-label="Colour by" value={attsCount > 1 ? style.color : 'eff'}
+            options={COLOUR_BY_OPTIONS}
+            onChange={(v) => setStyleOpt('color', v)}
+            disabled={attsCount < 2}
+          />
+        </SheetRow>
+      </SheetGroup>
+    </Popover>
+    <MiniAction
+      startIcon={copied === 'done' ? <CheckRoundedIcon /> : <ContentCopyIcon />}
+      onClick={onCopy}
+      disabled={nPoints === 0}
+      color={copied === 'failed' ? 'error' : 'primary'}
+      sx={{ mr: 1, width: 112, justifyContent: 'flex-start' }}
+    >
+      {copied === 'done' ? 'Copied' : copied === 'failed' ? 'Copy failed' : 'Copy chart'}
+    </MiniAction>
+    <IconButton size="small" onClick={onClose} aria-label="Close">
+      <CloseIcon sx={{ fontSize: 18 }} />
+    </IconButton>
+  </DialogTitle>
   )
 })
 
@@ -304,20 +607,21 @@ const TXT_SX = cellSx('left')
 
 /** One row of the point list. See Dot for why it is memoised. */
 const ListRow = memo(function ListRow({
-  pt, color, hasAtt, on, onHover, onPick, rowRef,
+  pt, color, hasAtt, hovered, onPick, rowRef,
 }: {
-  pt: Pt; color: string; hasAtt: boolean; on: boolean
-  onHover: (idx: number | null) => void
+  pt: Pt; color: string; hasAtt: boolean
+  hovered: CursorStore
   onPick: (idx: number) => void
   rowRef?: Ref<HTMLDivElement>
 }) {
+  const on = useSyncExternalStore(hovered.subscribe, () => hovered.get() === pt.idx)
   return (
     <Stack
       ref={rowRef}
       direction="row"
       data-on={on}
-      onMouseEnter={() => onHover(pt.idx)}
-      onMouseLeave={() => onHover(null)}
+      onMouseEnter={() => hovered.set(pt.idx)}
+      onMouseLeave={() => hovered.set(null)}
       onDoubleClick={() => onPick(pt.idx)}
       sx={LIST_ROW_SX}
       style={{ gridTemplateColumns: listCols(hasAtt) }}
@@ -364,7 +668,7 @@ const ListRow = memo(function ListRow({
  * MUI label notches the outline and reserves a row of space for two words,
  * which is what made the header top-heavy.
  */
-function Picker({
+const Picker = memo(function Picker({
   label, unit, value, options, onChange,
 }: {
   label: string
@@ -400,7 +704,7 @@ function Picker({
       <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>{unit}</Typography>
     </Stack>
   )
-}
+})
 
 /**
  * Which attenuator settings are on the chart. Every setting belongs on one
@@ -415,7 +719,7 @@ function Picker({
  * None are quiet keys in the sheet's head. Double-click a chip for only that
  * setting. With the chart coloured by attenuator each chip carries its dot.
  */
-function AttPicker({
+const AttPicker = memo(function AttPicker({
   options, hidden, onChange, colorOf,
 }: {
   options: number[]
@@ -536,10 +840,442 @@ function AttPicker({
       </Popover>
     </Stack>
   )
+})
+
+/** The working area's limits as typed, kept between sessions. Text rather
+ *  than numbers so a half-typed "-" or "28." survives a re-render. */
+interface AreaSettings {
+  pout: [string, string]
+  icc: [string, string]
+  eff: [string, string]
+  /** Every frequency at once (a load must pass at each), or the one shown. */
+  allFreqs: boolean
+}
+const AREA_DEFAULT: AreaSettings = { pout: ['', ''], icc: ['', ''], eff: ['', ''], allFreqs: true }
+/**
+ * The grid cell under the cursor, kept out of React state: it changes on
+ * every mouse move, and as dialog state each move redrew the whole dialog.
+ * Only the readout that shows it subscribes.
+ */
+function createCursorStore() {
+  let cell: number | null = null
+  const subs = new Set<() => void>()
+  return {
+    get: () => cell,
+    set: (c: number | null) => {
+      if (c === cell) return
+      cell = c
+      subs.forEach((f) => f())
+    },
+    subscribe: (f: () => void) => {
+      subs.add(f)
+      return () => { subs.delete(f) }
+    },
+  }
+}
+type CursorStore = ReturnType<typeof createCursorStore>
+
+/** How the working area is drawn: which quantity the contours trace and
+ *  which the region is coloured by. */
+interface AreaView2 { contours: Quantity; colour: Quantity }
+const AREA_VIEW_DEFAULT: AreaView2 = { contours: 'pout', colour: 'eff' }
+const QUANTITY_OPTIONS: Array<{ value: Quantity; label: string }> = [
+  { value: 'pout', label: 'Pout' }, { value: 'icc', label: 'Icc' }, { value: 'eff', label: 'Eff' },
+]
+
+const LIMIT_ROWS = [
+  { key: 'pout', label: 'Pout', unit: 'dBm' },
+  { key: 'icc', label: 'Icc', unit: 'mA' },
+  { key: 'eff', label: 'Efficiency', unit: '%' },
+] as const
+
+/** Blank is no limit; anything else that is not a number is an error. */
+const limitNum = (s: string): number | null | undefined => {
+  const t = s.trim()
+  if (!t) return null
+  const v = Number(t)
+  return Number.isFinite(v) ? v : undefined
+}
+const toBound = ([lo, hi]: [string, string]): Bound => [limitNum(lo) ?? null, limitNum(hi) ?? null]
+
+type AreaReading = { gr: number; gi: number; pout: number; icc: number; eff: number }
+
+/** The figure's star, as a glyph for the card that names its load. */
+const StarGlyph = () => (
+  <svg width={12} height={12} viewBox="-6 -6 12 12" aria-hidden style={{ flexShrink: 0, marginRight: 6 }}>
+    <polygon
+      points={Array.from({ length: 10 }, (_, k) => {
+        const a = (Math.PI / 5) * k - Math.PI / 2
+        const r = k % 2 ? 2.4 : 5.6
+        return `${(r * Math.cos(a)).toFixed(2)},${(r * Math.sin(a)).toFixed(2)}`
+      }).join(' ')}
+      fill="#F05A28"
+    />
+  </svg>
+)
+
+/**
+ * One load, read: its impedance as the line the eye lands on, then Pout,
+ * Icc and efficiency in three even columns, each with its unit beside it.
+ *
+ * It was one row of four cramped cells -- Z cut to "10.4 − j10.9…", the
+ * units in a footnote under the card, efficiency printed twice -- so the
+ * impedance, the one figure the operator carries to the tuner, was the one
+ * that did not fit. On an inset block, as the settings sheets are, with a
+ * fixed layout whether it holds a reading or dashes.
+ */
+function LoadReading({
+  title, icon, status, statusColor, pt, effColor,
+}: {
+  title: string
+  icon?: React.ReactNode
+  status?: string
+  statusColor?: string
+  pt: AreaReading | null
+  effColor: (effPct: number) => string
+}) {
+  const pal = useAppPalette()
+  const stat = (k: string, v: string | null, unit: string, swatch?: string) => (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>{k}</Typography>
+      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0 }}>
+        {swatch && <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: swatch, flexShrink: 0 }} />}
+        <Typography noWrap sx={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 600, color: v ? 'text.primary' : 'text.disabled' }}>
+          {v ?? DASH_TXT}
+          {v && <Box component="span" sx={{ fontWeight: 400, color: 'text.secondary', fontSize: 11, ml: 0.5 }}>{unit}</Box>}
+        </Typography>
+      </Stack>
+    </Box>
+  )
+  return (
+    <Box sx={{ borderRadius: '10px', bgcolor: alpha(pal.sidebar.text, 0.045), px: 1.5, pt: 1, pb: 1.25 }}>
+      <Stack direction="row" alignItems="center" sx={{ minHeight: 18 }}>
+        {icon}
+        <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', flexGrow: 1 }}>{title}</Typography>
+        {status && <Typography sx={{ ...TEXT.micro, color: statusColor ?? 'text.disabled' }}>{status}</Typography>}
+      </Stack>
+      {(() => {
+        const z = (
+          <Typography
+            noWrap
+            sx={{
+              fontFamily: MONO, fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em', lineHeight: 1.3,
+              color: pt ? 'text.primary' : 'text.disabled',
+            }}
+          >
+            {pt ? fmtZ(pt.gr, pt.gi) : DASH_TXT}
+          </Typography>
+        )
+        return (
+          <Box sx={{ mt: 0.25, mb: 0.75 }}>
+            {z}
+          </Box>
+        )
+      })()}
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', columnGap: 1 }}>
+        {stat('Pout', pt ? pt.pout.toFixed(1) : null, 'dBm')}
+        {stat('Icc', pt ? pt.icc.toFixed(0) : null, 'mA')}
+        {stat('Efficiency', pt ? pt.eff.toFixed(1) : null, '%', pt ? effColor(pt.eff) : undefined)}
+      </Box>
+    </Box>
+  )
 }
 
+/** The interpolated readings under the cursor: the one part of the panel
+ *  that follows the mouse, so the one part that subscribes to it. */
+function CursorReadout({
+  store, area, effColor,
+}: { store: CursorStore; area: Area | null; effColor: (effPct: number) => string }) {
+  const cursor = useSyncExternalStore(store.subscribe, store.get)
+  const at = area && cursor != null && area.measured[cursor]
+    ? { ...cellGamma(area.n, cursor), pout: area.pout[cursor], icc: area.icc[cursor], eff: area.eff[cursor] }
+    : null
+  const inArea = at != null && cursor != null && !!area?.ok[cursor]
+  return (
+    <LoadReading
+      title="At the cursor"
+      status={at ? (inArea ? 'in the area' : 'outside the limits') : cursor != null ? 'not measured here' : 'hover the chart'}
+      statusColor={inArea ? 'success.main' : undefined}
+      pt={at} effColor={effColor}
+    />
+  )
+}
+
+function fmtZ(gr: number, gi: number) {
+  const z = impedance(gr, gi)
+  return `${z.r.toFixed(1)} ${z.x >= 0 ? '+' : '−'} j${Math.abs(z.x).toFixed(1)} Ω`
+}
+
+/**
+ * The working area's loading sheet: a small frosted panel over the figure,
+ * an activity indicator and what is happening, in the manner of a macOS
+ * progress sheet rather than a spinner stuck on the chart.
+ *
+ * It sits over the figure's title, which during the wait describes the
+ * result being replaced. Centred on the chart it landed on whatever was
+ * there -- the optimum's label poked out beside it and read as drawn over
+ * it -- and hid the data the operator was waiting to see.
+ *
+ * Always mounted, so it can arrive and leave: in, it fades down a few
+ * pixels, settles from 96 % and comes into focus; out, it simply fades,
+ * quicker than it came -- blurring on the way out smeared it over the chart.
+ * Above the figure in its own layer. HTML over the SVG, not drawn in it, so
+ * Copy chart never pastes it.
+ */
+function AreaBusy({ show }: { show: boolean }) {
+  const pal = useAppPalette()
+  return (
+    <Box
+      aria-live="polite"
+      sx={{
+        position: 'absolute', left: '50%', top: 4, zIndex: 2, pointerEvents: 'none',
+        display: 'flex', alignItems: 'center', gap: 1, px: 1.75, py: 1.125, borderRadius: '12px',
+        color: 'text.secondary',
+        bgcolor: alpha(pal.paper, 0.72),
+        backdropFilter: 'blur(14px) saturate(170%)',
+        border: `1px solid ${alpha(pal.sidebar.text, 0.08)}`,
+        boxShadow: '0 10px 30px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06)',
+        opacity: show ? 1 : 0,
+        transform: show ? 'translate(-50%, 0) scale(1)' : 'translate(-50%, -6px) scale(0.96)',
+        transition: show
+          ? 'opacity 200ms ease-out, transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1)'
+          : 'opacity 120ms ease-in',
+        [REDUCED_MOTION]: { transform: 'translate(-50%, 0)', transition: 'opacity 160ms ease' },
+        '@media (prefers-reduced-transparency: reduce)': { bgcolor: 'background.paper', backdropFilter: 'none' },
+      }}
+    >
+      {show && <ActivityIndicator size={16} label="Working out the area" />}
+      <Typography sx={{ fontSize: 12.5, fontWeight: 500, color: 'text.primary', whiteSpace: 'nowrap' }}>
+        Working out the area…
+      </Typography>
+    </Box>
+  )
+}
+
+/**
+ * The working-area tab's column: the limits, then what they leave.
+ *
+ * Limits as a sheet of min/max pairs, blank for no limit. Under it, how much
+ * of the measured area passes, the best load in it, and the interpolated
+ * readings under the cursor -- the area is a map, and the cursor is how a
+ * spot on it is read. Every part keeps its height whatever it shows.
+ */
+const AreaPanel = memo(function AreaPanel({
+  settings, onChange, delay, onDelay, onActivity, area, cursor, pending, busy, nFields, nFreqs, effColor,
+}: {
+  settings: AreaSettings
+  onChange: (s: AreaSettings) => void
+  /** The operator changed something: show the work, even if the answer is
+   *  already to hand (see the dialog's `pulseBusy`). */
+  onActivity: () => void
+  /** Electrical delay of the PA-to-tuner cable, ps, as typed. */
+  delay: string
+  onDelay: (v: string) => void
+  area: Area | null
+  /** The grid cell under the cursor. */
+  cursor: CursorStore
+  /** A new area is being worked out. */
+  pending: boolean
+  /** ...and has been for long enough to say so. */
+  busy: boolean
+  /** How many frequencies the area is the worst case of. */
+  nFields: number
+  /** How many the run has; the switch shows only when there is a choice. */
+  nFreqs: number
+  effColor: (effPct: number) => string
+}) {
+  const pal = useAppPalette()
+  // The fields type into a draft and Apply hands it up. Applied as typed,
+  // each change started a new area while the operator was still typing, and
+  // the dialog felt stuck under them; now nothing moves until they say so,
+  // and Apply shows the work while it runs.
+  // The limits and the delay wait for Apply. The frequency switch does not:
+  // it is a switch, like Contours and Colour, and waiting for a key it gave
+  // no sign of having been pressed at all.
+  const [draft, setDraft] = useState(settings)
+  const [draftDelay, setDraftDelay] = useState(delay)
+  const apply = (next: AreaSettings) => setDraft(next)
+  const limitsDirty = LIMIT_ROWS.some(({ key }) => draft[key][0] !== settings[key][0] || draft[key][1] !== settings[key][1])
+  const dirty = limitsDirty || draftDelay.trim() !== delay.trim()
+  const delayBad = !Number.isFinite(Number(draftDelay.trim() || 0))
+  const invalid = delayBad || LIMIT_ROWS.some(({ key }) => draft[key].some((v) => limitNum(v) === undefined))
+  const commit = () => {
+    if (!dirty || invalid) return
+    onActivity()
+    if (limitsDirty) onChange({ ...draft, allFreqs: settings.allFreqs })
+    if (draftDelay.trim() !== delay.trim()) onDelay(draftDelay.trim())
+  }
+  const onEnter = (e: React.KeyboardEvent) => { if (e.key === 'Enter') commit() }
+  const isDefault = LIMIT_ROWS.every(({ key }) => draft[key][0] === '' && draft[key][1] === '')
+  const setLimit = (key: (typeof LIMIT_ROWS)[number]['key'], side: 0 | 1, v: string) => {
+    const next: [string, string] = [...draft[key]]
+    next[side] = v
+    apply({ ...draft, [key]: next })
+  }
+  const card = {
+    p: 1.75, borderRadius: 1.5, border: 1, borderColor: 'divider', bgcolor: 'background.paper',
+  } as const
+  const pct = area && area.measuredCells > 0 ? (area.okCells / area.measuredCells) * 100 : null
+  const firstLoad = area == null && pending
+  const firstBusy = area == null && busy
+
+  return (
+    <Stack spacing={1.5}>
+      <Box sx={card}>
+        <Stack direction="row" alignItems="center" sx={{ mb: 1 }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, flexGrow: 1 }}>Limits</Typography>
+          <ButtonBase
+            onClick={() => apply({ ...AREA_DEFAULT, allFreqs: draft.allFreqs })}
+            disabled={isDefault}
+            sx={{
+              ...PRESS_SX, fontSize: 12, fontWeight: 500, borderRadius: '6px', px: 0.75, py: 0.25,
+              color: 'primary.main', '&.Mui-disabled': { color: 'text.disabled' },
+              '&:hover': { bgcolor: alpha(pal.sidebar.text, 0.06) },
+            }}
+          >
+            Clear
+          </ButtonBase>
+        </Stack>
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 84px 84px', columnGap: 1, rowGap: 0.75, alignItems: 'center' }}>
+          <Box />
+          <Typography sx={{ ...TEXT.micro, color: 'text.disabled', pl: 0.5 }}>Min</Typography>
+          <Typography sx={{ ...TEXT.micro, color: 'text.disabled', pl: 0.5 }}>Max</Typography>
+          {LIMIT_ROWS.map(({ key, label, unit }) => (
+            <Box key={key} sx={{ display: 'contents' }}>
+              <Typography sx={{ fontSize: 13 }}>
+                {label}
+                <Box component="span" sx={{ color: 'text.disabled', ml: 0.5, fontSize: 12 }}>[{unit}]</Box>
+              </Typography>
+              {([0, 1] as const).map((side) => (
+                <TextField
+                  key={side}
+                  size="small"
+                  value={draft[key][side]}
+                  onChange={(e) => setLimit(key, side, e.target.value)}
+                  error={limitNum(draft[key][side]) === undefined}
+                  onKeyDown={onEnter}
+                  inputProps={{
+                    inputMode: 'decimal', 'aria-label': `${label} ${side ? 'max' : 'min'} (${unit})`,
+                  }}
+                  sx={{
+                    '& .MuiInputBase-root': { height: 30 },
+                    '& input': { fontFamily: MONO, fontSize: 12.5, py: 0.5, px: 1, textAlign: 'right' },
+                  }}
+                />
+              ))}
+            </Box>
+          ))}
+        </Box>
+        {nFreqs > 1 && (
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1.25 }}>
+            <Typography sx={{ fontSize: 13 }}>Frequencies</Typography>
+            <SegmentedChoice
+              text aria-label="Frequencies" value={settings.allFreqs ? 'all' : 'one'}
+              options={[{ value: 'one', label: 'Shown' }, { value: 'all', label: `All ${nFreqs}` }]}
+              onChange={(v) => {
+                // Applied now, with only this setting: typed limits not yet
+                // applied stay in the draft for Apply.
+                setDraft({ ...draft, allFreqs: v === 'all' })
+                onActivity()
+                onChange({ ...settings, allFreqs: v === 'all' })
+              }}
+            />
+          </Stack>
+        )}
+        {/* Where the chart stands rather than what it keeps, but it redraws
+            the same picture, so it waits for the same key. */}
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1.25 }}>
+            <Typography sx={{ fontSize: 13 }}>
+              Electrical delay
+              <Box component="span" sx={{ color: 'text.disabled', ml: 0.5, fontSize: 12 }}>[ps]</Box>
+            </Typography>
+            <TextField
+              size="small"
+              value={draftDelay}
+              onChange={(e) => setDraftDelay(e.target.value)}
+              onKeyDown={onEnter}
+              error={delayBad}
+              inputProps={{ inputMode: 'decimal', 'aria-label': 'Electrical delay (ps)' }}
+              sx={{
+                width: 84,
+                '& .MuiInputBase-root': { height: 30 },
+                '& input': { fontFamily: MONO, fontSize: 12.5, py: 0.5, px: 1, textAlign: 'right' },
+              }}
+            />
+        </Stack>
+        {/* The label holds while working -- the spinner says it -- so the
+            word does not jump inside the key, as on Connect. */}
+        <Button
+          fullWidth size="small" variant="contained" color="primary" disableElevation
+          onClick={commit}
+          disabled={(!dirty && !busy) || invalid}
+          startIcon={busy ? <ActivityIndicator size={14} label="Working out the area" /> : undefined}
+          // No colour transition: MUI's 250 ms fade from blue to grey made
+          // the key look busy for a beat after the new figure was already up.
+          // It settles in the same frame as the picture.
+          sx={{ mt: 1.5, height: 32, fontSize: 12.5, pointerEvents: busy ? 'none' : undefined, transition: 'none' }}
+        >
+          Apply
+        </Button>
+      </Box>
+
+      {/* How much of what was measured passes, as a figure and a meter;
+          then the best load and the load under the cursor, alike. */}
+      <Box sx={card}>
+        <Stack direction="row" alignItems="baseline" spacing={1} sx={{ minWidth: 0 }}>
+          {(() => {
+            const fig = (
+              <Typography
+                sx={{
+                  fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em',
+                  color: pct === 0 ? 'warning.main' : pct == null ? 'text.disabled' : 'text.primary',
+                }}
+              >
+                {firstLoad ? '100%' : pct == null ? DASH_TXT : `${pct < 10 && pct > 0 ? pct.toFixed(1) : pct.toFixed(0)}%`}
+              </Typography>
+            )
+            // The figure stays laid out, hidden, under the spinner, so the
+            // row keeps its baseline and its height while loading.
+            return (
+              <Box sx={{ position: 'relative' }}>
+                <Box sx={{ visibility: firstLoad ? 'hidden' : 'visible' }}>{fig}</Box>
+                {firstBusy && (
+                  <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', color: 'text.secondary' }}>
+                    <ActivityIndicator size={18} label="Working out the area" />
+                  </Box>
+                )}
+              </Box>
+            )
+          })()}
+          <Typography noWrap sx={{ fontSize: 12, color: 'text.secondary', minWidth: 0 }}>
+            {area == null && pending ? 'working out the area…'
+              : area == null || area.measuredCells === 0 ? 'no area: needs three points off one line'
+              : pct === 0 ? 'no measured load meets every limit'
+              : 'of the measured area meets the limits'}
+          </Typography>
+        </Stack>
+        <Box sx={{ mt: 1, height: 4, borderRadius: 2, bgcolor: alpha(pal.sidebar.text, 0.08), overflow: 'hidden' }}>
+          <Box sx={{ height: '100%', width: `${pct ?? 0}%`, borderRadius: 2, bgcolor: pal.actions.primary.bg }} />
+        </Box>
+        {/* Always one line, so the card does not grow with the switch. */}
+        <Typography sx={{ ...TEXT.micro, color: 'text.disabled', mt: 0.75, height: 18, lineHeight: '18px' }}>
+          {nFields > 1 ? `Worst case of ${nFields} frequencies` : ''}
+        </Typography>
+
+        <Stack spacing={1} sx={{ mt: 1.25 }}>
+          <LoadReading
+            title="Best efficiency" icon={<StarGlyph />}
+            pt={area?.best ?? null} effColor={effColor}
+          />
+          <CursorReadout store={cursor} area={area} effColor={effColor} />
+        </Stack>
+      </Box>
+    </Stack>
+  )
+})
+
 export function SmithChartModal({
-  open, onClose, results, keepToolbar, onRemeasure = NO_PICK,
+  open, onClose, results: measured, keepToolbar, onRemeasure = NO_PICK,
 }: {
   open: boolean
   onClose: () => void
@@ -554,7 +1290,24 @@ export function SmithChartModal({
   // than blue-grey values of the chart's own that read as a different product.
   const pal = useAppPalette()
   const { mode } = useThemeMode()
-  const [hover, setHover] = useState<number | null>(null)
+  // The cable between the PA and the tuner, as a delay. The VNA reads the
+  // load at the tuner; the chart shows it at the PA, turned back by the
+  // cable. Every view below -- points, list, card, statistics, working area
+  // -- reads `results`, so they all move together. The results table keeps
+  // what was measured.
+  const [delayText, setDelayText] = usePersistedState<string>(STORAGE_KEYS.smithDelay, '')
+  const delayPs = Number(delayText.trim() || 0)
+  const delayBad = !Number.isFinite(delayPs)
+  const tauPs = delayBad ? 0 : delayPs
+  const results = useMemo(() => deembedRows(measured, tauPs), [measured, tauPs])
+  // The hovered point, out of React state like the working area's cursor:
+  // as dialog state every hover redrew the whole dialog (~60 ms a move in
+  // development, and it showed). Now the dot, the row and the card that
+  // show it are the only things that redraw.
+  const copyRef = useRef<() => Promise<void>>(async () => {})
+  const onCopy = useCallback(() => { void copyRef.current() }, [])
+  const [hoverStore] = useState(createCursorStore)
+  const setHover = hoverStore.set
   const svgRef = useRef<SVGSVGElement | null>(null)
   // Point list windowing: only the rows in view are rendered.
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -563,13 +1316,17 @@ export function SmithChartModal({
   const [listH, setListH] = useState(400)
   const [listRowH, setListRowH] = useState(LIST_ROW_H_GUESS)
   const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle')
-  const [styleAnchor, setStyleAnchor] = useState<HTMLElement | null>(null)
   const [savedStyle, setStyle] = usePersistedState<SmithStyle>(STORAGE_KEYS.smithStyle, STYLE_DEFAULT)
   // Spread over the defaults, so a style saved before a field existed reads it.
-  const style = { ...STYLE_DEFAULT, ...savedStyle }
-  const isDefaultStyle = (Object.keys(STYLE_DEFAULT) as Array<keyof SmithStyle>)
-    .every((k) => style[k] === STYLE_DEFAULT[k])
-  const setStyleOpt = <K extends keyof SmithStyle>(k: K, v: SmithStyle[K]) => setStyle({ ...style, [k]: v })
+  const style = useMemo(() => ({ ...STYLE_DEFAULT, ...savedStyle }), [savedStyle])
+  // The measured points, or the working area they map out under the limits.
+  const [tab, setTab] = useState<'points' | 'area'>('points')
+  const [savedArea, setAreaSettings] = usePersistedState<AreaSettings>(STORAGE_KEYS.smithArea, AREA_DEFAULT)
+  const areaSettings = useMemo(() => ({ ...AREA_DEFAULT, ...savedArea }), [savedArea])
+  const [cursor] = useState(createCursorStore)
+  // Mounted on first visit and then kept, hidden while Points shows:
+  // building the figure and the limit fields again took ~0.4 s a switch.
+  const [areaSeen, setAreaSeen] = useState(false)
   // Which slice of the run to plot. A run sweeps frequency and power at every
   // trombone position, and plotting all of them at once would put several
   // unrelated load-pull contours on one chart.
@@ -675,32 +1432,101 @@ export function SmithChartModal({
   const effFlat = effDomain != null
     && (effDomain.min * 100).toFixed(1) === (effDomain.max * 100).toFixed(1)
 
-  const effColor = (eff: number | null): string => {
+  const effColor = useCallback((eff: number | null): string => {
     if (eff == null || !effDomain) return pal.sidebar.successOff
     // Every point measured the same: colour carries no information, so use one
     // neutral tone rather than painting them all at the ramp's cold end.
     if (effSpan === 0 || effFlat) return rampColor(0.5)
-    return rampColor((eff - effDomain.min) / effSpan)
-  }
+    // In the working area's bands, so one efficiency is one colour on both
+    // tabs -- and a new point mid-run recolours the others only when it
+    // moves a band edge, not at every row.
+    return bandColor(bandOf(eff, effDomain))
+  }, [effDomain, effSpan, effFlat, pal])
   // By attenuator only when there is more than one setting to tell apart.
   // Each setting keeps its colour (its place among all the run's settings)
   // whichever are filtered off, so 4 dB is the same colour alone as among
   // the rest.
   const byAtt = style.color === 'att' && atts.length > 1
-  const attColor = (att: number | null | undefined): string =>
-    att == null ? pathC : pal.chart.series[Math.max(0, atts.indexOf(att)) % pal.chart.series.length]
+  const attColor = useCallback((att: number | null | undefined): string =>
+    att == null ? pathC : pal.chart.series[Math.max(0, atts.indexOf(att)) % pal.chart.series.length], [pathC, pal, atts])
   const colorOf = (pt: Pt): string => (byAtt ? attColor(pt.row.att_db) : effColor(pt.eff))
   const shownAtts = atts.filter((a) => !hiddenAtt.has(a))
+  const statGroups = useMemo(() => statSlices.map((g) => ({
+    ...g,
+    color: byAtt && g.att != null
+      ? pal.chart.series[Math.max(0, atts.indexOf(g.att)) % pal.chart.series.length]
+      : pal.actions.primary.bg,
+  })), [statSlices, byAtt, atts, pal])
 
-  const grid = pal.chart.grid
-  const axis = pal.chart.axis
+  // The working area. Each frequency's points are interpolated over the
+  // chart on their own -- a frequency's readings belong to its own loads --
+  // and then a cell is in the area where every limit holds at all of them.
+  // Built only while the tab is open: the triangulation is the costly part,
+  // and a run adds a row every few seconds.
+  const allFreqs = areaSettings.allFreqs && freqs.length > 1
+  const areaSamples = useMemo(() => {
+    return (allFreqs ? freqs : [freq]).map((f) => {
+      const samples: Sample[] = []
+      for (const { row } of chartRows(results, f, power, hiddenAtt)) {
+        // A failed row is a point that did not measure, not a poor load.
+        if (row.error || row.r_ohm == null || row.x_ohm == null || row.power_dbm == null || row.current_a == null) continue
+        const eff = efficiency(row)
+        if (eff == null) continue
+        const { gr, gi } = reflection(row.r_ohm, row.x_ohm)
+        if (!Number.isFinite(gr) || !Number.isFinite(gi)) continue
+        samples.push({ gr, gi, pout: row.power_dbm, icc: row.current_a * 1000, eff: eff * 100 })
+      }
+      return samples
+    })
+  }, [allFreqs, freqs, freq, results, power, hiddenAtt])
+  const limits: Limits = useMemo(() => {
+    const a = { ...AREA_DEFAULT, ...savedArea }
+    return { pout: toBound(a.pout), icc: toBound(a.icc), eff: toBound(a.eff) }
+  }, [savedArea])
+  const fieldFreqs = useMemo(() => (allFreqs ? freqs : [freq]), [allFreqs, freqs, freq])
+  // What the figure contours and colours by. Instant, unlike the limits:
+  // they choose how the same area is drawn, and a contour is cheap to trace.
+  // Their own setting, so the limits' draft never writes over them.
+  const [savedView, setAreaView] = usePersistedState<AreaView2>(STORAGE_KEYS.smithAreaView, AREA_VIEW_DEFAULT)
+  const areaView2 = { ...AREA_VIEW_DEFAULT, ...savedView }
+  const contourKey = areaView2.contours
+  const areaMeta = useMemo(() => ({ fieldFreqs, tauPs, power, contourKey }), [fieldFreqs, tauPs, power, contourKey])
+  // In a worker, and only while the tab shows; the last result is kept.
+  const { view: areaView, pending: areaPending } = useWorkingArea(tab === 'area' ? areaSamples : null, limits, areaMeta)
+  // What the eye is shown: the work at once, held at least 450 ms. Results
+  // land in a tenth of a second; delayed instead, the indicator never showed
+  // and Apply seemed to do nothing, and shown bare it flashed for a frame.
+  // A change the operator made shows as work even when the cache answers it
+  // at once: an instant swap with no sign looked like the press did
+  // nothing. The pulse is up for a moment; the hold keeps it seen.
+  const [pulseBusy, setPulseBusy] = useState(false)
+  const onActivity = useCallback(() => setPulseBusy(true), [])
+  useEffect(() => {
+    if (!pulseBusy) return
+    const t = window.setTimeout(() => setPulseBusy(false), 0)
+    return () => window.clearTimeout(t)
+  }, [pulseBusy])
+  const areaBusy = useHeldFlag(areaPending || pulseBusy, 450)
+  const area = areaView?.area ?? null
+  // The ramp spans the area's own efficiencies, so it grades what is left
+  // rather than the whole run.
+  const areaEffColor = useCallback((e: number) => {
+    const r = area?.effRange
+    if (!r || (r.max - r.min) < 0.05) return rampColor(0.5)
+    return rampColor((e - r.min) / (r.max - r.min))
+  }, [area])
+  const areaSvgRef = useRef<SVGSVGElement | null>(null)
+  // Each frequency keeps its colour whichever are shown, as attenuator
+  // settings do.
+  const freqColor = useCallback((f: number | null) =>
+    pal.chart.series[Math.max(0, f == null ? 0 : freqs.indexOf(f)) % pal.chart.series.length], [pal, freqs])
+  const isArea = tab === 'area'
+  const onTab = useCallback((v: 'points' | 'area') => {
+    setTab(v)
+    cursor.set(null)
+    if (v === 'area') setAreaSeen(true)
+  }, [cursor])
 
-  const rCircles = [0, 0.2, 0.5, 1, 2, 5].map((r) => ({
-    cx: cx + (r / (1 + r)) * R, cy, rr: (1 / (1 + r)) * R,
-  }))
-  const xArcs = [0.2, 0.5, 1, 2, 5].flatMap((x) => [x, -x]).map((x) => ({
-    cx: cx + 1 * R, cy: cy - (1 / x) * R, rr: Math.abs(1 / x) * R,
-  }))
 
   /**
    * Copy the chart and its efficiency scale to the clipboard as a PNG.
@@ -714,6 +1540,7 @@ export function SmithChartModal({
    * RAMP the dots are coloured from, which keeps them in step.
    */
   const copyChart = async () => {
+    if (isArea) return copyFigure()
     const svg = svgRef.current
     if (!svg) return
     const SCALE = 2                       // for a legible paste on a HiDPI screen
@@ -745,6 +1572,19 @@ export function SmithChartModal({
       const y = S + LEGEND_H / 2
       ctx.fillStyle = ink
       ctx.fillText(byAtt ? 'Att (dB)' : 'Efficiency', 8, y)
+      const ramp = (lo: number, hi: number) => {
+        const l = `${lo.toFixed(1)}%`
+        const h = `${hi.toFixed(1)}%`
+        const barX = 76 + ctx.measureText(l).width + 8
+        const barW = S - barX - ctx.measureText(h).width - 16
+        ctx.fillText(l, 76, y)
+        for (let b = 0; b < EFF_BANDS; b++) {
+          ctx.fillStyle = bandColor(b)
+          ctx.fillRect(barX + (b * barW) / EFF_BANDS, y - 4.5, barW / EFF_BANDS + 0.5, 9)
+        }
+        ctx.fillStyle = ink
+        ctx.fillText(h, barX + barW + 8, y)
+      }
       if (byAtt) {
         let lx = 76
         for (const a of shownAtts) {
@@ -761,19 +1601,7 @@ export function SmithChartModal({
       } else if (effFlat) {
         ctx.fillText(`${(effDomain.min * 100).toFixed(1)}% at every point`, 76, y)
       } else {
-        const lo = `${(effDomain.min * 100).toFixed(1)}%`
-        const hi = `${(effDomain.max * 100).toFixed(1)}%`
-        const barX = 76 + ctx.measureText(lo).width + 8
-        const barW = S - barX - ctx.measureText(hi).width - 16
-        ctx.fillText(lo, 76, y)
-        const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0)
-        RAMP.forEach((c, i) => grad.addColorStop(i / (RAMP.length - 1), c))
-        ctx.fillStyle = grad
-        ctx.beginPath()
-        ctx.roundRect(barX, y - 5, barW, 10, 5)
-        ctx.fill()
-        ctx.fillStyle = ink
-        ctx.fillText(hi, barX + barW + 8, y)
+        ramp(effDomain.min * 100, effDomain.max * 100)
       }
 
       const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
@@ -788,7 +1616,43 @@ export function SmithChartModal({
     window.setTimeout(() => setCopied('idle'), 2000)
   }
 
-  const hp = hover != null ? points.find((p) => p.idx === hover) ?? null : null
+  /** The working-area figure carries its own title, scale and legend, so it
+   *  is rasterised as it stands. */
+  const copyFigure = async () => {
+    const svg = areaSvgRef.current
+    if (!svg) return
+    const SCALE = 2
+    const { width: w, height: h } = svg.viewBox.baseVal
+    try {
+      const xml = new XMLSerializer().serializeToString(svg)
+      const img = new Image()
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = () => reject(new Error('could not rasterise the figure'))
+        img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`
+      })
+      const canvas = document.createElement('canvas')
+      canvas.width = w * SCALE
+      canvas.height = h * SCALE
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('no 2d context')
+      ctx.scale(SCALE, SCALE)
+      ctx.fillStyle = pal.paper
+      ctx.fillRect(0, 0, w, h)
+      ctx.drawImage(img, 0, 0, w, h)
+      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
+      if (!blob) throw new Error('could not encode the image')
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      setCopied('done')
+    } catch {
+      setCopied('failed')
+    }
+    window.setTimeout(() => setCopied('idle'), 2000)
+  }
+
+
+  // The latest copy, for the title bar's stable Copy key.
+  useEffect(() => { copyRef.current = copyChart })
 
   // Row and view heights, measured rather than assumed.
   useLayoutEffect(() => {
@@ -827,115 +1691,17 @@ export function SmithChartModal({
         backdrop: { sx: { top: keepToolbar ? TOP_BAR_H : 0 } },
       }}
     >
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', py: 1.5 }}>
-        <Stack direction="row" spacing={1.5} alignItems="baseline" sx={{ minWidth: 0 }}>
-          <Typography sx={TEXT.dialog}>Smith chart</Typography>
-          <Typography sx={{ fontSize: 12, color: 'text.secondary', whiteSpace: 'nowrap' }}>
-            {points.length} point{points.length === 1 ? '' : 's'} · Z₀ = {Z0} Ω
-          </Typography>
-        </Stack>
-        <Box sx={{ flexGrow: 1 }} />
-        {/* The dialog's one action, so accent; fixed width so the three
-            labels it cycles through never move the close key beside it. */}
-        <Tooltip title="Graph options">
-          <IconButton
-            size="small" onClick={(e) => setStyleAnchor(e.currentTarget)}
-            aria-label="Graph options" sx={{ mr: 0.5 }}
-          >
-            <TuneIcon sx={{ fontSize: 18 }} />
-          </IconButton>
-        </Tooltip>
-        {/* A settings sheet in the macOS manner: inset groups of uniform
-            rows, the label on the left and its control on the right, so the
-            eye runs down one edge for names and the other for values. It was
-            switches glued to their labels on the left and the pickers on the
-            right, two alignments in one short list. Grows from the key that
-            opened it. */}
-        <Popover
-          open={!!styleAnchor}
-          anchorEl={styleAnchor}
-          onClose={() => setStyleAnchor(null)}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-          slotProps={{
-            paper: {
-              sx: {
-                mt: 0.75, width: 300, p: 1.5, borderRadius: '12px',
-                border: 1, borderColor: 'divider',
-                boxShadow: '0 12px 32px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)',
-              },
-            },
-          }}
-        >
-          <Stack direction="row" alignItems="center" sx={{ px: 0.5, mb: 1.25 }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 600, flexGrow: 1 }}>Graph options</Typography>
-            {/* Quiet, and only live when there is something to reset. */}
-            <ButtonBase
-              onClick={() => setStyle(STYLE_DEFAULT)}
-              disabled={isDefaultStyle}
-              sx={{
-                ...PRESS_SX, fontSize: 12, fontWeight: 500, borderRadius: '6px', px: 0.75, py: 0.25,
-                color: 'primary.main', '&.Mui-disabled': { color: 'text.disabled' },
-                '&:hover': { bgcolor: alpha(pal.sidebar.text, 0.06) },
-              }}
-            >
-              Reset
-            </ButtonBase>
-          </Stack>
-
-          <SheetGroup title="Display">
-            <SheetRow label="Connecting lines" htmlFor="smith-opt-lines">
-              <Switch
-                id="smith-opt-lines" size="small" checked={style.lines}
-                onChange={(_e, c) => setStyleOpt('lines', c)}
-              />
-            </SheetRow>
-            <SheetRow label="Grid" htmlFor="smith-opt-grid">
-              <Switch
-                id="smith-opt-grid" size="small" checked={style.grid}
-                onChange={(_e, c) => setStyleOpt('grid', c)}
-              />
-            </SheetRow>
-          </SheetGroup>
-
-          <SheetGroup title="Points">
-            <SheetRow label="Size">
-              <SegmentedChoice
-                text aria-label="Dot size" value={style.dot}
-                options={[{ value: 's', label: 'S' }, { value: 'm', label: 'M' }, { value: 'l', label: 'L' }]}
-                onChange={(v) => setStyleOpt('dot', v)}
-              />
-            </SheetRow>
-            {/* Attenuator only means something on a run that swept it. */}
-            <SheetRow label="Colour by">
-              <SegmentedChoice
-                text aria-label="Colour by" value={atts.length > 1 ? style.color : 'eff'}
-                options={[{ value: 'eff', label: 'Efficiency' }, { value: 'att', label: 'Att' }]}
-                onChange={(v) => setStyleOpt('color', v)}
-                disabled={atts.length < 2}
-              />
-            </SheetRow>
-          </SheetGroup>
-        </Popover>
-        <MiniAction
-          startIcon={copied === 'done' ? <CheckRoundedIcon /> : <ContentCopyIcon />}
-          onClick={() => void copyChart()}
-          disabled={points.length === 0}
-          color={copied === 'failed' ? 'error' : 'primary'}
-          sx={{ mr: 1, width: 112, justifyContent: 'flex-start' }}
-        >
-          {copied === 'done' ? 'Copied' : copied === 'failed' ? 'Copy failed' : 'Copy chart'}
-        </MiniAction>
-        <IconButton size="small" onClick={onClose} aria-label="Close">
-          <CloseIcon sx={{ fontSize: 18 }} />
-        </IconButton>
-      </DialogTitle>
+      <SmithTitle
+        nPoints={points.length} tauPs={tauPs} tab={tab} onTab={onTab}
+        style={style} onStyle={setStyle} attsCount={atts.length}
+        copied={copied} onCopy={onCopy} onClose={onClose}
+      />
 
       {/* View controls, on their own strip rather than crammed into the title.
           Captions sit beside each control instead of floating above it: a
           floating label notches the outline and makes the header taller than
           the two words it holds. */}
-      {(freqs.length > 1 || powers.length > 1 || atts.length > 1) && (
+      {(freqs.length > 1 || powers.length > 1 || atts.length > 1 || isArea) && (
         <Stack
           direction="row"
           spacing={2.5}
@@ -966,6 +1732,26 @@ export function SmithChartModal({
 
           <Box sx={{ flexGrow: 1 }} />
 
+          {/* How the area is drawn, at the far end: not a filter of what is
+              shown but a choice of what it is shown as. */}
+          {isArea && (
+            <Stack direction="row" spacing={2} alignItems="center">
+              <Stack direction="row" spacing={0.75} alignItems="center">
+                <Typography sx={{ ...TEXT.label, color: 'text.secondary', whiteSpace: 'nowrap' }}>Contours</Typography>
+                <SegmentedChoice
+                  text aria-label="Contours" value={areaView2.contours} options={QUANTITY_OPTIONS}
+                  onChange={(v) => { onActivity(); setAreaView((p) => ({ ...AREA_VIEW_DEFAULT, ...p, contours: v })) }}
+                />
+              </Stack>
+              <Stack direction="row" spacing={0.75} alignItems="center">
+                <Typography sx={{ ...TEXT.label, color: 'text.secondary', whiteSpace: 'nowrap' }}>Colour</Typography>
+                <SegmentedChoice
+                  text aria-label="Colour" value={areaView2.colour} options={QUANTITY_OPTIONS}
+                  onChange={(v) => { onActivity(); setAreaView((p) => ({ ...AREA_VIEW_DEFAULT, ...p, colour: v })) }}
+                />
+              </Stack>
+            </Stack>
+          )}
         </Stack>
       )}
 
@@ -996,7 +1782,8 @@ export function SmithChartModal({
                 // inside. Fixing the height instead left rows at the top of an
                 // otherwise empty panel.
                 maxHeight: '100%',
-                display: 'flex', flexDirection: 'column', minHeight: 0,
+                // Hidden, not unmounted, behind the working area.
+                display: isArea ? 'none' : 'flex', flexDirection: 'column', minHeight: 0,
                 borderRadius: 1.5, border: 1, borderColor: 'divider',
                 bgcolor: 'background.paper', overflow: 'hidden',
               }}>
@@ -1041,8 +1828,7 @@ export function SmithChartModal({
                       pt={pt}
                       color={colorOf(pt)}
                       hasAtt={hasAtt}
-                      on={pt.idx === hover}
-                      onHover={setHover}
+                      hovered={hoverStore}
                       onPick={onRemeasure}
                       rowRef={j === 0 ? listRowRef : undefined}
                     />
@@ -1052,8 +1838,22 @@ export function SmithChartModal({
               </Box>
             )}
 
+            {/* The working area is a figure of its own, the width the
+                point list leaves it; it scales to the height it is given. */}
+            {areaSeen && (
+              <Box sx={{ display: isArea ? 'block' : 'none', position: 'relative', flex: 1, minWidth: 0, alignSelf: 'stretch', minHeight: 0 }}>
+                <AreaFigure
+                  svgRef={areaSvgRef} view={areaView as AreaView | null} pending={areaBusy} freqColor={freqColor}
+                  slots={freqs.length} colour={areaView2.colour}
+                  grid={style.grid} gridN={AREA_GRID} onCursor={cursor.set}
+                />
+                <AreaBusy show={areaBusy} />
+              </Box>
+            )}
+
             {/* Chart + legend */}
-            <Box sx={{ flexShrink: 0 }}>
+            {(
+            <Box sx={{ flexShrink: 0, display: isArea ? 'none' : 'block' }}>
               <svg
                 ref={svgRef}
                 xmlns="http://www.w3.org/2000/svg"
@@ -1061,15 +1861,9 @@ export function SmithChartModal({
                 style={{ maxWidth: '100%' }}
                 onMouseLeave={() => setHover(null)}
               >
-                <defs>
-                  <clipPath id="smith-clip"><circle cx={cx} cy={cy} r={R} /></clipPath>
-                </defs>
-                <g clipPath="url(#smith-clip)" fill="none" strokeWidth={1}>
-                  {style.grid && rCircles.map((c, i) => <circle key={`r${i}`} cx={c.cx} cy={c.cy} r={c.rr} stroke={grid} />)}
-                  {style.grid && xArcs.map((c, i) => <circle key={`x${i}`} cx={c.cx} cy={c.cy} r={c.rr} stroke={grid} />)}
-                  <line x1={cx - R} y1={cy} x2={cx + R} y2={cy} stroke={axis} strokeWidth={1.25} />
-                </g>
-                <circle cx={cx} cy={cy} r={R} fill="none" stroke={axis} strokeWidth={1.75} />
+                {/* The working area's grid, labels and all: memoised, so a
+                    run adding points never draws it again. */}
+                <SmithGrid cx={cx} cy={cy} R={R} grid={style.grid} />
 
                 {/* Trajectory — one line per attenuator setting.
                     Each setting is its own trombone cycle, so a single polyline
@@ -1080,29 +1874,24 @@ export function SmithChartModal({
                     key={trace.key}
                     points={trace.pts.map((p) => `${p.x},${p.y}`).join(' ')}
                     fill="none" stroke={byAtt ? attColor(trace.pts[0].row.att_db) : pathC}
-                    strokeWidth={1.25} strokeOpacity={0.6}
+                    strokeWidth={0.8} strokeOpacity={0.55}
                   />
                 ))}
 
                 {/* points colored by efficiency */}
-                {points.map((p) => {
-                  const isHover = p.idx === hover
-                  return (
-                    <Dot
-                      key={p.idx}
-                      x={p.x} y={p.y} idx={p.idx} r={DOT_R[style.dot]}
-                      fill={colorOf(p)}
-                      // On white the paper-coloured edge vanished and the pale
-                      // yellow end of the ramp went with it; a faint ink edge
-                      // keeps every dot findable whatever its colour.
-                      stroke={isHover ? pal.sidebar.text : dotStroke}
-                      hover={isHover}
-                      onHover={setHover}
-                      onPick={onRemeasure}
-                    />
-                  )
-                })}
-                <circle cx={cx} cy={cy} r={2} fill={axis} />
+                {points.map((p) => (
+                  <Dot
+                    key={p.idx}
+                    x={p.x} y={p.y} idx={p.idx} r={DOT_R[style.dot]}
+                    fill={colorOf(p)}
+                    // On white the paper-coloured edge vanished and the pale
+                    // yellow end of the ramp went with it; a faint ink edge
+                    // keeps every dot findable whatever its colour.
+                    stroke={dotStroke} hoverStroke={pal.sidebar.text}
+                    hovered={hoverStore}
+                    onPick={onRemeasure}
+                  />
+                ))}
               </svg>
 
               {/* Efficiency legend.
@@ -1142,8 +1931,8 @@ export function SmithChartModal({
                       {(effDomain.min * 100).toFixed(1)}%
                     </Typography>
                     <Box sx={{
-                      flexGrow: 1, height: 10, borderRadius: 5,
-                      background: `linear-gradient(to right, ${RAMP.join(', ')})`,
+                      flexGrow: 1, height: 9, borderRadius: '2px', background: BANDED_GRADIENT,
+                      boxShadow: `inset 0 0 0 0.5px ${alpha(pal.sidebar.text, 0.25)}`,
                     }} />
                     <Typography sx={{ fontSize: 12, fontFamily: MONO, color: 'text.secondary' }}>
                       {(effDomain.max * 100).toFixed(1)}%
@@ -1153,6 +1942,7 @@ export function SmithChartModal({
               </Stack>
 
             </Box>
+            )}
 
             {/* Detail column: the hovered point in full, then every plotted
                 point in brief. The list is the reason this dialog is wide —
@@ -1161,129 +1951,29 @@ export function SmithChartModal({
             {/* Wider than the list opposite: it carries the Statistics card
                 too, whose bars want room to read as ranges. */}
             <Box sx={{ width: DETAIL_W, flexShrink: 0 }}>
-              {/* Both layouts are always laid out in one cell, the idle one
-                  hidden, so the card is the measurement's height from the
-                  start and does not grow and shrink as the cursor crosses
-                  points. */}
-              <Box sx={{
-                p: 1.75, borderRadius: 1.5, border: 1, borderColor: 'divider', bgcolor: 'background.paper',
-                display: 'grid',
-              }}>
-                {/* Compact on purpose: it was nine stacked label/value rows,
-                    a third of the column's height for one point. Now a
-                    header, the two figures read first (efficiency in its
-                    ramp colour, Pout with its watts), and the rest as a
-                    captioned two-by-two grid. */}
-                <Box sx={{ gridArea: '1 / 1', visibility: hp ? 'visible' : 'hidden' }} aria-hidden={!hp}>
-                  <Stack direction="row" alignItems="baseline" spacing={1}>
-                    <Typography sx={{ fontSize: 14, fontWeight: 700, letterSpacing: '-0.01em', flexGrow: 1 }}>
-                      {hp ? `Step ${hp.idx + 1}` : DASH_TXT}
-                    </Typography>
-                    {/* Reserved for the whole run once any row has one, so
-                        moving between cycles does not add and drop it. */}
-                    {hasAtt && (
-                      <Typography sx={{ ...TEXT.micro, color: 'text.secondary', fontFamily: MONO }}>
-                        att {hp?.row.att_db == null ? DASH_TXT : `${hp.row.att_db} dB`}
-                      </Typography>
-                    )}
-                  </Stack>
-                  <Typography sx={{ ...TEXT.micro, color: 'text.secondary', fontFamily: MONO, mb: 1.25 }}>
-                    {hp ? `${hp.row.pos_mm.toFixed(2)} mm · ${hp.row.pos_pulses.toLocaleString()} pulses` : DASH_TXT}
-                  </Typography>
-
-                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 1.5, mb: 1.25 }}>
-                    <Box>
-                      <Typography
-                        sx={{
-                          fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em',
-                          color: hp ? effColor(hp.eff) : 'text.disabled',
-                        }}
-                      >
-                        {hp?.eff == null ? DASH_TXT : `${(hp.eff * 100).toFixed(1)}%`}
-                      </Typography>
-                      <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>efficiency</Typography>
-                    </Box>
-                    <Box>
-                      <Typography sx={{ fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
-                        {hp?.row.power_dbm == null ? DASH_TXT : hp.row.power_dbm.toFixed(2)}
-                        <Box component="span" sx={{ fontSize: 12, fontWeight: 500, color: 'text.secondary', ml: 0.5 }}>dBm</Box>
-                      </Typography>
-                      <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>
-                        Pout{hp?.row.power_dbm == null ? '' : ` · ${dbmToW(hp.row.power_dbm).toFixed(3)} W`}
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  <Box
-                    sx={{
-                      display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 1.5, rowGap: 0.75,
-                      pt: 1, borderTop: 1, borderColor: 'divider',
-                    }}
-                  >
-                    {([
-                      ['Icc', hp?.row.current_a == null ? DASH_TXT : `${(hp.row.current_a * 1000).toFixed(1)} mA`],
-                      ['|S11|', hp?.row.s11_db == null ? DASH_TXT : `${hp.row.s11_db.toFixed(2)} dB`],
-                      ['Z', hp?.row.r_ohm == null || hp.row.x_ohm == null ? DASH_TXT
-                        : `${hp.row.r_ohm.toFixed(1)} ${hp.row.x_ohm >= 0 ? '+' : '−'} j${Math.abs(hp.row.x_ohm).toFixed(1)} Ω`],
-                      ['Γ', hp ? `${hp.gr.toFixed(3)} ${hp.gi >= 0 ? '+' : '−'} j${Math.abs(hp.gi).toFixed(3)}` : DASH_TXT],
-                    ] as const).map(([k, v]) => (
-                      <Box key={k} sx={{ minWidth: 0 }}>
-                        <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>{k}</Typography>
-                        <Typography sx={{ fontFamily: MONO, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {v}
-                        </Typography>
-                      </Box>
-                    ))}
-                  </Box>
-                  {hp?.row.error && (
-                    <Typography sx={{ ...TEXT.micro, color: 'error.main', mt: 1 }}>{hp.row.error}</Typography>
-                  )}
+              {areaSeen && (
+                <Box sx={{ display: isArea ? 'block' : 'none' }}>
+                  <AreaPanel
+                    settings={areaSettings} onChange={setAreaSettings} area={area} cursor={cursor}
+                    pending={areaPending} busy={areaBusy}
+                    delay={delayText} onDelay={setDelayText} onActivity={onActivity}
+                    nFields={areaView?.pts.length ?? fieldFreqs.length} nFreqs={freqs.length} effColor={areaEffColor}
+                  />
                 </Box>
-                {/* The idle state shares the measurement's cell, so it has
-                    that height to fill: what to do, centred, then the colour
-                    key as a quiet inset at the foot -- rather than a sentence
-                    at the top, the formula as the largest thing in the card,
-                    and empty space under both. */}
-                <Box
-                  sx={{
-                    gridArea: '1 / 1', visibility: hp ? 'hidden' : 'visible',
-                    display: 'flex', flexDirection: 'column', gap: 1.5,
-                  }}
-                  aria-hidden={!!hp}
-                >
-                  <Stack alignItems="center" justifyContent="center" spacing={0.5} sx={{ flexGrow: 1, textAlign: 'center' }}>
-                    <Box
-                      sx={{
-                        width: 32, height: 32, borderRadius: '50%', display: 'grid', placeItems: 'center',
-                        bgcolor: alpha(pal.sidebar.text, 0.06), color: 'text.secondary', mb: 0.5,
-                      }}
-                    >
-                      <AdsClickIcon sx={{ fontSize: 18 }} />
-                    </Box>
-                    <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Hover a point</Typography>
-                    <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
-                      to see its measurement. Double-click to remeasure.
-                    </Typography>
-                  </Stack>
-                  <Box sx={{ borderRadius: '10px', bgcolor: alpha(pal.sidebar.text, 0.04), px: 1.25, py: 1 }}>
-                    <Typography sx={{ ...TEXT.micro, color: 'text.disabled', mb: 0.25 }}>Colour = efficiency</Typography>
-                    <EfficiencyFormula vcc={VCC} />
-                  </Box>
-                </Box>
-              </Box>
+              )}
+              <Box sx={{ display: isArea ? 'none' : 'block' }}>
+              <PointCard hovered={hoverStore} points={points} hasAtt={hasAtt} effColor={effColor} />
 
               {/* Under the point card: the figures for the whole slice beside
                   the one for the point under the cursor, the two read
                   together. Bars in each setting's own colour when the chart
                   is coloured by it, so a row and its dots are matched by eye. */}
               <StatsCard
-                groups={statSlices.map((g) => ({
-                  ...g, color: byAtt && g.att != null ? attColor(g.att) : pal.actions.primary.bg,
-                }))}
+                groups={statGroups}
                 results={results}
                 onHover={setHover}
               />
-
+              </Box>
             </Box>
           </Stack>
         )}

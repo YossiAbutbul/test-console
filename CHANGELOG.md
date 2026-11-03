@@ -10,6 +10,71 @@ turns that heading into the version and date.
 
 ## [Unreleased]
 
+### Added
+- The sidebar shows the app's version (v1.1.0) at the end of the credit
+  line, read from package.json, so it follows each release. It links to that
+  version's release notes on GitHub.
+- Load Pull Smith chart: a Working area tab. Set min/max limits on Pout,
+  Icc and efficiency, and the chart fills the loads that meet all of them,
+  interpolated linearly between the measured points and coloured by
+  efficiency. With all frequencies selected, a load counts only where it
+  passes at every one, and its readings are the worst of them. It stars the
+  best-efficiency load in the area and reads the interpolated values under
+  the cursor.
+- Load Pull Smith chart: an Electrical delay field (ps), in the working
+  area's settings, moves the VNA's reading to the PA, Z_PA = 50·(Z_VNA + j50·tan θ)/(50 + j·Z_VNA·tan θ) with
+  θ = 2π·f·τ, each point at its own frequency. Points, list, statistics
+  and working area all follow it; the results table keeps the measured
+  values.
+- The working area is drawn as a report figure: title, labelled Smith grid,
+  efficiency in bands with a colour bar, Pout contours per frequency at the
+  Pout limits (dotted min, dashed middle, solid max), the measured boundary,
+  the starred optimum and legends. Copy chart copies the whole figure.
+  Limits, frequencies and delay apply with an Apply key that shows a
+  spinner while the area is worked out in a background worker; both tabs
+  stay mounted, and returning to the area with nothing changed does not
+  work it out again. While it works -- on Apply and on first load -- a
+  frosted "Working out the area…" capsule takes the figure's title, which
+  steps aside, while the figure softens behind it, and Apply carries a new activity indicator (in the UI kit);
+  both show at once and stay at least 450 ms, so a quick result is still
+  seen to have happened -- for every change the operator makes (Apply,
+  Frequencies, Contours, Colour), cached answers included. The Frequencies
+  switch applies at once; the limits and the delay wait for Apply.
+- Working area: Contours and Colour choices (Pout, Icc or Efficiency) in
+  the dialog's strip. The contours trace the chosen quantity at its limits,
+  the region is coloured by the chosen one (worst case across frequencies),
+  and the colour bar, legends and title follow.
+- The Smith chart's Points tab is drawn like the working area: the labelled
+  grid (shared by both), hairline paths, and efficiency in the same bands,
+  with a banded scale under the chart.
+
+### Changed
+- Faster UI. On the Smith chart, hovering a point redraws only that dot, its
+  row and the point card (it redrew the whole dialog), and the title bar,
+  point card and pickers no longer redraw for changes that are not theirs.
+  Working-area results are cached by content, so reopening the dialog or
+  going back to recent inputs shows them at once; the worker keeps its last
+  two grid sets. App-wide, the log is split so a log line re-renders only
+  the log panel rather than every page, and saves itself once lines pause;
+  and at start-up the page on screen mounts first, the rest one at a time
+  when the browser is idle.
+- Pages publish to the assistant through a registration-only context, and a
+  chat status poll that finds nothing new changes nothing: each poll (every
+  20 s, 2 s while cooling) and each page mounting used to re-render every
+  page. Trombone, switch and VNA status is polled only while a page that
+  shows it is on screen (the Load Pull pages also mid-run), not twice a
+  second from hidden pages.
+- The assistant is switched off until it is built out (one flag in
+  ChatContext): no /chat/status polling and no page data gathered for it.
+- The trombone's identity in the Instruments dialog no longer carries its
+  position: it changed every refresh while the trombone moved, re-rendering
+  every page every 5 s through a run.
+- LTE channel fields (LTE CW and LTE Modulated, single channel and sweep rows)
+  name the value that does not resolve and its bands instead of a bare "In
+  more than one selected band": "707.5: in bands 12, 17, 28 +2 more", or
+  "1880: band 2 or 25, not selected". Load Pull's channel line uses the same
+  wording, now shared (`channelIssues` in lib/earfcn).
+
 ## [1.1.0] - 2026-11-03
 
 ### Added

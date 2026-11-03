@@ -20,6 +20,8 @@ export {
   FrameDump, LastFrameSection, MiniAction, DenseTabs, KeySpinner,
 } from './controls'
 export { actionSx } from './actionSx'
+export { ActivityIndicator } from './ActivityIndicator'
+export { useHeldFlag } from './useHeldFlag'
 export { REDUCED_MOTION, PRESS_SX, focusRing, focusRingOf, scrollBehavior } from './feel'
 export { useFollowBottom, type FollowBottom } from './followBottom'
 export { FollowLatest } from './FollowLatest'
