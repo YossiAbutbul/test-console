@@ -1,3 +1,7 @@
+import { PowerSourceFields } from '../../components/PowerSourceFields'
+import {
+  powerInstrument, powerSourceOf, powerSourceValid, type PowerSourceState,
+} from '../../lib/powerSource'
 import { useEffect, useState } from 'react'
 import { Box, MenuItem, Stack, Tab } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
@@ -57,7 +61,8 @@ import {
  */
 
 /** Both tabs measure what they transmit, so both need these up. */
-const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
+/** Beside the one that reads power, which the page's power source names. */
+const REQUIRED_INSTRUMENTS: InstrumentId[] = ['dc-analyzer']
 
 /** The modem's ceiling; mirrors MAX_TX_POWER_DBM on the backend. */
 const MAX_POWER_DBM = 23
@@ -126,7 +131,14 @@ export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
   const [focusKey, setFocusKey] = useState<string | null>(null)
-  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
+  const [powerSrc, setPowerSrc] = useState<PowerSourceState>(
+    () => powerSourceOf(lteModulatedPageSnapshot.manualPowerSource),
+  )
+  useEffect(() => { lteModulatedPageSnapshot.manualPowerSource = powerSrc; persistLteModulatedPage() }, [powerSrc])
+  const sourceOk = powerSourceValid(powerSrc)
+  const preflight = useInstrumentPreflight(
+    [powerInstrument(powerSrc), ...REQUIRED_INSTRUMENTS], { verb: 'send' },
+  )
 
   const [tab, setTab] = useState<LteModulatedPageTab>(
     () => lteModulatedPageSnapshot.tab ?? 'manual',
@@ -198,7 +210,7 @@ export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
   const resolved = resolveChannel(earfcn)
   const channel = resolved && resolved !== 'ambiguous' ? resolved : null
   const channelValid = channel != null
-  const canSend = channelValid && secondsValid && powerValid
+  const canSend = channelValid && secondsValid && powerValid && sourceOk
     && mcsValid && rbValid && rbStartValid
 
   /** Shows the *other* unit, so the field always states what it resolved to. */
@@ -471,10 +483,16 @@ export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
             </Stack>
           </Section>
 
+          {/* What reads TX power for the strip below, as on the CW pages. */}
+          <Section title="Measure" panel>
+            <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={busy} />
+          </Section>
+
           <MeasurementCard
             freqHz={channel?.freqHz}
             triggerId={measureTrigger}
             targetDbm={powerValid ? asNum(power) : null}
+            powerSource={powerSrc}
           />
 
           <LastFrameSection result={last} />

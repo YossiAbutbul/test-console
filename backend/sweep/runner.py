@@ -166,7 +166,7 @@ class TestRunner:
         self._ctx = None
         return self.status()
 
-    async def _send_cw(self, ctx: _RunCtx, hp: int, duty: int, power: int):
+    async def _send_cw(self, ctx: _RunCtx, hp: int, duty: int, power: int, pa_mode: int):
         """The step's CW command, retried once on a link that came back.
 
         A BLE drop mid-sweep used to fail every remaining point with "Not
@@ -180,7 +180,7 @@ class TestRunner:
                 power_dbm=power,
                 pa_duty_cycle=duty,
                 hp_max=hp,
-                pa_mode=PaMode(ctx.config.pa_mode),
+                pa_mode=PaMode(pa_mode),
                 timeout=ctx.config.cmd_timeout_s,
             )
 
@@ -217,6 +217,7 @@ class TestRunner:
         duty: int,
         power: int,
         t0: float,
+        pa_mode: int,
     ) -> ResultRow:
         """Run one sweep point. Never raises — failures land in `row.error`."""
         row = ResultRow(
@@ -225,6 +226,7 @@ class TestRunner:
             power_dbm_setting=power,
             pa_duty_cycle=duty,
             hp_max=hp,
+            pa_mode=pa_mode,
             tx_hex="",
             rx_hex="",
             ok=False,
@@ -240,7 +242,7 @@ class TestRunner:
             # POST_STOP_RECOVERY_S (1.5s) per point — ~16 min over a 616-point
             # sweep — for nothing.
             try:
-                result = await self._send_cw(ctx, hp, duty, power)
+                result = await self._send_cw(ctx, hp, duty, power, pa_mode)
             except Exception:
                 ctx.cmd_failures += 1
                 raise
@@ -260,6 +262,10 @@ class TestRunner:
             t_settle = time.perf_counter()
 
             if pm is not None:
+                # What this step should read at the meter: the power asked of
+                # the DUT, less the cable. The analyzer ranges to it; the
+                # sensor ignores it.
+                await asyncio.to_thread(pm.expect_dbm, power - ctx.config.path_loss_db)
                 raw_dbm = await asyncio.to_thread(pm.read_dbm)
                 row.tx_power_dbm_raw = raw_dbm
                 row.tx_power_dbm = raw_dbm + ctx.config.path_loss_db
@@ -321,6 +327,9 @@ class TestRunner:
             # none were, which is the legacy cross-product. See
             # `SweepConfig.effective_blocks`.
             for block in ctx.config.effective_blocks:
+                # A range with its own PA mode (a pasted configuration table)
+                # overrides the run's.
+                pa_mode = ctx.config.pa_mode if block.pa_mode is None else block.pa_mode
                 for hp in block.hp_values:
                     for duty in block.duty_values:
                         for power in block.power_values:
@@ -329,7 +338,7 @@ class TestRunner:
                                 ctx.error = ctx.cancel_reason
                                 return
                             row = await self._measure_step(
-                                ctx, pm, cm, idx, hp, duty, power, t0,
+                                ctx, pm, cm, idx, hp, duty, power, t0, pa_mode,
                             )
                             ctx.results.append(row)
                             idx += 1

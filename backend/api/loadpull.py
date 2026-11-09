@@ -70,6 +70,9 @@ def _with_rig(meta: LoadPullMeta | None) -> LoadPullMeta:
         "dut_mac": ble.address,
         "dut_name": ble.name if same_dut else None,
         "power_sensor_idn": state.power_sensor_idn if state.power_sensor is not None else None,
+        "spectrum_idn": (
+            state.spectrum_idn if meta.power_source == "spectrum" and state.spectrum is not None else None
+        ),
         "dc_analyzer_idn": state.dc_analyzer_idn if state.dc_analyzer is not None else None,
         "dc_analyzer_address": state.dc_analyzer_resource if state.dc_analyzer is not None else None,
         "dc_channel": state.dc_analyzer_channel if state.dc_analyzer is not None else None,
@@ -231,8 +234,13 @@ class LiveRig:
         )
         self._live = None
 
-    async def measure(self, hz: int):
-        m = await instruments_measure(freq_hz=hz)
+    async def measure(self, hz: int, config: LoadPullRunConfig, expected_dbm: Optional[float] = None):
+        s = config.spectrum
+        m = await instruments_measure(
+            freq_hz=hz, source=config.power_source,
+            span_hz=s.span_hz, rbw_hz=s.rbw_hz, vbw_hz=s.vbw_hz, detector=s.detector,
+            expected_dbm=expected_dbm,
+        )
         return m.power_dbm, m.current_a, m.error
 
     async def modem_cycle(self) -> None:

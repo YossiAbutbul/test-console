@@ -1,3 +1,7 @@
+import { PowerSourceFields } from '../../components/PowerSourceFields'
+import {
+  powerInstrument, powerSourceOf, powerSourceValid, spectrumSettingsOf, type PowerSourceState,
+} from '../../lib/powerSource'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Autocomplete, Box, Button, Divider, IconButton, MenuItem, Stack, TextField,
@@ -73,8 +77,9 @@ import { JOG_SPEEDS, PULSES_PER_MM } from '../../lib/trombone'
 import { selectOnFocus } from '../../lib/selectOnFocus'
 
 /** Every stage of a point touches one of these. */
+/** Beside the one that reads power, which the page's power source names. */
 const REQUIRED_INSTRUMENTS: InstrumentId[] = [
-  'power-sensor', 'dc-analyzer', 'network-analyzer', 'rf-switch', 'rf-trombone',
+  'dc-analyzer', 'network-analyzer', 'rf-switch', 'rf-trombone',
 ]
 
 /**
@@ -419,7 +424,14 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const { log } = useLog()
   const notify = useNotify()
   const reporter = useRunReporter(title, 'LoadPull')
-  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
+  // What reads power: the sensor, or the spectrum analyzer at this page's
+  // own settings (lib/powerSource.ts). The backend runner reads it.
+  const [powerSrc, setPowerSrc] = useState<PowerSourceState>(() => powerSourceOf(snap.powerSource))
+  useEffect(() => { saveSnapshot(isLte, { powerSource: powerSrc }) }, [powerSrc, isLte])
+  const powerFields = powerSrc.source === 'spectrum'
+    ? { power_source: 'spectrum' as const, spectrum: spectrumSettingsOf(powerSrc) ?? undefined }
+    : {}
+  const preflight = useInstrumentPreflight([powerInstrument(powerSrc), ...REQUIRED_INSTRUMENTS])
   const { lossAt, defaultDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
   const hasBackend = protocol === 'LoRa' || isLte
@@ -427,7 +439,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const [lteBands, setLteBands] = useLteBands()
   const [bandsOpen, setBandsOpen] = useState(false)
 
-  const ps = useInstrumentValue('power-sensor')
+  const ps = useInstrumentValue(powerInstrument(powerSrc))
   const dc = useInstrumentValue('dc-analyzer')
   const na = useInstrumentValue('network-analyzer')
   const sw = useInstrumentValue('rf-switch')
@@ -438,7 +450,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // know which. Every stage of a point drives one of these, so "run anyway"
   // would only produce a table of blanks.
   const rig = [
-    { name: 'power sensor', up: ps.status === 'connected' },
+    { name: powerSrc.source === 'spectrum' ? 'spectrum analyzer' : 'power sensor', up: ps.status === 'connected' },
     { name: 'DC analyzer', up: dc.status === 'connected' },
     { name: 'VNA', up: na.status === 'connected' },
     { name: 'RF switch', up: sw.status === 'connected' },
@@ -804,6 +816,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     blockers.push(`cut the plan to ${maxPoints.toLocaleString()} points or fewer (it is ${totalPoints.toLocaleString()}), so its rows fit in browser storage`)
   }
   if (settleMs == null) blockers.push(`set a settle of at least ${MIN_SETTLE_MS} ms`)
+  if (!powerSourceValid(powerSrc)) blockers.push('set the spectrum analyzer settings to positive numbers')
   if (attEnabled && !attRangeOk) {
     blockers.push(`set the attenuator values (whole dB, 0–${ATT_MAX_LIMIT_DB})`)
   }
@@ -1000,6 +1013,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         settle_ms: settleEffectiveMs,
         ...(isLte ? {} : { pa_mode: paMode }),
         path_loss: [{ freq_mhz: r.freq_mhz, db: l.db, calibrated: l.calibrated }],
+        ...powerFields,
         vna_half_span_frac: VNA_HALF_SPAN_FRAC,
         plan_key: key,
       })
@@ -1078,6 +1092,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           const l = lossAt(f)
           return { freq_mhz: f, db: l.db, calibrated: l.calibrated }
         }),
+        ...powerFields,
         vna_half_span_frac: VNA_HALF_SPAN_FRAC,
         plan_key: planKey,
       })
@@ -1119,6 +1134,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const exportXlsx = useMutation({
     mutationFn: () => loadPullApi.exportXlsx(results, {
       radio: protocol,
+      power_source: powerSrc.source,
       // An LTE spec is channels, so the unit goes with it; the per-frequency
       // sheets and path loss below are by uplink MHz either way.
       freq_spec: isLte ? `${freqSpec} (${freqUnit})` : freqSpec,
@@ -1410,6 +1426,11 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
             </MiniAction>
           )}
           </Stack>
+        </Section>
+
+        {/* What reads power at each point, beside the plan it measures. */}
+        <Section title="Measure" anchorId={anchor('measure')} panel>
+          <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={running} />
         </Section>
 
         {/* The trombone step as three short cards in a row: moving the
@@ -1732,7 +1753,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
             }}
           />
 
-          <LoadPullResultsTable results={results} lossAt={lossAt} />
+          <LoadPullResultsTable results={results} lossAt={lossAt} judgeSensorRange={powerSrc.source === 'sensor'} />
         </Section>
       </PageBody>
 

@@ -1,3 +1,7 @@
+import { PowerSourceFields } from '../../components/PowerSourceFields'
+import {
+  measureSpectrumOf, powerInstrument, powerSourceOf, powerSourceValid, type PowerSourceState,
+} from '../../lib/powerSource'
 import { memo, useCallback, useEffect, useRef, useMemo, useState } from 'react'
 import {
   Box, Divider, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
@@ -60,7 +64,8 @@ type ResultRow = LteModulatedResultRow
 type SweepRow = LteModulatedRow
 
 /** Instruments every measured point depends on. */
-const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
+/** Beside the one that reads power, which the panel's power source names. */
+const REQUIRED_INSTRUMENTS: InstrumentId[] = ['dc-analyzer']
 
 /** Budget for the commands + measurement either side of the settle delay. A
  *  point sends two frames rather than one, so this sits above the LoRa figure. */
@@ -332,7 +337,11 @@ export function AutomationPanel({
   const reporter = useRunReporter('LTE Modulated automation', 'Automation')
   // Every point reads power and current; without these the run completes with
   // a table of blanks.
-  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS)
+  // What reads power for the sweep: the sensor, or the spectrum analyzer at
+  // this panel's own settings (lib/powerSource.ts).
+  const [powerSrc, setPowerSrc] = useState<PowerSourceState>(() => powerSourceOf(snap().powerSource))
+  const sourceOk = powerSourceValid(powerSrc)
+  const preflight = useInstrumentPreflight([powerInstrument(powerSrc), ...REQUIRED_INSTRUMENTS])
   const notify = useNotify()
 
   const [rows, setRows] = useState<SweepRow[]>(() => {
@@ -355,6 +364,7 @@ export function AutomationPanel({
 
   useEffect(() => { snap().rows = rows; persistLteModulatedPage() }, [rows])
   useEffect(() => { snap().settleMs = settleMs; persistLteModulatedPage() }, [settleMs])
+  useEffect(() => { snap().powerSource = powerSrc; persistLteModulatedPage() }, [powerSrc])
   useEffect(() => { snap().results = results; persistLteModulatedPage() }, [results])
 
   const [running, setRunning] = useState(false)
@@ -603,7 +613,11 @@ export function AutomationPanel({
         })
         await sleep(settleMs, signal)
         if (signal.aborted) return row
-        const m = await instrumentsApi.measure(fHz, { signal })
+        // The analyzer is ranged to this point's power as it arrives after
+        // the cable; the sensor ignores it.
+        const m = await instrumentsApi.measure(fHz, {
+          signal, spectrum: measureSpectrumOf(powerSrc), expectedDbm: item.pow - lossAt(item.freqMhz).db,
+        })
         row.measured_dbm_raw = m.power_dbm
         // Looked up per point: a run sweeps channels, so a single figure would
         // be right for at most one of them.
@@ -725,7 +739,7 @@ export function AutomationPanel({
   useEffect(() => {
     onControlsChange?.({
       running,
-      canRun: totalPoints > 0 && !anyInvalid,
+      canRun: totalPoints > 0 && !anyInvalid && sourceOk,
       progress: `${progressIdx}/${totalPoints}`,
       onRun,
       onStop,
@@ -734,7 +748,7 @@ export function AutomationPanel({
       freqsMhz: planFreqs,
     })
   }, [
-    running, totalPoints, anyInvalid, progressIdx, onRun, onStop, onControlsChange,
+    running, totalPoints, anyInvalid, sourceOk, progressIdx, onRun, onStop, onControlsChange,
     plannedRunMs, planFreqs,
   ])
 
@@ -1124,6 +1138,13 @@ export function AutomationPanel({
           </Stack>
         </Section>
       </Box>
+
+      {/* What reads power for the sweep, as the manual tab's Measure
+          section has it. Between the plan and its results: it decides
+          what every row's power came from. */}
+      <Section title="Measure" panel>
+        <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={running} />
+      </Section>
 
       <Section
         title="Results"

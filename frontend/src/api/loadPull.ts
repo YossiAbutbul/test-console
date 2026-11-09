@@ -1,3 +1,4 @@
+import type { PowerSource, SpectrumSweepSettings } from '../types/models'
 import { http, httpBlob } from './client'
 import type { LoadPullResultRow } from '../store/loadPullPageStore'
 
@@ -20,6 +21,10 @@ export interface LoadPullRunConfig {
   pa_mode?: number
   /** Path loss for every frequency in the plan, resolved here. */
   path_loss: Array<{ freq_mhz: number; db: number; calibrated: boolean }>
+  /** What reads TX power: the sensor (default) or the spectrum analyzer at
+   *  `spectrum`, centred on each point's frequency. */
+  power_source?: PowerSource
+  spectrum?: SpectrumSweepSettings
   vna_half_span_frac: number
   plan_key: string
 }
@@ -57,6 +62,8 @@ export interface LoadPullRunStatus {
 export interface LoadPullExportMeta {
   /** Which radio keyed the DUT: 'LoRa' or 'LTE'. Absent from older clients. */
   radio?: string
+  /** What read power: 'sensor' or 'spectrum'. */
+  power_source?: PowerSource
   freq_spec?: string
   power_spec?: string
   settle_ms?: number

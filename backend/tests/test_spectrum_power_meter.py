@@ -24,6 +24,8 @@ class FakeAnalyzer:
         return [f"{name} -> -222"] if name == self.refuse else []
 
     def set_ref_offset(self, db): return self._ok("offset", db)
+    def set_ref_level(self, dbm): return self._ok("ref", dbm)
+    def set_attenuation(self, db=None, auto=False): return self._ok("att", "auto" if auto else db)
     def set_frequency(self, center_hz=None, span_hz=None): return self._ok("freq", center_hz, span_hz)
     def set_rbw(self, hz): return self._ok("rbw", hz)
     def set_vbw(self, hz): return self._ok("vbw", hz)
@@ -94,3 +96,30 @@ def test_every_call_goes_through_the_given_runner():
     pm.set_frequency_hz(1)
     pm.read_dbm()
     assert len(seen) == 2
+
+
+def test_the_reference_level_sits_just_above_the_expected_power():
+    assert SpectrumPowerMeter.ref_level_for(14.0) == 19.0
+    assert SpectrumPowerMeter.ref_level_for(-7.3) == -2.0      # rounded up, never into the signal
+    assert SpectrumPowerMeter.ref_level_for(40.0) == 30.0      # clamped to the analyzer
+    assert SpectrumPowerMeter.ref_level_for(-120.0) == -80.0
+
+
+def test_expect_sets_the_reference_level():
+    an = FakeAnalyzer()
+    pm = SpectrumPowerMeter(SETTINGS, analyzer=an)
+    pm.expect_dbm(9.2)
+    assert ("ref", 15.0) in an.calls
+
+
+def test_a_refused_reference_level_is_an_error():
+    an = FakeAnalyzer(refuse="ref")
+    pm = SpectrumPowerMeter(SETTINGS, analyzer=an)
+    with pytest.raises(MeasurementError, match="reference level"):
+        pm.expect_dbm(9.2)
+
+
+def test_attenuation_follows_the_reference_level():
+    an = FakeAnalyzer()
+    SpectrumPowerMeter(SETTINGS, analyzer=an).set_frequency_hz(915_000_000)
+    assert ("att", "auto") in an.calls

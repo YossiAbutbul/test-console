@@ -1,3 +1,4 @@
+import { measureSpectrumOf, powerInstrument, type PowerSourceState } from '../lib/powerSource'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Box, Button, Stack, Tooltip, Typography } from '@mui/material'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
@@ -42,6 +43,10 @@ interface Props {
    * happened — what this card is permitted to do now says nothing about it.
    */
   wants?: MeasureSelection
+  /** What reads power: the sensor by default, or the spectrum analyzer at
+   *  the page's own settings. Decides which instrument is connected, read
+   *  and shown as "off". */
+  powerSource?: PowerSourceState
   /** When set, render these values instead of fetching. Hides controls. */
   staticData?: {
     power_dbm?: number | null
@@ -63,8 +68,11 @@ function num(v: number | null | undefined, digits: number): string {
 
 export function MeasurementCard({
   freqHz, triggerId, settleMs = DEFAULT_SETTLE_MS, onResult, staticData,
-  targetDbm, toleranceDb = 1, wants = MEASURE_ALL, action,
+  targetDbm, toleranceDb = 1, wants = MEASURE_ALL, action, powerSource,
 }: Props) {
+  const powerId = powerInstrument(powerSource?.source ?? 'sensor')
+  // Stable across renders while the settings are, for the callbacks below.
+  const spectrumKey = JSON.stringify(measureSpectrumOf(powerSource) ?? null)
   const { instruments, connect } = useInstruments()
   const { lossAt } = usePathLoss()
   // Per-frequency: the loss of the cable run is not flat across a band, so
@@ -82,7 +90,7 @@ export function MeasurementCard({
   // belongs to this send when nothing was read for it.
   const ps = isStatic
     ? staticData?.power_dbm != null
-    : wantPower && instruments['power-sensor'].status === 'connected'
+    : wantPower && instruments[powerId].status === 'connected'
   const dc = isStatic
     ? (staticData?.current_a != null || staticData?.voltage_v != null)
     : wantCurrent && instruments['dc-analyzer'].status === 'connected'
@@ -102,6 +110,10 @@ export function MeasurementCard({
     // and its failure shown under a send that never asked for it.
     mutationFn: () => instrumentsApi.measure(freqHz, {
       only: { power: wantPower, current: wantCurrent },
+      spectrum: JSON.parse(spectrumKey) ?? undefined,
+      // The analyzer is ranged to the power asked for, as it arrives after
+      // the cable; the sensor ignores it.
+      expectedDbm: targetDbm != null && Number.isFinite(targetDbm) ? targetDbm - pathLossDb : null,
     }),
     onMutate: () => {
       setReadTargetDbm(targetDbm != null && Number.isFinite(targetDbm) ? targetDbm : null)
@@ -127,14 +139,14 @@ export function MeasurementCard({
         // not reliably tolerate concurrent opens. Only what was asked for --
         // opening a session for an instrument the operator switched off is
         // the cost they switched it off to avoid.
-        if (wantPower) await connect('power-sensor')
+        if (wantPower) await connect(powerId)
         if (wantCurrent) await connect('dc-analyzer')
       } finally {
         setConnecting(false)
       }
     }
     measure.mutate()
-  }, [anyConnected, connect, measure, wantPower, wantCurrent])
+  }, [anyConnected, connect, measure, wantPower, wantCurrent, powerId])
 
   useEffect(() => {
     if (isStatic) return
@@ -293,7 +305,7 @@ export function MeasurementCard({
             isStatic
               ? (power_mW != null ? `${power_mW.toFixed(2)} mW` : undefined)
               : !ps
-                ? 'sensor off'
+                ? (powerId === 'spectrum' ? 'analyzer off' : 'sensor off')
                 : power_mW != null
                   ? `${power_mW.toFixed(2)} mW`
                   // "not read yet" after a failed read is a lie — the read

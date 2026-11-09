@@ -39,6 +39,7 @@ class Tx:
 @dataclass
 class FakeRig:
     calls: list[tuple] = field(default_factory=list)
+    expected: list = field(default_factory=list)
     tx_ok: bool = True
     tx_raises: bool = False
     power: float = -20.0
@@ -66,8 +67,9 @@ class FakeRig:
 
     async def tx_off(self, config, point): self.calls.append(("tx_off",))
 
-    async def measure(self, hz):
+    async def measure(self, hz, config=None, expected_dbm=None):
         self.calls.append(("measure", hz))
+        self.expected.append(expected_dbm)
         return self.power, 0.25, None
 
     async def modem_cycle(self): self.calls.append(("modem_cycle",))
@@ -124,6 +126,8 @@ class TestOrder:
         assert (row.power_dbm_raw, row.power_dbm, row.current_a) == (-20.0, 10.5, 0.25)
         assert (row.r_ohm, row.s11_db) == (50.0, -20.0)
         assert row.error is None
+        # What the meter should see: the point's power less its path loss.
+        assert rig.expected == [14 - 30.5]
 
     @sync
     async def test_every_point_is_keyed_down(self) -> None:
@@ -325,3 +329,29 @@ class TestConfig:
             raise AssertionError("accepted")
         except ValueError as e:
             assert "start_index" in str(e)
+
+
+def test_live_rig_measures_with_the_runs_power_source(monkeypatch):
+    """The analyzer, at the run's settings, when the run asks for it."""
+    from backend.api import loadpull as api_lp
+    from backend.sweep.models import SpectrumSettings
+
+    seen = {}
+
+    async def fake_measure(**kw):
+        seen.update(kw)
+
+        class M:
+            power_dbm, current_a, error = -4.0, 0.2, None
+        return M()
+
+    monkeypatch.setattr(api_lp, "instruments_measure", fake_measure)
+    c = config(
+        [PlanPoint(pos=0, freq_mhz=915.0, power_dbm=14)],
+        power_source="spectrum",
+        spectrum=SpectrumSettings(span_hz=200_000, rbw_hz=10_000, vbw_hz=30_000, detector="RMS"),
+    )
+    raw, cur, err = asyncio.run(api_lp.LiveRig().measure(915_000_000, c))
+    assert (raw, cur, err) == (-4.0, 0.2, None)
+    assert seen["source"] == "spectrum" and seen["freq_hz"] == 915_000_000
+    assert seen["span_hz"] == 200_000 and seen["detector"] == "RMS"

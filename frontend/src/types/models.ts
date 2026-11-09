@@ -104,6 +104,8 @@ export interface SweepBlock {
   power_values: number[]
   duty_values: number[]
   hp_values: number[]
+  /** This range's own PA mode; absent, the run's `pa_mode`. */
+  pa_mode?: number
 }
 
 export interface SweepConfig {
@@ -124,6 +126,9 @@ export interface SweepConfig {
   /** What reads TX power. Defaults to the sensor in backend/sweep/models.py. */
   power_source?: PowerSource
   spectrum?: SpectrumSweepSettings
+  /** Set when the run re-measures part of an earlier one: the measured-power
+   *  tabs it took and where the configurations came from. */
+  remeasure?: { from_dbm: number; to_dbm: number; source?: string | null }
 }
 
 export type PowerSource = 'sensor' | 'spectrum'
@@ -153,6 +158,8 @@ export interface ResultRow {
   power_dbm_setting: number
   pa_duty_cycle: number
   hp_max: number
+  /** PA mode the step was sent with; absent on imported rows. */
+  pa_mode?: number | null
   tx_power_dbm?: number | null
   current_a?: number | null
   voltage_v?: number | null

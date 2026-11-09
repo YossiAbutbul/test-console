@@ -1,5 +1,11 @@
+import { PowerSourceFields } from '../../components/PowerSourceFields'
+import {
+  powerSourceOf, powerSourceValid, type PowerSourceState,
+} from '../../lib/powerSource'
+import { usePersistedState } from '../../store/persistent'
+import { STORAGE_KEYS } from '../../store/keys'
 import { useState } from 'react'
-import { Box, MenuItem, Typography } from '@mui/material'
+import { Box, MenuItem, Stack, Typography } from '@mui/material'
 import { PageHeader } from '../../components/PageHeader'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { LabeledField } from '../../components/LabeledField'
@@ -32,8 +38,11 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
   const [measure, setMeasure] = useState<MeasureSelection>(DEFAULT_MEASURE)
+  const [savedSrc, setPowerSrc] = usePersistedState<Partial<PowerSourceState>>(STORAGE_KEYS.cwDebugPowerSource, {})
+  const powerSrc = powerSourceOf(savedSrc)
+  const sourceOk = !measure.power || powerSourceValid(powerSrc)
   const willMeasure = measuresAnything(measure)
-  const preflight = useInstrumentPreflight(requiredInstruments(measure), { verb: 'send' })
+  const preflight = useInstrumentPreflight(requiredInstruments(measure, powerSrc.source), { verb: 'send' })
   // Display only: a Send the preflight called off. It returns no error, so
   // without this the page showed nothing and the reason was only in the log.
   const [cancelled, setCancelled] = useState(false)
@@ -110,8 +119,8 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
             busy={busy}
             sending={send.isPending}
             stopping={stop.isPending}
-            canSend={dutyValid && hpValid}
-            sendDisabledReason="PA duty cycle and HP max must be 1–7"
+            canSend={dutyValid && hpValid && sourceOk}
+            sendDisabledReason={!sourceOk ? 'Spectrum analyzer settings must be positive numbers' : 'PA duty cycle and HP max must be 1–7'}
             onSend={() => send.mutate()}
             onStop={() => stop.mutate()}
           />
@@ -173,7 +182,10 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
 
         {/* What to read back after the send, as on the CW page. */}
         <Section title="Measure" panel>
-          <MeasureOptions value={measure} onChange={setMeasure} disabled={busy} />
+          <Stack spacing={1.75}>
+            <MeasureOptions value={measure} onChange={setMeasure} disabled={busy} />
+            <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={busy || !measure.power} />
+          </Stack>
         </Section>
 
         {/* Hidden when nothing is measured: a strip of dashes reads as a
@@ -184,6 +196,7 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
             triggerId={measureTrigger}
             targetDbm={power}
             wants={measure}
+            powerSource={powerSrc}
           />
         )}
 

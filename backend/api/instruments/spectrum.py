@@ -81,11 +81,13 @@ def _connect(address: str) -> str:
     state.spectrum = an
     state.spectrum_idn = an.idn
     state.spectrum_resource = f"{host}:{port}"
+    state.spectrum_applied = None  # a new session: nothing set on it yet
     return an.idn
 
 
 def _disconnect() -> None:
     an = state.spectrum
+    state.spectrum_applied = None
     state.spectrum = None
     state.spectrum_idn = None
     state.spectrum_resource = None
@@ -274,6 +276,9 @@ async def get_state() -> SpectrumState:
 async def command(cmd: Command) -> SpectrumState:
     if state.spectrum is None:
         raise HTTPException(status_code=409, detail="spectrum analyzer not connected")
+    # The page changed the analyzer: a test's next power read sets it all
+    # again rather than trust what it last left (see _read_spectrum_dbm).
+    state.spectrum_applied = None
     with handle_driver_errors(f"spectrum {cmd.op}"):
         return await _command(_run_and_read, cmd)
 

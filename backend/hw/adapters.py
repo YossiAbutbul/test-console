@@ -6,6 +6,7 @@ Install: pip install git+https://github.com/YossiAbutbul/rf-instrument-wrappers
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 from .base import CurrentMeter, MeasurementError, PowerMeter
@@ -161,6 +162,22 @@ class SpectrumPowerMeter(PowerMeter):
     #: One sweep at a narrow RBW can take a few seconds on the FSC3.
     SWEEP_TIMEOUT_S = 15.0
 
+    #: The reference level sits this far above the level expected at the
+    #: input: room for a DUT that comes out a little hot without it running
+    #: off the top of the screen and into the analyzer's overload, close
+    #: enough that a weak one stays well clear of the noise floor.
+    REF_HEADROOM_DB = 5.0
+    #: Kept inside what the FSC3 takes, whatever the arithmetic gives.
+    REF_LEVEL_MIN_DBM = -80.0
+    REF_LEVEL_MAX_DBM = 30.0
+
+    @classmethod
+    def ref_level_for(cls, expected_dbm: float) -> float:
+        """The reference level for a reading expected at `expected_dbm`:
+        headroom added, rounded up to a whole dB, clamped to the analyzer."""
+        ref = math.ceil(expected_dbm + cls.REF_HEADROOM_DB)
+        return float(min(cls.REF_LEVEL_MAX_DBM, max(cls.REF_LEVEL_MIN_DBM, ref)))
+
     def __init__(
         self,
         settings: object,
@@ -218,6 +235,10 @@ class SpectrumPowerMeter(PowerMeter):
 
         def configure() -> list[str]:
             problems = an.set_ref_offset(0)  # see SpectrumSettings: path loss is applied in software
+            # Input attenuation follows the reference level, so ranging the
+            # reference to the expected power (expect_dbm) also keeps the
+            # mixer out of overload.
+            problems += an.set_attenuation(auto=True)
             problems += an.set_frequency(center_hz=freq_hz, span_hz=s.span_hz)
             problems += an.set_rbw(s.rbw_hz)
             problems += an.set_vbw(s.vbw_hz)
@@ -231,6 +252,18 @@ class SpectrumPowerMeter(PowerMeter):
             # Refused before the first step: a sweep measured at settings the
             # operator did not ask for is worse than no sweep.
             raise MeasurementError("spectrum analyzer refused: " + "; ".join(problems))
+
+    def expect_dbm(self, dbm: float) -> None:
+        """Range the reference level to the power requested of the DUT, as it
+        arrives here (after the path loss). A fixed reference either clipped a
+        hot DUT or buried a quiet one in the noise across a power sweep."""
+        an = self._an
+        if an is None:
+            raise MeasurementError("spectrum analyzer not connected")
+        ref = self.ref_level_for(dbm)
+        problems = self._call(an.set_ref_level, ref)
+        if problems:
+            raise MeasurementError(f"spectrum analyzer refused reference level {ref:g} dBm: " + "; ".join(problems))
 
     def read_dbm(self) -> float:
         an = self._an

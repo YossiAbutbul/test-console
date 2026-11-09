@@ -23,6 +23,9 @@ export interface BlockDraft {
   dutyHi: number
   hpLo: number
   hpHi: number
+  /** This range's own PA mode (0 Off, 1 On, 2 Auto); absent, the run's.
+   *  Set by a pasted configuration table, which mixes off and on rows. */
+  paMode?: number
 }
 
 export interface AxisBounds {
@@ -60,6 +63,7 @@ export function toWire(b: BlockDraft): SweepBlock {
     power_values: range(b.powerLo, b.powerHi),
     duty_values: range(b.dutyLo, b.dutyHi),
     hp_values: range(b.hpLo, b.hpHi),
+    ...(b.paMode != null ? { pa_mode: b.paMode } : {}),
   }
 }
 

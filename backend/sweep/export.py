@@ -315,7 +315,16 @@ def _write_run_sheet(
     # block gets its own row. A single-block plan keeps the flat form it has
     # always had rather than growing a "Block 1" label for no reason.
     blocks = cfg.effective_blocks
-    if len(blocks) == 1:
+    rm = cfg.remeasure
+    if rm is not None:
+        # One configuration per block: listing them would be a row each, and
+        # the reason for the set is the range they were picked by.
+        entries += [
+            ("Remeasure of", rm.source or "—"),
+            ("Measured power tabs", f"{rm.from_dbm} to {rm.to_dbm} dBm"),
+            ("Configurations", len(blocks)),
+        ]
+    elif len(blocks) == 1:
         entries += [
             ("Power Set values", _describe_values(blocks[0].power_values)),
             ("PA DC values", _describe_values(blocks[0].duty_values)),
@@ -328,7 +337,10 @@ def _write_run_sheet(
                 f"Power {_describe_values(b.power_values)}"
                 f" · PA DC {_describe_values(b.duty_values)}"
                 f" · HP Max {_describe_values(b.hp_values)}"
-                f" · {b.steps} steps",
+                # Only a range with its own mode says so; the rest run at the
+                # run-wide "PA mode" above.
+                + ("" if b.pa_mode is None else f" · PA {_PA_MODE_NAMES.get(b.pa_mode, '?')}")
+                + f" · {b.steps} steps",
             ))
     entries += [
         ("Steps planned", cfg.total_steps),

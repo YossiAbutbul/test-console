@@ -9,7 +9,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..sweep.models import DEFAULT_SETTLE_MS, MIN_SETTLE_MS, RunState
+from ..sweep.models import DEFAULT_SETTLE_MS, MIN_SETTLE_MS, RunState, SpectrumSettings
 
 
 class LoadPullRow(BaseModel):
@@ -79,6 +79,9 @@ class LoadPullMeta(BaseModel):
     #: since the backend is the side that knows.
     power_sensor_idn: Optional[str] = None
     power_sensor_address: Optional[str] = None
+    #: "sensor" or "spectrum", and the analyzer when it read power.
+    power_source: Optional[str] = None
+    spectrum_idn: Optional[str] = None
     dc_analyzer_idn: Optional[str] = None
     dc_analyzer_address: Optional[str] = None
     dc_channel: Optional[int] = None
@@ -133,6 +136,11 @@ class LoadPullRunConfig(BaseModel):
     #: Path loss for every frequency in the plan, already resolved by the page
     #: (which owns the table); added to the sensor reading.
     path_loss: list[PathLossPoint] = []
+    #: What reads TX power: the USB sensor, or the spectrum analyzer at
+    #: `spectrum` (centred on each point's frequency). Path loss is added to
+    #: either.
+    power_source: Literal["sensor", "spectrum"] = "sensor"
+    spectrum: SpectrumSettings = Field(default_factory=SpectrumSettings)
     #: VNA span either side of each frequency, as a fraction of it.
     vna_half_span_frac: float = Field(default=0.005, gt=0, le=0.5)
     #: The page's identity for the plan, echoed in the status so a reloaded

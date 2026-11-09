@@ -18,6 +18,9 @@ const OVERSCAN = 12
 interface Props {
   results: LoadPullResultRow[]
   lossAt: (freqMhz: number | null | undefined) => PathLossAt
+  /** Colour raw readings outside the power sensor's range. Off when the
+   *  spectrum analyzer read power. */
+  judgeSensorRange?: boolean
 }
 
 /**
@@ -31,7 +34,7 @@ interface Props {
  * ("Aw, Snap!"), taking the run with it. Memoised, it re-renders only when the
  * rows change; windowed, that costs the same at row 10 000 as at row 10.
  */
-export const LoadPullResultsTable = memo(function LoadPullResultsTable({ results, lossAt }: Props) {
+export const LoadPullResultsTable = memo(function LoadPullResultsTable({ results, lossAt, judgeSensorRange = true }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const firstRowRef = useRef<HTMLTableRowElement | null>(null)
   const [scrollTop, setScrollTop] = useState(0)
@@ -129,7 +132,8 @@ export const LoadPullResultsTable = memo(function LoadPullResultsTable({ results
             // the best available for a file imported from elsewhere.
             const raw = r.power_dbm_raw
               ?? (r.power_dbm == null ? null : r.power_dbm - lossAt(r.freq_mhz).db)
-            const confidence = powerConfidence(raw)
+            // The sensor's range says nothing about an analyzer reading.
+            const confidence = judgeSensorRange ? powerConfidence(raw) : 'ok'
             return (
               <TableRow key={i} ref={j === 0 ? firstRowRef : undefined}>
                 <TableCell sx={NUM_CELL_SX}>{i + 1}</TableCell>

@@ -16,12 +16,17 @@ import asyncio
 import logging
 import time
 
+from typing import Literal
+
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from . import dc_analyzer, network_analyzer, power_sensor, signal_generator, spectrum
 from ._bus import bus
 from ._state import state
+from ...hw.adapters import SpectrumPowerMeter
+from ...hw.base import MeasurementError
+from ...sweep.models import SpectrumSettings
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +99,9 @@ class MeasureResponse(BaseModel):
     voltage_v: float | None = None
     power_sensor_connected: bool = False
     dc_analyzer_connected: bool = False
+    spectrum_connected: bool = False
+    #: Which instrument `power_dbm` came from: "sensor" or "spectrum".
+    power_source: str = "sensor"
     t_ms: int = 0
     error: str | None = None
 
@@ -156,6 +164,72 @@ def _read_power_dbm(freq_hz: int | None, allow_no_signal: bool = False) -> float
     )
 
 
+def _apply_changed(an, have: dict, want: dict) -> None:
+    """Send only the settings that differ from what the last read left."""
+    problems: list[str] = []
+    if want["center_hz"] != have.get("center_hz"):
+        problems += an.set_frequency(center_hz=want["center_hz"])
+    if want["span_hz"] != have.get("span_hz"):
+        problems += an.set_frequency(span_hz=want["span_hz"])
+    if want["rbw_hz"] != have.get("rbw_hz"):
+        problems += an.set_rbw(want["rbw_hz"])
+    if want["vbw_hz"] != have.get("vbw_hz"):
+        problems += an.set_vbw(want["vbw_hz"])
+    if want["detector"] != have.get("detector"):
+        problems += an.set_detector(want["detector"])
+    if problems:
+        raise MeasurementError("spectrum analyzer refused: " + "; ".join(problems))
+
+
+def _read_spectrum_dbm(
+    freq_hz: int, settings: SpectrumSettings, expected_dbm: float | None = None,
+) -> float | None:
+    """Read TX power off the spectrum analyzer: one sweep, peak marker.
+
+    The same steps Mode Sweep's spectrum source takes (SpectrumPowerMeter),
+    with two differences for a test that reads point by point from the
+    browser. Only what changed since the last read is sent (state.spectrum_
+    applied): the whole set was about a second per reading. That record is
+    dropped whenever anything else changes the analyzer -- the Spectrum page,
+    a reconnect, a Mode Sweep -- so a figure is never taken at settings
+    nobody asked for; only a hand on the analyzer's own front panel goes
+    unseen. And it is handed back free-running afterwards, so the Spectrum
+    page is not left frozen on the last single sweep. The reference offset is zeroed, as
+    in Mode Sweep: path loss is added in software.
+
+    Runs on the spectrum bus, so it never interleaves with the Spectrum page.
+    """
+    an = state.spectrum
+    if an is None:
+        return None
+    pm = SpectrumPowerMeter(settings, analyzer=an)
+    want = {
+        "an": id(an), "center_hz": freq_hz, "span_hz": settings.span_hz,
+        "rbw_hz": settings.rbw_hz, "vbw_hz": settings.vbw_hz, "detector": settings.detector,
+    }
+    have = state.spectrum_applied
+    # Unknown until this read has gone through: a failure part-way leaves the
+    # analyzer in a state no record describes, so the next read sets it all.
+    state.spectrum_applied = None
+    if have is None or have.get("an") != want["an"]:
+        pm.set_frequency_hz(freq_hz)  # everything, as Mode Sweep does at its start
+        have = {**want, "ref_dbm": None}
+    else:
+        _apply_changed(an, have, want)
+    ref = None if expected_dbm is None else SpectrumPowerMeter.ref_level_for(expected_dbm)
+    if ref is not None and ref != have.get("ref_dbm"):
+        pm.expect_dbm(expected_dbm)
+    try:
+        dbm = pm.read_dbm()
+        state.spectrum_applied = {**want, "ref_dbm": ref if ref is not None else have.get("ref_dbm")}
+        return dbm
+    finally:
+        try:
+            an.set_continuous(True)
+        except Exception:
+            log.warning("spectrum analyzer: could not resume continuous sweep", exc_info=True)
+
+
 def _read_dc() -> tuple[float | None, float | None, str | None]:
     """Read current and voltage, reporting why either is missing.
 
@@ -191,6 +265,10 @@ def _read_dc() -> tuple[float | None, float | None, str | None]:
 async def measure(
     freq_hz: int | None = None, allow_no_signal: bool = False,
     power: bool = True, current: bool = True,
+    source: Literal["sensor", "spectrum"] = "sensor",
+    span_hz: float | None = None, rbw_hz: float | None = None,
+    vbw_hz: float | None = None, detector: str | None = None,
+    expected_dbm: float | None = None,
 ) -> MeasureResponse:
     """Read every connected instrument the caller asked for.
 
@@ -198,16 +276,27 @@ async def measure(
     wanted: with "Measure power" unchecked on a CW page, a sensor left on USB
     but off the RF path was still read, and its "no signal" failure was shown
     under a send that never asked for power.
+
+    `source` picks what reads power: the USB sensor, or the spectrum analyzer
+    with `span_hz` / `rbw_hz` / `vbw_hz` / `detector` (each defaulting as in
+    Mode Sweep), centred on `freq_hz`. Either way `power_dbm` is raw: path
+    loss is the caller's. `expected_dbm` is the level the analyzer should
+    see -- the requested power less the path loss -- and sets its reference
+    level; without it the reference is left where it was.
     """
     t0 = time.perf_counter()
     ps_connected = state.power_sensor is not None
     dc_connected = state.dc_analyzer is not None
-    read_ps = ps_connected and power
+    sa_connected = state.spectrum is not None
+    spectrum = source == "spectrum"
+    read_ps = (sa_connected if spectrum else ps_connected) and power
     read_dc = dc_connected and current
     if not read_ps and not read_dc:
         return MeasureResponse(
             power_sensor_connected=ps_connected,
             dc_analyzer_connected=dc_connected,
+            spectrum_connected=sa_connected,
+            power_source=source,
             t_ms=0,
         )
     err: str | None = None
@@ -221,7 +310,16 @@ async def measure(
     # instead of consuming a shared worker thread and eventually stalling the
     # whole API — see _bus.py.
     try:
-        if read_ps:
+        if read_ps and spectrum:
+            if freq_hz is None:
+                raise ValueError("the spectrum analyzer needs a frequency to centre on")
+            given = {"span_hz": span_hz, "rbw_hz": rbw_hz, "vbw_hz": vbw_hz, "detector": detector}
+            try:
+                settings = SpectrumSettings(**{k: v for k, v in given.items() if v is not None})
+            except ValidationError as e:
+                raise ValueError(f"spectrum settings: {e.errors()[0]['msg']}") from None
+            p_dbm = await bus("spectrum").call(_read_spectrum_dbm, freq_hz, settings, expected_dbm)
+        elif read_ps:
             p_dbm = await bus("power-sensor").call(
                 _read_power_dbm, freq_hz, allow_no_signal,
             )
@@ -241,6 +339,8 @@ async def measure(
         voltage_v=volt,
         power_sensor_connected=ps_connected,
         dc_analyzer_connected=dc_connected,
+        spectrum_connected=sa_connected,
+        power_source=source,
         t_ms=int((time.perf_counter() - t0) * 1000),
         error=err,
     )

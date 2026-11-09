@@ -61,6 +61,8 @@ export interface AutomationResultRow {
 export interface PowerPageSnapshot {
   /** Last opened sub-tab on the Power page (Manual / Automation). */
   tab?: PowerPageTab
+  /** What reads power on the manual tab, and the analyzer's settings. */
+  manualPowerSource?: Partial<PowerSourceState>
   /**
    * Which instruments the manual tab reads back after a Send.
    *
@@ -76,10 +78,13 @@ export interface PowerPageSnapshot {
      *  back partially and filled in — see `normaliseRow` in the panel. */
     rows?: Array<Partial<AutomationSweepRow>>
     settleMs?: number
+    /** What reads power in the sweep, and the analyzer's settings. */
+    powerSource?: Partial<PowerSourceState>
     results?: AutomationResultRow[]
   }
 }
 
+import type { PowerSourceState } from '../lib/powerSource'
 import { makePageStore } from './makePageStore'
 import { STORAGE_KEYS } from './keys'
 

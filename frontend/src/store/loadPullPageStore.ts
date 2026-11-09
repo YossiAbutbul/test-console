@@ -3,6 +3,7 @@
  * Mirrors `powerPageStore.ts` — see it for the full pattern rationale.
  */
 
+import type { PowerSourceState } from '../lib/powerSource'
 import { makePageStore } from './makePageStore'
 import { STORAGE_KEYS } from './keys'
 
@@ -66,6 +67,8 @@ export interface LoadPullPageSnapshot {
   attMaxDb?: number
   paMode?: number
   settleMs?: number
+  /** What reads power in the run, and the analyzer's settings. */
+  powerSource?: Partial<PowerSourceState>
   deltaXmm?: number
   jogSpeed?: number
   zeroPulses?: number | null

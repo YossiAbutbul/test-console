@@ -24,6 +24,13 @@ class PowerMeter(ABC):
     def read_dbm(self) -> float:
         """Read averaged TX power in dBm."""
 
+    def expect_dbm(self, dbm: float) -> None:
+        """The level the next read should see at the meter's input, in dBm.
+
+        For a meter that has to be ranged to it -- the spectrum analyzer's
+        reference level. A sensor that ranges itself has nothing to do.
+        """
+
 
 class CurrentMeter(ABC):
     @abstractmethod

@@ -5,7 +5,7 @@ import {
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/CloseRounded'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineRounded'
-import { MONO, TEXT } from '../../ui'
+import { MONO, SegmentedChoice, TEXT } from '../../ui'
 import { RangeRow } from './RangeRow'
 import { blockSteps, describeProblem, newBlock, type BlockDraft, type Bounds } from './blocks'
 
@@ -53,6 +53,13 @@ export function RangeEditorModal({
   )
 }
 
+const PA_CHOICES = [
+  { value: 'run' as const, label: "Run's" },
+  { value: '0' as const, label: 'Off' },
+  { value: '1' as const, label: 'On' },
+  { value: '2' as const, label: 'Auto' },
+]
+
 function Editor({ editing, bounds, onSave, onDelete, onClose, position }: Props) {
   const [row, setRow] = useState<BlockDraft>(
     () => (editing ? { ...editing } : newBlock(bounds)),
@@ -98,6 +105,22 @@ function Editor({ editing, bounds, onSave, onDelete, onClose, position }: Props)
             setLo={(n) => set({ hpLo: n })} setHi={(n) => set({ hpHi: n })}
             min={bounds.hp.min} max={bounds.hp.max}
           />
+          {/* "Run's" is the PA mode in the page's settings; a pasted table
+              gives each range its own. */}
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 1.5 }}>
+            <Typography sx={{ ...TEXT.label, fontWeight: 600 }}>PA mode</Typography>
+            <SegmentedChoice
+              text
+              aria-label="PA mode for this range"
+              value={row.paMode == null ? 'run' : String(row.paMode) as '0' | '1' | '2'}
+              options={PA_CHOICES}
+              onChange={(v) => setRow((r) => {
+                const { paMode: _drop, ...rest } = r
+                void _drop
+                return v === 'run' ? rest : { ...rest, paMode: Number(v) }
+              })}
+            />
+          </Stack>
         </Stack>
 
         {problem && <Alert severity="warning" sx={{ mt: 2 }}>{problem}</Alert>}

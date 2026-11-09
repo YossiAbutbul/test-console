@@ -1,3 +1,7 @@
+import { PowerSourceFields } from '../../components/PowerSourceFields'
+import {
+  powerInstrument, powerSourceOf, powerSourceValid, type PowerSourceState,
+} from '../../lib/powerSource'
 import { useEffect, useState } from 'react'
 import { Box, MenuItem, Tab } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
@@ -23,7 +27,8 @@ import { useChatSource } from '../../context/ChatContext'
 import { mA, statusOf } from '../../lib/chatRows'
 
 /** This page measures what it transmits, so the readings need these up. */
-const REQUIRED_INSTRUMENTS: InstrumentId[] = ['power-sensor', 'dc-analyzer']
+/** Beside the one that reads power, which the page's power source names. */
+const REQUIRED_INSTRUMENTS: InstrumentId[] = ['dc-analyzer']
 
 const MODEM = { FSK: 0, LoRa: 1 } as const
 type ModemName = keyof typeof MODEM
@@ -46,7 +51,14 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
   const [power, setPower] = useState(14)
   const [last, setLast] = useState<CommandResponse | null>(null)
   const [measureTrigger, setMeasureTrigger] = useState(0)
-  const preflight = useInstrumentPreflight(REQUIRED_INSTRUMENTS, { verb: 'send' })
+  const [powerSrc, setPowerSrc] = useState<PowerSourceState>(
+    () => powerSourceOf(modulatedPageSnapshot.manualPowerSource),
+  )
+  useEffect(() => { modulatedPageSnapshot.manualPowerSource = powerSrc; persistModulatedPage() }, [powerSrc])
+  const sourceOk = powerSourceValid(powerSrc)
+  const preflight = useInstrumentPreflight(
+    [powerInstrument(powerSrc), ...REQUIRED_INSTRUMENTS], { verb: 'send' },
+  )
   // The automation tab owns its run; it publishes just enough for the header
   // to render the buttons in the same slot the manual tab uses.
   const [autoCtl, setAutoCtl] = useState<AutomationControls | null>(null)
@@ -135,6 +147,8 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
               busy={busy}
               sending={send.isPending}
               stopping={stop.isPending}
+              canSend={sourceOk}
+              sendDisabledReason="Spectrum analyzer settings must be positive numbers"
               onSend={() => send.mutate()}
               onStop={() => stop.mutate()}
             />
@@ -224,10 +238,16 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
             </FieldGrid>
           </Section>
 
+          {/* What reads TX power for the strip below, as on the CW pages. */}
+          <Section title="Measure" panel>
+            <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={busy} />
+          </Section>
+
           <MeasurementCard
             freqHz={Math.round(freqMhz * 1_000_000)}
             triggerId={measureTrigger}
             targetDbm={power}
+            powerSource={powerSrc}
           />
 
           <LastFrameSection result={last} />

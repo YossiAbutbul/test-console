@@ -65,15 +65,20 @@ export interface ModulatedResultRow {
 
 export interface ModulatedPageSnapshot {
   tab?: ModulatedPageTab
+  /** What reads power on the manual tab, and the analyzer's settings. */
+  manualPowerSource?: Partial<PowerSourceState>
   automation?: {
     /** Rows may predate the per-row signal fields, so they are read back
      *  partially and filled in — see `normaliseRow` in the panel. */
     rows?: Array<Partial<ModulatedSweepRow>>
     settleMs?: number
+    /** What reads power in the sweep, and the analyzer's settings. */
+    powerSource?: Partial<PowerSourceState>
     results?: ModulatedResultRow[]
   }
 }
 
+import type { PowerSourceState } from '../lib/powerSource'
 import { makePageStore } from './makePageStore'
 import { STORAGE_KEYS } from './keys'
 

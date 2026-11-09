@@ -1,3 +1,4 @@
+import type { SpectrumSweepSettings } from '../types/models'
 import { http } from './client'
 
 export type InstrumentKind =
@@ -33,6 +34,9 @@ export interface MeasureResponse {
   voltage_v: number | null
   power_sensor_connected: boolean
   dc_analyzer_connected: boolean
+  spectrum_connected?: boolean
+  /** Which instrument `power_dbm` came from. */
+  power_source?: 'sensor' | 'spectrum'
   t_ms: number
   error: string | null
 }
@@ -85,11 +89,29 @@ export const instrumentsApi = {
    */
   measure: (
     freqHz?: number,
-    opts?: { signal?: AbortSignal; allowNoSignal?: boolean; only?: { power: boolean; current: boolean } },
+    opts?: {
+      signal?: AbortSignal; allowNoSignal?: boolean; only?: { power: boolean; current: boolean }
+      /** Read power off the spectrum analyzer at these settings, centred on
+       *  `freqHz`, instead of the sensor. See lib/powerSource.ts. */
+      spectrum?: SpectrumSweepSettings
+      /** The level the analyzer should see -- the requested power less the
+       *  path loss -- which sets its reference level. Analyzer reads only. */
+      expectedDbm?: number | null
+    },
   ) => {
     const q = new URLSearchParams()
     if (freqHz) q.set('freq_hz', String(Math.round(freqHz)))
     if (opts?.allowNoSignal) q.set('allow_no_signal', 'true')
+    if (opts?.spectrum) {
+      q.set('source', 'spectrum')
+      q.set('span_hz', String(opts.spectrum.span_hz))
+      q.set('rbw_hz', String(opts.spectrum.rbw_hz))
+      q.set('vbw_hz', String(opts.spectrum.vbw_hz))
+      q.set('detector', opts.spectrum.detector)
+      if (opts.expectedDbm != null && Number.isFinite(opts.expectedDbm)) {
+        q.set('expected_dbm', String(opts.expectedDbm))
+      }
+    }
     if (opts?.only && !opts.only.power) q.set('power', 'false')
     if (opts?.only && !opts.only.current) q.set('current', 'false')
     const qs = q.toString()

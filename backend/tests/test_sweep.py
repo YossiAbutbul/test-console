@@ -474,6 +474,23 @@ class TestSweepBlocks:
         # span that describes both blocks.
         assert "Power Set values" not in run
 
+    def test_a_remeasure_says_what_it_picked_instead_of_listing_blocks(self) -> None:
+        from openpyxl import load_workbook
+        from backend.sweep.models import RemeasureInfo
+        cfg = SweepConfig(
+            freq_hz=902_300_000,
+            pa_mode=1,
+            blocks=[SweepBlock(power_values=[p], duty_values=[1], hp_values=[2]) for p in (3, 7, 9)],
+            remeasure=RemeasureInfo(from_dbm=0, to_dbm=10, source="sweep 902.xlsx"),
+        )
+        wb = load_workbook(BytesIO(build_workbook([make_row(0, measured=4.0)], cfg)))
+        run = {r[0]: r[1] for r in wb["Run"].iter_rows(min_row=2, values_only=True) if r[0]}
+        assert run["Remeasure of"] == "sweep 902.xlsx"
+        assert run["Measured power tabs"] == "0 to 10 dBm"
+        assert run["Configurations"] == 3
+        assert "Block 1" not in run
+        assert str(run["PA mode"]).startswith("On")
+
     def test_a_single_block_keeps_the_flat_run_sheet(self) -> None:
         from openpyxl import load_workbook
         cfg = SweepConfig(freq_hz=902_300_000, power_values=[1, 2], duty_values=[1], hp_values=[1])

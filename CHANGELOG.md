@@ -11,6 +11,37 @@ turns that heading into the version and date.
 ## [Unreleased]
 
 ### Added
+- Mode Sweep: Paste table, beside Add range in the advanced ranges. Paste a
+  configuration table copied from Excel (Target, PA mode, Power (Set),
+  PA DC, HP Max, with or without the measured P/I/error/Status columns,
+  which are ignored) and each row becomes a one-step range with its own PA
+  mode, so the table reruns as written: PA off and PA on rows in one run.
+  The sheet shows what was read and flags any bad row before it replaces
+  the ranges. The range editor gained a PA mode choice ("Run's" follows
+  the page's PA mode). Backend: optional `pa_mode` per `SweepBlock`; each
+  result row records the PA mode it was sent with.
+- Mode Sweep: Remeasure, beside Run sweep. After a run or an imported
+  workbook, pick a span of measured power -- whole tabs, grouped exactly as
+  the export's per-level sheets -- and rerun just those configurations,
+  with the PA mode chosen for the rerun (On by default), e.g. what measured
+  0-10 dBm with the PA off, again with it on. The Run sheet records the
+  source, the tabs and the configuration count.
+- Spectrum analyzer as the power source on every test that measures power:
+  LoRa CW, Debug and Modulated, LTE CW and Modulated (manual and automation
+  tabs), and Load Pull (LoRa and LTE). Each test's Measure section has a
+  Power from switch and its own span, RBW, VBW and detector, saved with the
+  page; the analyzer is centred on each step's frequency and handed back
+  free-running. Only settings that changed since the last read are sent
+  (about a second saved per reading); anything else that changes the
+  analyzer -- the Spectrum page, a reconnect, a Mode Sweep, a failed read --
+  makes the next read set it all again. Mode Sweep uses the same control.
+  Backend: `source=spectrum` on `/instruments/measure`, and `power_source`
+  / `spectrum` on the Load Pull run config.
+- When the spectrum analyzer reads power, its reference level is set from
+  the requested power: the level expected at its input (requested power
+  less path loss) plus 5 dB, rounded up to a whole dB and kept within
+  -80 to +30 dBm, with input attenuation on auto so it follows. Per read on
+  the test pages and Load Pull, per step in Mode Sweep.
 - The sidebar shows the app's version (v1.1.0) at the end of the credit
   line, read from package.json, so it follows each release. It links to that
   version's release notes on GitHub.

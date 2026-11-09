@@ -53,6 +53,9 @@ class StartRequest(BaseModel):
 
 def _build_power_meter(req: StartRequest) -> PowerMeter:
     if req.config.power_source == "spectrum":
+        # The sweep sets the analyzer up its own way: a test's next power read
+        # must not trust what it last left there.
+        state.spectrum_applied = None
         # Every analyzer call rides the spectrum bus, as the Spectrum page's do:
         # one SCPI stream, and two callers on it desync it.
         host, port = parse_address(req.spectrum_address or "")

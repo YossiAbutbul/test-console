@@ -76,7 +76,11 @@ class Rig(Protocol):
     async def tx_on(self, config: LoadPullRunConfig, point: PlanPoint) -> TxResult: ...
     async def tx_off(self, config: LoadPullRunConfig, point: PlanPoint) -> None: ...
     #: (raw power dBm, current A, error) -- a partial reading is still a reading.
-    async def measure(self, hz: int) -> tuple[Optional[float], Optional[float], Optional[str]]: ...
+    #: From the instrument `config.power_source` names.
+    #: `expected_dbm` is what the meter should see (power less path loss).
+    async def measure(
+        self, hz: int, config: LoadPullRunConfig, expected_dbm: Optional[float] = None,
+    ) -> tuple[Optional[float], Optional[float], Optional[str]]: ...
     async def modem_cycle(self) -> None: ...
     async def end_run(self, config: LoadPullRunConfig) -> None: ...
 
@@ -437,7 +441,8 @@ class LoadPullRunner:
                 if ctx.cancel.is_set():
                     await self._tx_off(ctx, p)
                     return row
-                raw, current, err = await rig.measure(hz)
+                pl = loss.get(round(p.freq_mhz, 6), 0.0)
+                raw, current, err = await rig.measure(hz, c, p.power_dbm - pl)
                 # Both: the corrected figure is what the run measures, the raw
                 # one says how near the edge of its range the sensor was.
                 row.power_dbm_raw = raw

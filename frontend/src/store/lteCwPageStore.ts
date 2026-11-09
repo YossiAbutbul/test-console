@@ -55,6 +55,8 @@ export interface LteAutomationResultRow {
 
 export interface LteCwPageSnapshot {
   tab?: LteCwPageTab
+  /** What reads power on the manual tab, and the analyzer's settings. */
+  manualPowerSource?: Partial<PowerSourceState>
   /**
    * Which instruments the manual tab reads back after a Send.
    *
@@ -82,10 +84,13 @@ export interface LteCwPageSnapshot {
      *  partially and filled in — see `normaliseRow` in the panel. */
     rows?: Array<Partial<LteAutomationRow>>
     settleMs?: number
+    /** What reads power in the sweep, and the analyzer's settings. */
+    powerSource?: Partial<PowerSourceState>
     results?: LteAutomationResultRow[]
   }
 }
 
+import type { PowerSourceState } from '../lib/powerSource'
 import { makePageStore } from './makePageStore'
 import { STORAGE_KEYS } from './keys'
 

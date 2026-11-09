@@ -79,10 +79,30 @@ class SweepBlock(BaseModel):
     power_values: list[int] = Field(default_factory=lambda: list(POWER_RANGE))
     duty_values: list[int] = Field(default_factory=lambda: list(PA_DC_RANGE))
     hp_values: list[int] = Field(default_factory=lambda: list(HP_MAX_RANGE))
+    #: This range's own PA mode, or None for the run's `SweepConfig.pa_mode`.
+    #: A configuration table pasted from an earlier analysis mixes PA off and
+    #: on rows (off up to ~19 dBm, on above), which one run-wide mode cannot
+    #: express without splitting it into two runs.
+    pa_mode: Optional[int] = Field(default=None, ge=0, le=2)
 
     @property
     def steps(self) -> int:
         return len(self.hp_values) * len(self.duty_values) * len(self.power_values)
+
+
+class RemeasureInfo(BaseModel):
+    """A run that re-measures part of an earlier one, for the Run sheet.
+
+    The page picks the configurations whose measured power fell in these
+    whole-dBm tabs (the export's own grouping) and sends them as one-step
+    blocks; without this the Run sheet would list each as a block of its own
+    and never say why those, and not others, were run.
+    """
+    #: The measured-power tabs taken, whole dBm, inclusive.
+    from_dbm: int
+    to_dbm: int
+    #: Where the configurations came from: a file name, or "previous run".
+    source: Optional[str] = Field(default=None, max_length=200)
 
 
 class SweepConfig(BaseModel):
@@ -115,6 +135,8 @@ class SweepConfig(BaseModel):
         description="What reads TX power: the USB power sensor or the spectrum analyzer.",
     )
     spectrum: SpectrumSettings = Field(default_factory=SpectrumSettings)
+    #: Set when the run re-measures part of an earlier one (see RemeasureInfo).
+    remeasure: Optional[RemeasureInfo] = None
     measure_current: bool = Field(
         default=True,
         description=(
@@ -167,6 +189,9 @@ class ResultRow(BaseModel):
     power_dbm_setting: int
     pa_duty_cycle: int
     hp_max: int
+    #: The PA mode the step was sent with. None on rows imported from a
+    #: workbook, which does not carry it per row.
+    pa_mode: Optional[int] = None
     tx_power_dbm: Optional[float] = None
     """Sensor reading plus `SweepConfig.path_loss_db` — i.e. power at the DUT."""
     tx_power_dbm_raw: Optional[float] = None

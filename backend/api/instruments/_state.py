@@ -27,6 +27,13 @@ class _Holder:
     # S-parameter array at these points so we get values regardless of the
     # instrument's display marker state.
     network_analyzer_markers: list[float] | None = None
+    # What a test's power read last set on the spectrum analyzer (see
+    # _read_spectrum_dbm), so the next read resends only what changed: each
+    # setting is a write, a pause and an error query, and the whole set was
+    # about a second per reading. None means "unknown -- set it all": cleared
+    # by anything else that changes the analyzer (a Spectrum page command,
+    # connect/disconnect, a Mode Sweep) and by a read that failed.
+    spectrum_applied: dict | None = None
 
 
 state = _Holder()

@@ -1,5 +1,9 @@
+import { PowerSourceFields } from '../../components/PowerSourceFields'
+import {
+  powerSourceOf, powerSourceValid, type PowerSourceState,
+} from '../../lib/powerSource'
 import { useEffect, useState } from 'react'
-import { Box, MenuItem, Tab } from '@mui/material'
+import { Box, MenuItem, Stack, Tab } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { PageHeader } from '../../components/PageHeader'
 import { LabeledField } from '../../components/LabeledField'
@@ -35,8 +39,13 @@ export function PowerPage({ protocol, group, active }: TestPageProps) {
     () => powerPageSnapshot.manualMeasure ?? DEFAULT_MEASURE,
   )
   useEffect(() => { powerPageSnapshot.manualMeasure = measure; persistPowerPage() }, [measure])
+  const [powerSrc, setPowerSrc] = useState<PowerSourceState>(
+    () => powerSourceOf(powerPageSnapshot.manualPowerSource),
+  )
+  useEffect(() => { powerPageSnapshot.manualPowerSource = powerSrc; persistPowerPage() }, [powerSrc])
+  const sourceOk = !measure.power || powerSourceValid(powerSrc)
   const willMeasure = measuresAnything(measure)
-  const preflight = useInstrumentPreflight(requiredInstruments(measure), { verb: 'send' })
+  const preflight = useInstrumentPreflight(requiredInstruments(measure, powerSrc.source), { verb: 'send' })
   // The automation tab owns its run; it publishes just enough for the header
   // to render the buttons in the same slot the manual tab uses.
   const [autoCtl, setAutoCtl] = useState<AutomationControls | null>(null)
@@ -125,6 +134,8 @@ export function PowerPage({ protocol, group, active }: TestPageProps) {
               busy={busy}
               sending={send.isPending}
               stopping={stop.isPending}
+              canSend={sourceOk}
+              sendDisabledReason="Spectrum analyzer settings must be positive numbers"
               onSend={() => send.mutate()}
               onStop={() => stop.mutate()}
             />
@@ -179,7 +190,10 @@ export function PowerPage({ protocol, group, active }: TestPageProps) {
           {/* What to read back after the send. Above the result rather than
               beside it, because it decides whether there is one. */}
           <Section title="Measure" panel>
-            <MeasureOptions value={measure} onChange={setMeasure} disabled={busy} />
+            <Stack spacing={1.75}>
+              <MeasureOptions value={measure} onChange={setMeasure} disabled={busy} />
+              <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={busy || !measure.power} />
+            </Stack>
           </Section>
 
           {/* The answer: what we asked for, what came out, and the error
@@ -192,6 +206,7 @@ export function PowerPage({ protocol, group, active }: TestPageProps) {
               triggerId={measureTrigger}
               targetDbm={power}
               wants={measure}
+              powerSource={powerSrc}
             />
           )}
 

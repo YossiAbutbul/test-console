@@ -50,6 +50,7 @@ class FakeDevice:
     """Records every command the runner issues."""
 
     calls: list[tuple] = field(default_factory=list)
+    pa_modes: list[int] = field(default_factory=list)
     #: Fail the Nth *CW* command (1-based). Counted over CW calls only, so the
     #: stop the runner now issues before each point cannot shift which point
     #: fails.
@@ -57,6 +58,7 @@ class FakeDevice:
 
     async def lora_cw(self, *, freq_hz, power_dbm, pa_duty_cycle, hp_max, pa_mode, timeout):
         self.calls.append(("cw", freq_hz, power_dbm, pa_duty_cycle, hp_max))
+        self.pa_modes.append(int(pa_mode))
         cw_calls = sum(1 for c in self.calls if c[0] == "cw")
         if self.fail_on_call is not None and cw_calls == self.fail_on_call:
             raise RuntimeError("device boom")
@@ -71,9 +73,11 @@ class FakePowerMeter:
     def __init__(self, dbm: float = 12.5) -> None:
         self.dbm = dbm
         self.freqs: list[int] = []
+        self.expected: list[float] = []
         self.disconnected = False
 
     def connect(self) -> None: ...
+    def expect_dbm(self, dbm: float) -> None: self.expected.append(dbm)
     def disconnect(self) -> None: self.disconnected = True
     def set_frequency_hz(self, freq_hz: int) -> None: self.freqs.append(freq_hz)
     def read_dbm(self) -> float: return self.dbm
@@ -129,6 +133,20 @@ class TestSweepRun:
         ]
 
     @sync
+    async def test_a_range_with_its_own_pa_mode_overrides_the_run(self) -> None:
+        """A pasted configuration table mixes PA off and on rows in one run."""
+        from backend.sweep.models import SweepBlock
+        device = FakeDevice()
+        runner = SweepRunner()
+        cfg = config(pa_mode=0, blocks=[
+            SweepBlock(power_values=[16], duty_values=[3], hp_values=[1]),
+            SweepBlock(power_values=[5], duty_values=[1], hp_values=[1], pa_mode=1),
+        ])
+        await run_to_completion(runner, cfg, device, FakePowerMeter(), FakeCurrentMeter())
+        assert device.pa_modes == [0, 1]
+        assert [r.pa_mode for r in runner.results()] == [0, 1]
+
+    @sync
     async def test_records_a_measurement_for_every_point(self) -> None:
         runner = SweepRunner()
         await run_to_completion(
@@ -155,6 +173,15 @@ class TestSweepRun:
         row = runner.results()[0]
         assert row.tx_power_dbm == pytest.approx(33.0)
         assert row.tx_power_dbm_raw == pytest.approx(12.5)
+
+    @sync
+    async def test_each_step_tells_the_meter_what_it_should_read(self) -> None:
+        """The requested power less the cable: what the analyzer ranges to."""
+        pm = FakePowerMeter()
+        runner = SweepRunner()
+        await run_to_completion(runner, config(path_loss_db=20.5), FakeDevice(), pm, FakeCurrentMeter())
+        settings = [r.power_dbm_setting for r in runner.results()]
+        assert pm.expected == pytest.approx([p - 20.5 for p in settings])
 
     @sync
     async def test_stops_tx_when_the_sweep_ends(self) -> None:

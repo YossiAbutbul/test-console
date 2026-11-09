@@ -1,3 +1,7 @@
+import { PowerSourceFields } from '../../components/PowerSourceFields'
+import {
+  powerSourceOf, powerSourceValid, type PowerSourceState,
+} from '../../lib/powerSource'
 import { useEffect, useState } from 'react'
 import { Box, Stack, Tab } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
@@ -129,8 +133,13 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
     () => lteCwPageSnapshot.manualMeasure ?? DEFAULT_MEASURE,
   )
   useEffect(() => { lteCwPageSnapshot.manualMeasure = measure; persistLteCwPage() }, [measure])
+  const [powerSrc, setPowerSrc] = useState<PowerSourceState>(
+    () => powerSourceOf(lteCwPageSnapshot.manualPowerSource),
+  )
+  useEffect(() => { lteCwPageSnapshot.manualPowerSource = powerSrc; persistLteCwPage() }, [powerSrc])
+  const sourceOk = !measure.power || powerSourceValid(powerSrc)
   const willMeasure = measuresAnything(measure)
-  const preflight = useInstrumentPreflight(requiredInstruments(measure), { verb: 'send' })
+  const preflight = useInstrumentPreflight(requiredInstruments(measure, powerSrc.source), { verb: 'send' })
 
   const [tab, setTab] = useState<LteCwPageTab>(() => lteCwPageSnapshot.tab ?? 'manual')
   useEffect(() => { lteCwPageSnapshot.tab = tab; persistLteCwPage() }, [tab])
@@ -198,7 +207,7 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
   const resolved = resolveChannel(earfcn)
   const channel = resolved && resolved !== 'ambiguous' ? resolved : null
   const channelValid = channel != null
-  const canSend = channelValid && secondsValid && offsetValid && powerValid
+  const canSend = channelValid && secondsValid && offsetValid && powerValid && sourceOk
 
   /** Shows the *other* unit, so the field always states what it resolved to. */
   const channelHint = (): string => {
@@ -426,7 +435,10 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
           {/* What to read back after the send. Above the result rather than
               beside it, because it decides whether there is one. */}
           <Section title="Measure" panel>
-            <MeasureOptions value={measure} onChange={setMeasure} disabled={busy} />
+            <Stack spacing={1.75}>
+              <MeasureOptions value={measure} onChange={setMeasure} disabled={busy} />
+              <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={busy || !measure.power} />
+            </Stack>
           </Section>
 
           {/* Hidden when nothing is being measured; an empty strip of dashes
@@ -437,6 +449,7 @@ export function LteCwPage({ protocol, group, active }: TestPageProps) {
               triggerId={measureTrigger}
               targetDbm={powerValid ? asNum(power) : null}
               wants={measure}
+              powerSource={powerSrc}
             />
           )}
 

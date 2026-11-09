@@ -13,7 +13,8 @@
 import type { InstrumentId } from '../context/InstrumentsContext'
 
 export interface MeasureSelection {
-  /** Power sensor — TX power. */
+  /** TX power -- from the power sensor or the spectrum analyzer, whichever
+   *  the page's power source names (lib/powerSource.ts). */
   power: boolean
   /** DC analyzer — current consumption. */
   current: boolean
@@ -29,9 +30,11 @@ export const MEASURE_ALL: MeasureSelection = { power: true, current: true }
  * with nothing to connect still puts a dialog between the operator and the
  * transmit they asked for.
  */
-export function requiredInstruments(sel: MeasureSelection): InstrumentId[] {
+export function requiredInstruments(
+  sel: MeasureSelection, source: 'sensor' | 'spectrum' = 'sensor',
+): InstrumentId[] {
   const ids: InstrumentId[] = []
-  if (sel.power) ids.push('power-sensor')
+  if (sel.power) ids.push(source === 'spectrum' ? 'spectrum' : 'power-sensor')
   if (sel.current) ids.push('dc-analyzer')
   return ids
 }

@@ -69,6 +69,8 @@ export interface LteModulatedResultRow {
 
 export interface LteModulatedPageSnapshot {
   tab?: LteModulatedPageTab
+  /** What reads power on the manual tab, and the analyzer's settings. */
+  manualPowerSource?: Partial<PowerSourceState>
   /**
    * The manual tab's fields, as typed.
    *
@@ -91,10 +93,13 @@ export interface LteModulatedPageSnapshot {
      *  panel — so a snapshot predating a column still loads. */
     rows?: Array<Partial<LteModulatedRow>>
     settleMs?: number
+    /** What reads power in the sweep, and the analyzer's settings. */
+    powerSource?: Partial<PowerSourceState>
     results?: LteModulatedResultRow[]
   }
 }
 
+import type { PowerSourceState } from '../lib/powerSource'
 import { makePageStore } from './makePageStore'
 import { STORAGE_KEYS } from './keys'
 

@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import ReplayIcon from '@mui/icons-material/ReplayRounded'
+import PasteIcon from '@mui/icons-material/ContentPasteRounded'
+import { PasteTableSheet } from './PasteTableSheet'
+import { RemeasureSheet } from './RemeasureSheet'
+import { remeasureBlocks, tabOf, type SweepConfigPoint } from './remeasure'
+import { PowerSourceFields } from '../../components/PowerSourceFields'
+import { SPECTRUM_DETECTORS, khzToHz, type PowerSourceState } from '../../lib/powerSource'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import {
-  Box, ButtonBase, Divider, FormControlLabel, MenuItem, Stack, Switch, Tooltip, Typography,
+  Box, Button, ButtonBase, Divider, FormControlLabel, MenuItem, Stack, Switch, Tooltip, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/AddRounded'
 import DownloadIcon from '@mui/icons-material/DownloadRounded'
@@ -25,11 +32,10 @@ import { useNotify } from '../../context/NotifyContext'
 import { saveBlob } from '../../lib/download'
 import { range } from '../../lib/numericList'
 import {
-  CONTROL_H, FieldGrid, GRID_GAP, KeySpinner, MONO, MeasureOptions, MiniAction, PageBody,
-  RunControls, Section, TEXT, TwoCol, focusRingOf,
+  CONTROL_H, FieldGrid, KeySpinner, MONO, MeasureOptions, MiniAction, PageBody,
+  ACTION_W, RunControls, Section, TEXT, TwoCol, actionSx, focusRingOf,
 } from '../../ui'
-import type { PowerSource, ResultRow, StartRequest } from '../../types/models'
-import { DETECTOR_NAMES } from '../../api/spectrum'
+import type { PowerSource, ResultRow, StartRequest, SweepBlock } from '../../types/models'
 import type { TestPageProps } from '../types'
 import { useChatSource } from '../../context/ChatContext'
 import { mA, statusOf } from '../../lib/chatRows'
@@ -71,17 +77,24 @@ const RANGES = {
  *  Row height is fixed rather than left to the content so the cap is exact:
  *  derived from padding it would clip the third row by a pixel or two, which
  *  looks like a bug rather than a limit. */
-const RANGE_ROW_H = 52
+// 48, the sliders' row height: two of these, their gap and Add range then
+// make exactly the three slider rows, so the card fits either mode snugly.
+const RANGE_ROW_H = RANGE_ROW_HEIGHT
 const RANGE_ROW_GAP = 8
-const RANGE_ROWS_VISIBLE = 3
+// Two, then the list scrolls: at three the card stood well over the
+// settings beside it, empty under a one-range plan.
+const RANGE_ROWS_VISIBLE = 2
 const RANGE_LIST_H = RANGE_ROWS_VISIBLE * RANGE_ROW_H + (RANGE_ROWS_VISIBLE - 1) * RANGE_ROW_GAP
 
-/** The ranges card body: one height for both modes, the taller of the three
- *  sliders and the advanced list plus its Add key. Left to the content,
+/** The ranges card body: one height for both modes -- the three slider
+ *  rows, which sit on hairlines with no gap between them, and which the
+ *  advanced list plus its Add key is sized to match. Left to the content,
  *  switching Advanced on or adding a range changed the card's height and,
- *  through the stretched row it shares, moved the results under it. */
+ *  through the stretched row it shares, moved the results under it. Two
+ *  grid gaps it once added for the sliders were never there: they left an
+ *  empty strip under the third row. */
 const RANGES_BODY_H = Math.max(
-  3 * RANGE_ROW_HEIGHT + 2 * GRID_GAP,
+  3 * RANGE_ROW_HEIGHT,
   RANGE_LIST_H + RANGE_ROW_GAP + CONTROL_H.sm,
 )
 
@@ -108,22 +121,20 @@ function restoredBlocks(stored: BlockDraft[] | undefined): BlockDraft[] {
       && restoredSpan(b.powerLo, RANGES.power, -1) !== -1 && restoredSpan(b.powerHi, RANGES.power, -1) !== -1
       && restoredSpan(b.dutyLo, RANGES.duty, -1) !== -1 && restoredSpan(b.dutyHi, RANGES.duty, -1) !== -1
       && restoredSpan(b.hpLo, RANGES.hp, -1) !== -1 && restoredSpan(b.hpHi, RANGES.hp, -1) !== -1)
-    .map((b) => newBlock(RANGES, b))
+    // A stored PA mode outside 0-2 would be refused by the backend; drop it
+    // and the range runs at the run's mode.
+    .map((b) => {
+      const { paMode, ...rest } = newBlock(RANGES, b)
+      return paMode === 0 || paMode === 1 || paMode === 2 ? { ...rest, paMode } : rest
+    })
 }
 
-const POWER_SOURCES: { value: PowerSource; label: string }[] = [
-  { value: 'sensor', label: 'Power sensor' },
-  { value: 'spectrum', label: 'Spectrum analyzer' },
-]
-
-/** The FSC3's detectors. Must match SPECTRUM_DETECTORS in
- *  backend/sweep/models.py, which refuses any other. */
-const SPECTRUM_DETECTORS = ['APE', 'POS', 'NEG', 'SAMP', 'RMS']
-
-/** A typed kHz field as Hz, or null when it is not a positive number. */
-function khzToHz(v: string): number | null {
-  const n = Number(v)
-  return v.trim() !== '' && Number.isFinite(n) && n > 0 ? Math.round(n * 1000) : null
+/** What a remeasure changes about a run: its plan, its PA mode, and the
+ *  record of what it picked (see RemeasureSheet). */
+interface RunOverride {
+  blocks: SweepBlock[]
+  paMode: number
+  remeasure: { from_dbm: number; to_dbm: number; source: string }
 }
 
 const PA_MODES = [
@@ -153,9 +164,22 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   const [specRbwKhz, setSpecRbwKhz] = useState(() => snap.specRbwKhz ?? '100')
   const [specVbwKhz, setSpecVbwKhz] = useState(() => snap.specVbwKhz ?? '300')
   const [specDetector, setSpecDetector] = useState(
-    () => (SPECTRUM_DETECTORS.includes(snap.specDetector ?? '') ? snap.specDetector as string : 'POS'),
+    () => ((SPECTRUM_DETECTORS as readonly string[]).includes(snap.specDetector ?? '') ? snap.specDetector as string : 'POS'),
   )
   const spectrum = powerSource === 'spectrum'
+  // The shared Power from control (as on every page that measures power)
+  // over this page's own saved fields, which stay as they were so a saved
+  // page and the request it sends are unchanged.
+  const powerSrc: PowerSourceState = {
+    source: powerSource, spanKhz: specSpanKhz, rbwKhz: specRbwKhz, vbwKhz: specVbwKhz, detector: specDetector,
+  }
+  const setPowerSrc = (p: PowerSourceState) => {
+    setPowerSource(p.source)
+    setSpecSpanKhz(p.spanKhz)
+    setSpecRbwKhz(p.rbwKhz)
+    setSpecVbwKhz(p.vbwKhz)
+    setSpecDetector(p.detector)
+  }
   const specSpanHz = khzToHz(specSpanKhz)
   const specRbwHz = khzToHz(specRbwKhz)
   const specVbwHz = khzToHz(specVbwKhz)
@@ -180,6 +204,7 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   // undefined for closed. Three states rather than a boolean plus an index,
   // so "adding" cannot be confused with "editing row 0".
   const [editing, setEditing] = useState<BlockDraft | null | undefined>(undefined)
+  const [pasteAnchor, setPasteAnchor] = useState<HTMLElement | null>(null)
   const advanced = advBlocks.length > 0
 
   const editIndex = editing ? advBlocks.findIndex((b) => b.id === editing.id) : -1
@@ -242,8 +267,10 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
     reporter,
   })
 
+  // A remeasure runs through the same path as Run sweep, with its own plan:
+  // the configurations picked by measured power, one step each.
   const run = useMutation({
-    mutationFn: () => {
+    mutationFn: (over: RunOverride | void) => {
       if (!hasBackend) {
         reporter.note(`${protocol} Mode Sweep: no backend wired yet`, 'warn')
         return Promise.resolve(null)
@@ -260,13 +287,14 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
           power_values: range(powerLo, powerHi),
           duty_values: range(dutyLo, dutyHi),
           hp_values: range(hpLo, hpHi),
-          ...(advanced ? { blocks: advBlocks.map(toWire) } : {}),
+          ...(over ? { blocks: over.blocks } : advanced ? { blocks: advBlocks.map(toWire) } : {}),
           // Clamped again here: the field may still hold a typed-but-unblurred
           // value, and the backend rejects anything under the floor outright.
           settle_ms: clampSettleMs(settle),
           cmd_timeout_s: 5,
-          pa_mode: paMode,
+          pa_mode: over ? over.paMode : paMode,
           path_loss_db: pathLossDb,
+          ...(over ? { remeasure: over.remeasure } : {}),
           measure_current: measureCurrent,
           power_source: powerSource,
           ...(spectrum ? {
@@ -397,6 +425,26 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
     run.mutate()
   }
 
+  const [remeasureAnchor, setRemeasureAnchor] = useState<HTMLElement | null>(null)
+  const onRemeasure = async (
+    configs: SweepConfigPoint[], range: { from: number; to: number }, pa: number,
+  ) => {
+    setRemeasureAnchor(null)
+    if (hasBackend && !(await preflight.run())) {
+      reporter.note('cancelled — instruments not ready', 'warn')
+      return
+    }
+    reporter.note(
+      `Remeasuring ${configs.length} configuration${configs.length === 1 ? '' : 's'} `
+      + `measured ${range.from} to ${range.to} dBm, PA ${PA_MODES.find((m) => m.value === pa)?.label ?? pa}`,
+    )
+    run.mutate({
+      blocks: remeasureBlocks(configs),
+      paMode: pa,
+      remeasure: { from_dbm: range.from, to_dbm: range.to, source: imported?.name ?? 'previous run' },
+    })
+  }
+
   const lastRow = status?.last_row
 
   // Said once, when a run's autosave appears. The first value seen is only a
@@ -438,6 +486,8 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
   const liveRows: ResultRow[] = resultsQ.data ?? []
   // While a file is open it is what the table and the graph show.
   const rows: ResultRow[] = imported?.rows ?? liveRows
+  // Rows on any measured-power tab: what Remeasure can pick from.
+  const measuredRows = useMemo(() => rows.filter((r) => tabOf(r) != null).length, [rows])
 
   // Whatever is on screen is what the assistant is asked about -- an imported
   // file when one is open, the live run otherwise -- so the two can never
@@ -481,6 +531,31 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
               total={total}
               plannedTotalMs={estimatedRunMs}
               startedAt={runStartedMs}
+            />
+            {/* Beside Run sweep, as its quieter partner: always there, so the
+                toolbar does not shift when results arrive, and greyed with a
+                reason until there are any. */}
+            <Tooltip title={measuredRows === 0 ? 'Run or import a sweep first' : 'Rerun the configurations that measured a chosen power'}>
+              <span>
+                <Button
+                  variant="outlined"
+                  startIcon={<ReplayIcon />}
+                  onClick={(e) => setRemeasureAnchor(e.currentTarget)}
+                  disabled={running || run.isPending || measuredRows === 0}
+                  sx={actionSx(ACTION_W.default)}
+                >
+                  Remeasure
+                </Button>
+              </span>
+            </Tooltip>
+            <RemeasureSheet
+              anchor={remeasureAnchor}
+              onClose={() => setRemeasureAnchor(null)}
+              rows={rows}
+              source={imported?.name ?? 'the last run'}
+              defaultPaMode={paMode}
+              estimateMs={(n) => estimateRunMs(n, clampSettleMs(settle) + SWEEP_STEP_OVERHEAD_MS)}
+              onRun={(c, r, pa) => void onRemeasure(c, r, pa)}
             />
             <RunControls
                 running={running}
@@ -574,7 +649,7 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                     maxHeight: RANGE_LIST_H,
                     overflowY: 'auto',
                     // Room for the scrollbar so it does not sit on the cards.
-                    pr: advBlocks.length > 3 ? 0.75 : 0,
+                    pr: advBlocks.length > RANGE_ROWS_VISIBLE ? 0.75 : 0,
                   }}
                 >
                 {advBlocks.map((b, i) => (
@@ -629,6 +704,11 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                         ['Power', spanLabel(b.powerLo, b.powerHi), 'dBm'],
                         ['PA DC', spanLabel(b.dutyLo, b.dutyHi), ''],
                         ['HP Max', spanLabel(b.hpLo, b.hpHi), ''],
+                        // Only a range with its own mode shows one; the rest
+                        // run at the PA mode in the settings.
+                        ...(b.paMode != null
+                          ? [['PA mode', PA_MODES.find((m) => m.value === b.paMode)?.label ?? String(b.paMode), ''] as const]
+                          : []),
                       ] as const).map(([label, value, unit]) => (
                         <Box key={label} sx={{ minWidth: 0 }}>
                           <Typography sx={{ ...TEXT.micro, color: 'text.secondary' }}>
@@ -656,17 +736,38 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                 ))}
                 </Box>
                 {/* Rows edit themselves; this is the only other action. Kept
-                    outside the scroll area and pinned to the foot of the
-                    fixed-height body, so it stays reachable and never moves
-                    as rows come and go. */}
-                <MiniAction
-                  startIcon={<AddIcon />}
-                  onClick={() => setEditing(null)}
-                  disabled={running}
-                  sx={{ alignSelf: 'flex-start', mt: 'auto', flexShrink: 0 }}
-                >
-                  Add range
-                </MiniAction>
+                    outside the scroll area, right under the last row: pinned
+                    to the foot of the body it sat apart from the list across
+                    an empty gap whenever the plan was short. */}
+                <Stack direction="row" spacing={0.5} sx={{ mt: `${RANGE_ROW_GAP}px`, flexShrink: 0 }}>
+                  <MiniAction
+                    startIcon={<AddIcon />}
+                    onClick={() => setEditing(null)}
+                    disabled={running}
+                  >
+                    Add range
+                  </MiniAction>
+                  {/* A configuration table copied from Excel: one range per
+                      row, each with its own PA mode. */}
+                  <MiniAction
+                    startIcon={<PasteIcon />}
+                    onClick={(e) => setPasteAnchor(e.currentTarget)}
+                    disabled={running}
+                  >
+                    Paste table
+                  </MiniAction>
+                </Stack>
+                <PasteTableSheet
+                  anchor={pasteAnchor}
+                  onClose={() => setPasteAnchor(null)}
+                  bounds={RANGES}
+                  replacing={advBlocks.length}
+                  estimateMs={(n) => estimateRunMs(n, clampSettleMs(settle) + SWEEP_STEP_OVERHEAD_MS)}
+                  onUse={(blocks) => {
+                    setAdvBlocks(blocks)
+                    reporter.note(`Pasted ${blocks.length} configuration${blocks.length === 1 ? '' : 's'} as ranges`)
+                  }}
+                />
               </>
             ) : (
               // Rows on the card itself, hairlines between them: no tinted
@@ -684,7 +785,7 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
           </Section>
 
           <Section title="Common settings" panel>
-            <FieldGrid columns={2} wide>
+            <FieldGrid columns={3} wide>
               <LabeledField
                 label="Frequency"
                 hint="MHz"
@@ -717,69 +818,17 @@ export function PowerSweepPage({ protocol, group, active }: TestPageProps) {
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
               </LabeledField>
-              <LabeledField
-                label="Power from"
-                select
-                value={powerSource}
-                onChange={(e) => setPowerSource(e.target.value as PowerSource)}
-                disabled={running}
-              >
-                {POWER_SOURCES.map((s) => (
-                  <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>
-                ))}
-              </LabeledField>
             </FieldGrid>
           </Section>
         </TwoCol>
 
-        {/* Only with the analyzer chosen: these settings mean nothing to the
-            power sensor. No centre field (the analyzer is centred on the
-            sweep frequency) and no offset: the run zeroes it, because the
-            path loss is already added to every reading in software. */}
-        {spectrum && (
-          <Section title="Spectrum analyzer" panel>
-            <FieldGrid columns={4} wide>
-              <LabeledField
-                label="Span"
-                hint="kHz"
-                type="number"
-                value={specSpanKhz}
-                onChange={(e) => setSpecSpanKhz(e.target.value)}
-                error={specSpanHz == null}
-                disabled={running}
-              />
-              <LabeledField
-                label="RBW"
-                hint="kHz"
-                type="number"
-                value={specRbwKhz}
-                onChange={(e) => setSpecRbwKhz(e.target.value)}
-                error={specRbwHz == null}
-                disabled={running}
-              />
-              <LabeledField
-                label="VBW"
-                hint="kHz"
-                type="number"
-                value={specVbwKhz}
-                onChange={(e) => setSpecVbwKhz(e.target.value)}
-                error={specVbwHz == null}
-                disabled={running}
-              />
-              <LabeledField
-                label="Detector"
-                select
-                value={specDetector}
-                onChange={(e) => setSpecDetector(e.target.value)}
-                disabled={running}
-              >
-                {SPECTRUM_DETECTORS.map((d) => (
-                  <MenuItem key={d} value={d}>{DETECTOR_NAMES[d] ?? d}</MenuItem>
-                ))}
-              </LabeledField>
-            </FieldGrid>
-          </Section>
-        )}
+        {/* What reads power, as on every page that measures it: the shared
+            control, always laid out, its analyzer fields dimmed while the
+            sensor reads. It was a select here and a card that appeared with
+            the analyzer and pushed the results down. */}
+        <Section title="Measure" panel>
+          <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={running} />
+        </Section>
 
         {/* Deliberately no target here. The manual pages ask for a power and
             the gap to it is the result; a sweep is characterising the PA, so a
