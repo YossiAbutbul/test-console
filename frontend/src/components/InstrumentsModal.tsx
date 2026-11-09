@@ -1,3 +1,4 @@
+import { spectrumModelName } from '../lib/spectrumModel'
 import { memo, useEffect, useRef, useState } from 'react'
 import {
   Alert, Autocomplete, Box, Button, CircularProgress, IconButton, InputAdornment,
@@ -38,7 +39,8 @@ function fieldPlaceholder(id: InstrumentId, placeholder?: boolean): string {
   if (id === 'power-sensor') return 'Serial — e.g., MY50000200'
   if (id === 'rf-switch') return 'COM port — the USB-serial one, e.g. COM4'
   if (id === 'rf-trombone') return 'Device index — 0'
-  if (id === 'spectrum') return 'LAN — 172.16.10.1:5555'
+  // FSC3 on LAN, or FSV3004 on GPIB through a USB adapter.
+  if (id === 'spectrum') return 'LAN 172.16.10.1:5555 or GPIB0::20::INSTR'
   return 'VISA — USB0::0x...::INSTR'
 }
 
@@ -266,7 +268,10 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, focused,
                 <Tooltip title={connected && inst.idn ? inst.idn : ''}>
                   <Box component="span" sx={{ fontFamily: MONO }}>
                     {' · '}
-                    {[inst.model, connected ? idn : null].filter(Boolean).join(' · ')}
+                    {[
+                      inst.id === 'spectrum' ? spectrumModelName(connected ? inst.idn : null, inst.address) : inst.model,
+                      connected ? idn : null,
+                    ].filter(Boolean).join(' · ')}
                   </Box>
                 </Tooltip>
               )}

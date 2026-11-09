@@ -11,6 +11,15 @@ turns that heading into the version and date.
 ## [Unreleased]
 
 ### Added
+- R&S FSV3004 signal and spectrum analyzer over GPIB (GPIB-to-USB adapter),
+  beside the FSC3 on LAN. Same driver and SCPI; the address picks the link:
+  "host:port" is the FSC3 socket, a VISA resource such as
+  "GPIB0::20::INSTR" goes over VISA. Discovery lists R&S analyzers VISA can
+  see ahead of the FSC3's LAN address, the Instruments panel and the
+  Spectrum page name the connected model and link, and a Mode Sweep that
+  opens the analyzer itself does so at that address. The FSV is set to
+  ASCII trace data on connect and handed back to local on disconnect. Needs
+  the adapter's GPIB driver (NI-488.2 or Keysight IO Libraries) on the PC.
 - Mode Sweep: Paste table, beside Add range in the advanced ranges. Paste a
   configuration table copied from Excel (Target, PA mode, Power (Set),
   PA DC, HP Max, with or without the measured P/I/error/Status columns,

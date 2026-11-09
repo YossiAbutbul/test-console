@@ -1,8 +1,9 @@
-"""R&S FSC3 spectrum analyzer routes -- the Components > Spectrum Analyzer panel.
+"""Spectrum analyzer routes -- the Components > Spectrum Analyzer panel.
 
-The FSC3 is reached over LAN (SCPI on TCP 5555), not VISA; the driver and the
-instrument quirks behind it live in `backend/spectrum/`. The address is
-"host[:port]", defaulting to the analyzer's own direct-link address.
+Two analyzers, one driver (`backend/spectrum/`): the R&S FSC3 over LAN (SCPI on
+TCP 5555, address "host[:port]", blank for its direct-link address) and the
+R&S FSV3004 over GPIB through a USB adapter (a VISA address such as
+"GPIB0::20::INSTR"). The address decides the link; see `spectrum/link.py`.
 
 Every instrument call goes through the spectrum bus, taken for a WHOLE
 operation: a trace read is TRAC:DATA? plus the span plus the markers, and a
@@ -17,10 +18,14 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from ...spectrum import DEFAULT_HOST, DEFAULT_PORT, DETECTORS, MARKERS, TRACE_MODES
+from ...spectrum import (
+    DEFAULT_HOST, DEFAULT_PORT, DETECTORS, MARKERS, TRACE_MODES, no_answer_hint, parse_address,
+)
 from ..errors import handle_driver_errors
 from ._bus import InstrumentBusy, bus
-from ._common import ConnectRequest, ConnectResponse, DiscoverCandidate, DiscoverResponse
+from ._common import (
+    ConnectRequest, ConnectResponse, DiscoverCandidate, DiscoverResponse, discover_visa,
+)
 from ._state import state
 
 router = APIRouter(prefix="/instruments", tags=["instruments"])
@@ -47,40 +52,29 @@ async def _command(fn, *args, timeout: float = 25.0):
     raise RuntimeError("unreachable")
 
 
-def parse_address(address: str) -> tuple[str, int]:
-    """'host', 'host:port' or blank -> (host, port)."""
-    a = (address or "").strip()
-    if not a:
-        return DEFAULT_HOST, DEFAULT_PORT
-    if a.lower().startswith("tcp://"):
-        a = a[6:]
-    host, sep, port = a.rpartition(":")
-    if not sep:
-        return a, DEFAULT_PORT
-    try:
-        return host, int(port)
-    except ValueError:
-        raise ValueError(f"not a port number: {port!r}") from None
+#: `parse_address` lives with the link choice in spectrum/link.py; re-exported
+#: here for the callers (and tests) that import it from this module.
+__all__ = ["router", "parse_address"]
 
 
 # ---------- Connect / Disconnect ----------
 
 def _connect(address: str) -> str:
-    from ...spectrum import Analyzer
+    from ...spectrum import make_analyzer
 
-    host, port = parse_address(address)
+    an, where = make_analyzer(address)
     _disconnect()
-    an = Analyzer(host, port)
     try:
         an.connect()
-    except OSError as e:
+    except Exception as e:  # noqa: BLE001 -- a socket OSError or a VISA error
+        if isinstance(e, ValueError):
+            raise
         raise TimeoutError(
-            f"no SCPI answer from {host}:{port} ({type(e).__name__}: {e}) - check the "
-            "LAN cable and that this PC is on the analyzer's subnet (172.16.10.x)"
+            f"no SCPI answer from {where} ({type(e).__name__}: {e}) - {no_answer_hint(where)}"
         ) from None
     state.spectrum = an
     state.spectrum_idn = an.idn
-    state.spectrum_resource = f"{host}:{port}"
+    state.spectrum_resource = where
     state.spectrum_applied = None  # a new session: nothing set on it yet
     return an.idn
 
@@ -100,23 +94,33 @@ def _disconnect() -> None:
 
 @router.get("/discover/spectrum", response_model=DiscoverResponse)
 async def discover() -> DiscoverResponse:
-    """Offer the analyzer's direct-link address.
+    """Offer any R&S analyzer VISA can see (the FSV3004 on GPIB), then the
+    FSC3's direct-link address.
 
-    Nothing is probed: a LAN instrument does not enumerate, and scanning the
-    subnet for port 5555 on every page visit would be noise on the network. An
-    analyzer elsewhere is typed in by address.
+    The LAN side is not probed: a LAN instrument does not enumerate, and
+    scanning the subnet for port 5555 on every page visit would be noise on the
+    network. VISA is scanned through the shared, cached discovery the other
+    VISA panels use, so this adds no second walk of the bus. An analyzer that
+    answers comes first: on the FSV's system the FSC3 address is a dead end.
     """
     default = f"{DEFAULT_HOST}:{DEFAULT_PORT}"
     held = state.spectrum_resource
-    addrs = [held] if held and held != default else []
-    addrs.append(default)
-    return DiscoverResponse(
-        candidates=addrs,
-        details=[DiscoverCandidate(
-            resource=a, idn=state.spectrum_idn if a == held else None,
-            detail=None if a == held else "R&S handheld, direct LAN link",
-        ) for a in addrs],
-    )
+    visa: list[DiscoverCandidate] = []
+    try:
+        for c in await discover_visa():
+            idn = (c.idn or "").upper()
+            # An R&S signal/spectrum analyzer: FSV, FSW, FSL, FSC ... The
+            # model is the second IDN field ("Rohde&Schwarz,FSV3004,...").
+            if "ROHDE" in idn and ",FS" in idn:
+                visa.append(DiscoverCandidate(resource=c.resource, idn=c.idn, detail="GPIB / VISA"))
+    except Exception:  # noqa: BLE001 -- no VISA, or a wedged scan: LAN still offered
+        visa = []
+    lan = ([held] if held and "::" not in held and held != default else []) + [default]
+    details = visa + [DiscoverCandidate(
+        resource=a, idn=state.spectrum_idn if a == held else None,
+        detail=None if a == held else "R&S handheld, direct LAN link",
+    ) for a in lan]
+    return DiscoverResponse(candidates=[d.resource for d in details], details=details)
 
 
 @router.post("/spectrum/connect", response_model=ConnectResponse)

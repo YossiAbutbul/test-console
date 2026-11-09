@@ -148,7 +148,8 @@ class KeysightDCPowerAnalyzer(CurrentMeter):
 
 
 class SpectrumPowerMeter(PowerMeter):
-    """TX power read off the R&S FSC3 instead of the USB power sensor.
+    """TX power read off the spectrum analyzer (R&S FSC3 on LAN or FSV3004
+    on GPIB) instead of the USB power sensor.
 
     Each read arms one sweep and takes the peak marker, so the figure belongs
     to the setting the DUT was just given -- reading the free-running trace
@@ -185,28 +186,34 @@ class SpectrumPowerMeter(PowerMeter):
         host: Optional[str] = None,
         port: Optional[int] = None,
         call=None,
+        address: Optional[str] = None,
     ) -> None:
         self._settings = settings
         self._an = analyzer
         self._owned = analyzer is None
         self._host, self._port = host, port
+        #: The analyzer's address as typed, "host:port" or a VISA resource
+        #: ("GPIB0::20::INSTR" for the FSV3004). Wins over host/port.
+        self._address = address
         self._call = call or (lambda fn, *a: fn(*a))
 
     def connect(self) -> None:
         if self._an is not None:
             return  # borrowed: already open
-        from ..spectrum import DEFAULT_HOST, DEFAULT_PORT, Analyzer
+        from ..spectrum import DEFAULT_HOST, DEFAULT_PORT, make_analyzer, no_answer_hint
 
-        host, port = self._host or DEFAULT_HOST, self._port or DEFAULT_PORT
-        an = Analyzer(host, port)
+        address = self._address
+        if not address:
+            address = f"{self._host or DEFAULT_HOST}:{self._port or DEFAULT_PORT}"
+        an, where = make_analyzer(address)
         try:
             self._call(an.connect)
-        except OSError as e:
+        except Exception as e:  # noqa: BLE001 -- a socket OSError or a VISA error
             # Says which link, as the Instruments panel's connect does: a bare
             # socket "timed out" reads as the DUT or the sensor.
             raise TimeoutError(
-                f"spectrum analyzer: no SCPI answer from {host}:{port} "
-                f"({type(e).__name__}: {e})"
+                f"spectrum analyzer: no SCPI answer from {where} "
+                f"({type(e).__name__}: {e}) - {no_answer_hint(where)}"
             ) from None
         self._an = an
 

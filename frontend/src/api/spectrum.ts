@@ -1,7 +1,7 @@
 import { http } from './client'
 
 /**
- * R&S FSC3 spectrum analyzer over LAN.
+ * R&S FSC3 (LAN) or FSV3004 (GPIB via VISA) spectrum analyzer.
  *
  * Every number is nullable: the analyzer answers 9.91e37 for a level it cannot
  * resolve, and the backend maps that to null rather than a plausible value.

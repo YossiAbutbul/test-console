@@ -1,3 +1,4 @@
+import { spectrumModelLine } from '../../lib/spectrumModel'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Autocomplete, Box, Button, ButtonBase, MenuItem, Select, Stack, Table, TableBody, TableCell,
@@ -261,7 +262,7 @@ function SettingField({ label, action, hint, value, digits, disabled, onApply }:
 }
 
 /**
- * The R&S FSC3 spectrum analyzer, as a live control panel.
+ * The spectrum analyzer (R&S FSC3 on LAN or FSV3004 on GPIB), as a live control panel.
  *
  * Unlike the tests, this page does not put the analyzer back: what is set here
  * is meant to stay set.
@@ -555,7 +556,7 @@ export function SpectrumPage({ group, active }: TestPageProps) {
       <PageBody width="fluid" grow>
         <InstrumentBar
           name="Spectrum analyzer"
-          model="R&S FSC3 · LAN SCPI"
+          model={spectrumModelLine(sa.status === 'connected' ? sa.idn : null, address)}
           failure={sa.failure}
           status={sa.status}
           detail={[sa.idn, address].filter(Boolean).join(' · ') || null}

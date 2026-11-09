@@ -29,7 +29,6 @@ from ..workbook import export_filename
 from .errors import handle_driver_errors
 from .instruments._bus import bus
 from .instruments._state import state
-from .instruments.spectrum import parse_address
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +46,9 @@ class StartRequest(BaseModel):
     power_sensor_serial: str | None = None
     dc_analyzer_resource: str | None = None
     dc_analyzer_channel: int = 3
-    #: "host[:port]" of the FSC3, used only when the sweep opens it itself.
+    #: The analyzer's address, used only when the sweep opens it itself:
+    #: "host[:port]" for the FSC3, a VISA resource such as "GPIB0::20::INSTR"
+    #: for the FSV3004.
     spectrum_address: str | None = None
 
 
@@ -58,11 +59,10 @@ def _build_power_meter(req: StartRequest) -> PowerMeter:
         state.spectrum_applied = None
         # Every analyzer call rides the spectrum bus, as the Spectrum page's do:
         # one SCPI stream, and two callers on it desync it.
-        host, port = parse_address(req.spectrum_address or "")
         return SpectrumPowerMeter(
             req.config.spectrum,
             analyzer=state.spectrum,
-            host=host, port=port,
+            address=req.spectrum_address or None,
             call=bus("spectrum").call_sync,
         )
     # Prefer the session `/instruments` already holds. Opening a second one to

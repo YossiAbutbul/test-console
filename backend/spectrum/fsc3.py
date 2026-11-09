@@ -72,6 +72,13 @@ class Analyzer:
         self.s = self._link(self.host, self.port)
         self.idn = self.s.query("*IDN?")
         self.s.error()                       # drain whatever was queued
+        if "FSV" in self.idn.upper():
+            # The FSV keeps its trace format across sessions, and a program
+            # that left it REAL would hand TRAC:DATA? back as binary. ASCII is
+            # its default and what trace() parses. Not sent to the FSC3, whose
+            # verified command list does not include it.
+            self.s.write("FORM ASC")
+            self.s.error()
         self.saved = self.read_state()
         self.state = dict(self.saved)
         return self.idn

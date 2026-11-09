@@ -90,6 +90,9 @@ def list_visa_resources_idn() -> list[DiscoverCandidate]:
         for r, idn in (
             (_state.dc_analyzer_resource, _state.dc_analyzer_idn),
             (_state.network_analyzer_resource, _state.network_analyzer_idn),
+            # A GPIB spectrum analyzer is a VISA resource too (a LAN one never
+            # matches a VISA key, so it is harmless here).
+            (_state.spectrum_resource, _state.spectrum_idn),
         ) if r
     }
     # NOTE: never close this. `pyvisa.ResourceManager()` is a process-wide
