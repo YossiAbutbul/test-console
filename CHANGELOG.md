@@ -11,6 +11,17 @@ turns that heading into the version and date.
 ## [Unreleased]
 
 ### Added
+- LoRa Frequency accuracy test (spectrum analyzer only). Keys a plain CW
+  carrier (the CW page's command: frequency, power, PA mode) and
+  zooms in on it in stages with the carrier kept on throughout: set span, RBW
+  and VBW, settle, sweep, marker to peak, marker to centre frequency, then the
+  next, narrower stage. Defaults 1 MHz / 20 kHz / 1 kHz,
+  ending at about a hertz per trace bin. Reports the measured frequency, the
+  error in Hz and ppm, and each stage's peak; flags a peak at the edge of a
+  span. Manual and Automation tabs: Automation measures a plan of
+  frequencies across bands ("868.1, 902.3-927.5:0.2" per row, with its own
+  power and PA mode), judges each against a ± ppm limit, and exports CSV. The
+  DUT is stopped after every point, and one failed point does not end the run.
 - R&S FSV3004 signal and spectrum analyzer over GPIB (GPIB-to-USB adapter),
   beside the FSC3 on LAN. Same driver and SCPI; the address picks the link:
   "host:port" is the FSC3 socket, a VISA resource such as

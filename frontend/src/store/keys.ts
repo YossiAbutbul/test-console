@@ -36,6 +36,8 @@ export const STORAGE_KEYS = {
   signalGeneratorPage: 'signal-generator-page-snapshot-v1',
   dcAnalyzerPage: 'dc-analyzer-page-snapshot-v1',
   spectrumPage: 'spectrum-page-snapshot-v1',
+  // v2: PA mode now defaults to Auto, as on the CW page; v1 saved Off.
+  freqAccuracyPage: 'freq-accuracy-page-v2',
   powerSweepPage: 'power-sweep-page-snapshot-v1',
 } as const
 

@@ -22,7 +22,7 @@ from uvicorn.logging import AccessFormatter, DefaultFormatter
 
 from . import capabilities, paths
 from .api import (
-    ble_router, chat_router, device_router, instruments_router,
+    ble_router, chat_router, device_router, freq_accuracy_router, instruments_router,
     load_pull_router, motor_router, servo_router, test_router,
 )
 from .api.instruments import close_all as instruments_close_all
@@ -151,6 +151,7 @@ app.add_middleware(
 app.include_router(ble_router)
 app.include_router(chat_router)
 app.include_router(device_router)
+app.include_router(freq_accuracy_router)
 app.include_router(instruments_router)
 app.include_router(load_pull_router)
 app.include_router(motor_router)
