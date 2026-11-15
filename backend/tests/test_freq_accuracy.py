@@ -129,7 +129,26 @@ class FakeDevice:
         self.calls.append("stop")
 
 
-def _run(monkeypatch, an, dev, stages=STAGES, freqs=(NOMINAL,)):
+class FakeLteDevice:
+    def __init__(self, ok: bool = True) -> None:
+        self.ok = ok
+        self.calls: list[str] = []
+
+    async def lte_modem_off(self, timeout=5.0):
+        self.calls.append("modem off")
+        return SimpleNamespace(ok=True, status=0)
+
+    async def lte_modem_on(self, timeout=5.0):
+        self.calls.append("modem on")
+        return SimpleNamespace(ok=True, status=0)
+
+    async def lte_cw(self, **kw):
+        start = kw["tstrf_cmd"] == fa.LteTstrfCmd.START_TX_TEST
+        self.calls.append(f"{'start' if start else 'abort'} {kw['earfcn']} {kw['tx_power']} {kw['offset_hz']}")
+        return SimpleNamespace(ok=self.ok or not start, status=0 if self.ok else 255)
+
+
+def _run(monkeypatch, an, dev, stages=STAGES, freqs=(NOMINAL,), radio="LoRa", earfcn=None, power=14):
     settled: list[int] = []
 
     async def settle(ms):
@@ -140,8 +159,9 @@ def _run(monkeypatch, an, dev, stages=STAGES, freqs=(NOMINAL,)):
     monkeypatch.setattr(fa, "manager", SimpleNamespace(device=dev))
     monkeypatch.setattr(state, "spectrum", an)
     req = fa.StartRequest(
-        points=[fa.PointIn(freq_hz=f, power_dbm=14) for f in freqs],
+        points=[fa.PointIn(freq_hz=f, power_dbm=power, earfcn=earfcn) for f in freqs],
         stages=[fa.StageIn(span_hz=s.span_hz, rbw_hz=s.rbw_hz, vbw_hz=s.vbw_hz) for s in stages],
+        radio=radio,
     )
 
     async def go():
@@ -241,3 +261,36 @@ def test_each_stage_settles_then_peaks_and_centres_with_the_cw_kept_on(monkeypat
         "span 20000", "settle 400", "sweep", "peak peak", "marker to centre",
         "span 1000", "settle 400", "sweep", "peak peak", "marker to centre",
     ]
+
+
+LTE_HZ = 1_880_000_000      # EARFCN 18900, band 2 uplink
+
+
+def test_lte_keys_the_lte_cw_command_and_owns_the_modem(monkeypatch):
+    """Modem cycled before the first point, the CW page's LTE command with no
+    offset, the test aborted after the point, the modem off at the end."""
+    an, dev = FakeAnalyzer(tone=LTE_HZ + 940.0), FakeLteDevice()
+    out = _run(monkeypatch, an, dev, freqs=(LTE_HZ,), radio="LTE", earfcn=18900, power=22.5)
+    assert out.state == "done", out.error
+    assert out.radio == "LTE"
+    assert dev.calls == ["modem off", "modem on", "start 18900 2250 0", "abort 18900 2250 0", "modem off"]
+    pt = out.points[0]
+    assert pt.earfcn == 18900
+    assert pt.result.error_ppm == pytest.approx(0.5, abs=0.01)
+
+
+def test_a_refused_lte_start_is_still_aborted_and_the_modem_powered_off(monkeypatch):
+    an, dev = FakeAnalyzer(tone=LTE_HZ), FakeLteDevice(ok=False)
+    out = _run(monkeypatch, an, dev, freqs=(LTE_HZ,), radio="LTE", earfcn=18900, power=23)
+    assert out.state == "error" and "refused the CW" in out.error
+    assert dev.calls[-2:] == ["abort 18900 2300 0", "modem off"]
+
+
+def test_lte_points_need_an_earfcn_and_at_most_23_dbm():
+    st = [fa.StageIn(span_hz=1e6, rbw_hz=1e4, vbw_hz=1e4)]
+    with pytest.raises(Exception):
+        fa.StartRequest(points=[fa.PointIn(freq_hz=LTE_HZ, power_dbm=20)], stages=st, radio="LTE")
+    with pytest.raises(Exception):
+        fa.StartRequest(points=[fa.PointIn(freq_hz=LTE_HZ, power_dbm=24, earfcn=18900)], stages=st, radio="LTE")
+    with pytest.raises(Exception):
+        fa.StartRequest(points=[fa.PointIn(freq_hz=NOMINAL, power_dbm=14.5)], stages=st)

@@ -9,9 +9,12 @@ export interface FreqStage {
 
 /** One carrier to measure: the CW page's command (frequency, power, PA mode). */
 export interface FreqPoint {
+  /** The tone's nominal frequency; for LTE, the EARFCN's uplink centre. */
   freq_hz: number
   power_dbm: number
   pa_mode: number
+  /** LTE only: the channel keyed. */
+  earfcn?: number | null
 }
 
 export interface FreqAccuracyStart {
@@ -22,6 +25,9 @@ export interface FreqAccuracyStart {
   settle_ms: number
   /** Omit for each point's TX power plus headroom (backend/freqacc/zoom.py). */
   ref_level_dbm?: number | null
+  /** Which CW command keys the tone: LoRa power, or LTE CW (the modem is
+   *  cycled for the run and powered off after it). */
+  radio?: 'LoRa' | 'LTE'
 }
 
 export interface FreqStageResult extends FreqStage {

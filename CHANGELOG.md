@@ -11,6 +11,27 @@ turns that heading into the version and date.
 ## [Unreleased]
 
 ### Added
+- The launcher's window says not to close it: its title reads "TEST
+  CONSOLE - RUNNING - DO NOT CLOSE (Ctrl+C to stop)", which stays in the
+  title bar, tab and taskbar while the log scrolls, and a banner at start
+  explains why and how to stop it properly.
+- App icon as `frontend/public/favicon.ico` (the favicon's flask, 16 to 256
+  px). The desktop shortcut to `Test Console.bat` uses it, and the next
+  `build-app.ps1` gives `TestConsole.exe` it too: the spec already looked for
+  this file, which did not exist.
+- LTE Frequency accuracy, the LoRa page's twin under LTE: the same zoom,
+  stages, per-stage and per-row tolerances and tables, keyed with the LTE CW
+  page's command (EARFCN, power up to 23 dBm, no offset). Channels are typed
+  as EARFCNs or MHz in the selected bands, like every LTE page, and convert
+  when the unit is switched. The backend run takes `radio: "LTE"`: it powers
+  the modem off and on before the first point, aborts each point's test
+  after it, and powers the modem off at the end. No PA mode.
+- Path loss calibration guide: "How to calibrate" in the Bench pane's path
+  loss heading opens a floating sheet (not modal, the page stays usable)
+  with three animated steps -- reference cable, set 0 dBm at the meter, connect
+  the chain and read the loss -- for the power sensor or the spectrum analyzer.
+  It docks in the bottom-right corner, over the pane, and can be dragged anywhere by its
+  header (remembered; double-click the header to dock it again).
 - LoRa Frequency accuracy test (spectrum analyzer only). Keys a plain CW
   carrier (the CW page's command: frequency, power, PA mode) and
   zooms in on it in stages with the carrier kept on throughout: set span, RBW
@@ -20,7 +41,15 @@ turns that heading into the version and date.
   error in Hz and ppm, and each stage's peak; flags a peak at the edge of a
   span. Manual and Automation tabs: Automation measures a plan of
   frequencies across bands ("868.1, 902.3-927.5:0.2" per row, with its own
-  power and PA mode), judges each against a ± ppm limit, and exports CSV. The
+  powers, "0,16,30", PA mode and ± ppm tolerance; blank = no verdict),
+  judges each point against its row's tolerance, and exports CSV. Its plan
+  and the zoom stages use the Sweep table's layout from the power page
+  (numbered rows, settle in the heading); the stages show three rows and
+  scroll past that. Each stage has its own ± ppm tolerance for its peak
+  (default 30 ppm, as for a sweep row); on Automation a point passes only
+  when its row's tolerance and every judged stage do, on Manual when every
+  judged stage does. Stages measured shows each stage's error in ppm and
+  verdict. The
   DUT is stopped after every point, and one failed point does not end the run.
 - R&S FSV3004 signal and spectrum analyzer over GPIB (GPIB-to-USB adapter),
   beside the FSC3 on LAN. Same driver and SCPI; the address picks the link:

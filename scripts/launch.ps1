@@ -188,8 +188,22 @@ try {
         } -ArgumentList $probe, $url
     }
 
+    # The title is the one line of a console that never scrolls away -- it
+    # stays in the title bar, the terminal tab and the taskbar while the log
+    # runs -- so the warning lives there. Closing this window kills the
+    # backend mid-run: the PA can stay keyed and the next connect refuses.
+    $Host.UI.RawUI.WindowTitle = 'TEST CONSOLE - RUNNING - DO NOT CLOSE  (Ctrl+C to stop)'
+
+    $bar = '  ' + ('=' * 66)
     Write-Host ''
-    Step "Test console -> $url    (Ctrl+C here to stop)"
+    Write-Host $bar -ForegroundColor Yellow
+    Write-Host '   THIS WINDOW IS THE TEST CONSOLE.  DO NOT CLOSE IT.' -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host "   The app runs here and is used in the browser at $url" -ForegroundColor Yellow
+    Write-Host '   Closing this window stops it for everyone, mid-test included.' -ForegroundColor Yellow
+    Write-Host '   To stop it properly, press Ctrl+C in this window.' -ForegroundColor Yellow
+    Write-Host '   Minimising it is fine.' -ForegroundColor Yellow
+    Write-Host $bar -ForegroundColor Yellow
     Write-Host ''
 
     Set-Location $Root

@@ -1,4 +1,4 @@
-"""Frequency accuracy (LoRa): key a CW tone and zoom in on it with the analyzer.
+"""Frequency accuracy (LoRa, LTE): key a CW tone and zoom in on it with the analyzer.
 
 Start takes a list of points (one from the Manual tab, a multi-band plan from
 the Automation tab). For each it keys the DUT, waits for it to settle, runs the
@@ -10,6 +10,12 @@ point failing does not end the run.
 The analyzer must already be connected (the page's preflight does that): the
 zoom borrows the session `/instruments` holds rather than opening a second one
 on the same SCPI stream.
+
+LTE keys the CW page's command (LTE CW: EARFCN, power, no offset) instead of
+LoRa power, and owns the modem for the run as load pull does: powered off and
+on before the first point (a test left running would swallow the first START),
+each point's test aborted after it (the modem takes one test at a time), and
+the modem off at the end.
 """
 
 from __future__ import annotations
@@ -21,10 +27,12 @@ from dataclasses import asdict
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..ble import manager
-from ..device import PaMode
+from ..device import (
+    MAX_TX_POWER_DBM, MODEM_ON_TIMEOUT_S, TX_POWER_SCALE, LteTstrfCmd, PaMode,
+)
 from ..sweep.models import DEFAULT_SETTLE_MS, MIN_SETTLE_MS
 from ..freqacc.zoom import (
     Stage, ZoomError, edge_warning, measure_stage, prepare, ref_level_for, setup_stage,
@@ -37,6 +45,12 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/test/frequency-accuracy", tags=["test"])
 
+Radio = Literal["LoRa", "LTE"]
+
+#: The LTE CW test's own duration. Far longer than any point's zoom -- a 10 Hz
+#: RBW sweep alone can run tens of seconds -- since the point aborts it the
+#: moment it is measured; the modem ending the tone mid-zoom would read noise.
+LTE_CW_TIME_MS = 600_000
 
 
 async def _settle(ms: int) -> None:
@@ -51,9 +65,14 @@ class StageIn(BaseModel):
 
 
 class PointIn(BaseModel):
+    #: The tone's nominal frequency. For LTE, the EARFCN's uplink centre as the
+    #: page resolved it (frontend/src/lib/earfcn.ts); the error is against this.
     freq_hz: int = Field(..., ge=1, le=0xFFFFFFFF)
-    power_dbm: int = Field(..., ge=0, le=255)
+    #: LoRa: whole dBm, 0..255 on the wire. LTE: 0..23 dBm in 0.01 dB steps.
+    power_dbm: float = Field(..., ge=0, le=255)
     pa_mode: int = Field(default=0, ge=0, le=2)
+    #: LTE only: the channel to key.
+    earfcn: Optional[int] = Field(default=None, ge=0, le=0xFFFFFFFF)
 
 
 class StartRequest(BaseModel):
@@ -68,6 +87,20 @@ class StartRequest(BaseModel):
     #: None: each point's TX power plus headroom. The level does not move the
     #: frequency reading, but a tone off the top of the screen overloads the mixer.
     ref_level_dbm: Optional[float] = Field(default=None, ge=-80, le=30)
+    #: Which CW command keys the tone.
+    radio: Radio = "LoRa"
+
+    @model_validator(mode="after")
+    def _points_fit_the_radio(self) -> "StartRequest":
+        for p in self.points:
+            if self.radio == "LTE":
+                if p.earfcn is None:
+                    raise ValueError("an LTE point needs an EARFCN")
+                if p.power_dbm > MAX_TX_POWER_DBM:
+                    raise ValueError(f"LTE power tops out at {MAX_TX_POWER_DBM} dBm")
+            elif p.power_dbm != int(p.power_dbm):
+                raise ValueError("LoRa power is a whole dBm")
+        return self
 
 
 class StageOut(BaseModel):
@@ -92,8 +125,9 @@ class ResultOut(BaseModel):
 
 class PointOut(BaseModel):
     freq_hz: int
-    power_dbm: int
+    power_dbm: float
     pa_mode: int
+    earfcn: Optional[int] = None
     state: Literal["pending", "running", "done", "error"] = "pending"
     stages: list[StageOut] = []
     result: Optional[ResultOut] = None
@@ -103,6 +137,8 @@ class PointOut(BaseModel):
 
 class StatusOut(BaseModel):
     state: Literal["idle", "running", "done", "cancelled", "error"]
+    #: Whose run this is: the LoRa and LTE pages share one run at a time.
+    radio: Radio = "LoRa"
     phase: str = ""
     stage_count: int = 0
     #: Index of the point being measured, -1 when none is.
@@ -137,18 +173,58 @@ def _phase(what: str) -> str:
     return f"Point {st.current + 1} of {n}, {what}" if n > 1 else what[:1].upper() + what[1:]
 
 
+async def _key_on(req: StartRequest, pt: PointOut):
+    """The CW page's command for the radio: a plain carrier."""
+    dev = manager.device
+    if req.radio == "LTE":
+        return await dev.lte_cw(
+            earfcn=pt.earfcn, time_ms=LTE_CW_TIME_MS,
+            tx_power=round(pt.power_dbm * TX_POWER_SCALE), offset_hz=0,
+            tstrf_cmd=LteTstrfCmd.START_TX_TEST, timeout=5.0,
+        )
+    # LoRa power, not the Debug page's lora_cw, whose PA duty cycle / HP max
+    # trims are a debug tool.
+    return await dev.lora_power(
+        freq_hz=pt.freq_hz, power_dbm=int(pt.power_dbm), pa_mode=PaMode(pt.pa_mode), timeout=5.0,
+    )
+
+
+async def _key_off(req: StartRequest, pt: PointOut) -> None:
+    dev = manager.device
+    if req.radio == "LTE":
+        # Not tidiness: the modem drops a START that arrives while another
+        # test runs, so an un-aborted point would have every later point
+        # measure its channel.
+        await dev.lte_cw(
+            earfcn=pt.earfcn, time_ms=LTE_CW_TIME_MS,
+            tx_power=round(pt.power_dbm * TX_POWER_SCALE), offset_hz=0,
+            tstrf_cmd=LteTstrfCmd.ABORT_TEST, timeout=5.0,
+        )
+        return
+    await dev.stop_test(timeout=5.0)
+
+
+async def _modem_cycle() -> None:
+    """Down first and unconditionally: nothing reports the modem's power
+    state, and a test left running on it would swallow the first START. A
+    refusal to power down most likely means it was already down."""
+    dev = manager.device
+    try:
+        await dev.lte_modem_off()
+    except Exception as e:  # noqa: BLE001
+        log.warning("LTE modem off (run start) failed: %s", e)
+    r = await dev.lte_modem_on(timeout=MODEM_ON_TIMEOUT_S)
+    if not r.ok:
+        raise RuntimeError(f"the LTE modem did not come up (status {r.status})")
+
+
 async def _measure_point(req: StartRequest, pt: PointOut) -> None:
     """Key the carrier, zoom in on it, record the result. Stopping the DUT is
     the caller's, so it happens whatever this raises."""
     st = _run.status
     an = state.spectrum
-    dev = manager.device
     ref = req.ref_level_dbm if req.ref_level_dbm is not None else ref_level_for(pt.power_dbm)
-    # The CW page's command (LoRa power): a plain carrier. Not the Debug
-    # page's lora_cw, whose PA duty cycle / HP max trims are a debug tool.
-    r = await dev.lora_power(
-        freq_hz=pt.freq_hz, power_dbm=pt.power_dbm, pa_mode=PaMode(pt.pa_mode), timeout=5.0,
-    )
+    r = await _key_on(req, pt)
     if not r.ok:
         raise ZoomError(f"the DUT refused the CW command (status {r.status})")
     await bus("spectrum").call(prepare, an, ref, timeout=30.0)
@@ -192,6 +268,9 @@ async def _execute(req: StartRequest) -> None:
     # read must set the analyzer up again rather than trust it.
     state.spectrum_applied = None
     try:
+        if req.radio == "LTE":
+            st.phase = "Powering the LTE modem"
+            await _modem_cycle()
         for i, pt in enumerate(st.points):
             if _run.cancel.is_set():
                 raise _Cancelled()
@@ -211,7 +290,7 @@ async def _execute(req: StartRequest) -> None:
                 # Stopped even when the CW command itself failed: a timeout
                 # there does not prove the DUT did not key.
                 try:
-                    await dev.stop_test(timeout=5.0)
+                    await _key_off(req, pt)
                 except Exception as e:  # noqa: BLE001
                     st.warnings.append(f"Stopping the DUT failed: {e}")
         failed = [p for p in st.points if p.state == "error"]
@@ -226,6 +305,12 @@ async def _execute(req: StartRequest) -> None:
         st.state, st.phase, st.error = "error", "Failed", str(e) or type(e).__name__
     finally:
         st.current = -1
+        if req.radio == "LTE":
+            # The run owned the modem from its first point; it hands it back off.
+            try:
+                await dev.lte_modem_off()
+            except Exception as e:  # noqa: BLE001
+                st.warnings.append(f"Powering the LTE modem off failed: {e}")
 
         def release() -> None:
             an.set_continuous(True)
@@ -247,8 +332,8 @@ async def start(req: StartRequest) -> StatusOut:
         raise HTTPException(409, "Spectrum analyzer not connected")
     _run.cancel.clear()
     _run.status = StatusOut(
-        state="running", phase="Starting", stage_count=len(req.stages),
-        points=[PointOut(freq_hz=p.freq_hz, power_dbm=p.power_dbm, pa_mode=p.pa_mode)
+        state="running", phase="Starting", stage_count=len(req.stages), radio=req.radio,
+        points=[PointOut(freq_hz=p.freq_hz, power_dbm=p.power_dbm, pa_mode=p.pa_mode, earfcn=p.earfcn)
                 for p in req.points],
     )
     _run.task = asyncio.create_task(_execute(req))

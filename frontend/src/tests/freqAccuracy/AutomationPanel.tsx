@@ -1,29 +1,43 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
-  Box, IconButton, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField,
-  Typography,
+  Box, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/AddRounded'
-import DeleteIcon from '@mui/icons-material/DeleteRounded'
 import DownloadIcon from '@mui/icons-material/DownloadRounded'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweepRounded'
 import { useConnection } from '../../context/ConnectionContext'
+import { formatDuration } from '../../lib/async'
 import { downloadCsv, exportName } from '../../lib/download'
+import { clampSettleMs } from '../../lib/settle'
 import { selectOnFocus } from '../../lib/selectOnFocus'
+import { parseRangeSpec } from '../../lib/numericList'
+import { channelIssues, shortChannelIssue } from '../../lib/earfcn'
 import {
   FAIL_ROW_SX, HeadCell, MONO, MiniAction, NUM_CELL_SX, Section, TEXT, VerdictMark, VerdictTally,
   type VerdictFilter,
 } from '../../ui'
 import { MeasureSection, type MeasureSettings } from './MeasureSection'
+import { CellField, ColHead, PlanFooter, PlanGrid, PlanRow } from './planTable'
 import {
-  DEFAULT_ROWS, PA_MODE_LABEL, formatErrorHz, mhzToHz, planPoints, ppmVerdict, rowFreqs, rowPower, type PlanRow,
+  DEFAULT_ROWS, PA_MODE_LABEL, estimateRunMs, formatErrorHz, limitValid, mhzToHz, planPoints, pointVerdict,
+  rowChannels, rowPointCount, rowPowers, type PlanRow as PlanRowSpec,
 } from './stages'
+import { LTE_MAX_POWER_DBM, type Radio } from './radio'
 
 /** One measured point, as kept between visits and exported. */
 export interface AutoResult {
   freqMhz: number
+  /** LTE: the channel keyed. */
+  earfcn?: number | null
   power: number
   paMode: number
+  /** The row's tolerance it was judged by; null (or absent, in results kept
+   *  from before the tolerance moved onto the row) is not judged. */
+  limitPpm?: number | null
+  /** Each stage's peak in ppm of nominal, and the tolerance it was judged by
+   *  (absent in results kept from before stages had one). */
+  stagePpm?: number[]
+  stageLimits?: (number | null)[]
   measuredHz: number | null
   errorHz: number | null
   errorPpm: number | null
@@ -32,21 +46,31 @@ export interface AutoResult {
   note: string
 }
 
-const COLS = 'minmax(180px, 2fr) minmax(90px, 1fr) minmax(100px, 1fr) 32px'
+// Number, frequency, power, PA mode, tolerance, the row's point count, remove:
+// the Sweep table's columns on the power page. They fill the row, but not in
+// equal shares: a frequency spec runs long, a power list less, PA mode and a
+// tolerance of a couple of digits are fixed.
+const COLS = '20px minmax(160px, 2fr) minmax(120px, 1.3fr) 116px 112px 64px 32px'
+// The columns' minimums and gaps, so only the outer box ever scrolls sideways.
+const MIN_TABLE_W = 20 + 160 + 120 + 116 + 112 + 64 + 32 + 6 * 8
+// LTE has no PA mode: the modem has none to set.
+const LTE_COLS = '20px minmax(160px, 2fr) minmax(120px, 1.3fr) 112px 64px 32px'
+const LTE_MIN_TABLE_W = 20 + 160 + 120 + 112 + 64 + 32 + 5 * 8
 
-const CSV_HEADER = [
-  'Frequency [MHz]', 'Power [dBm]', 'PA mode', 'Measured [MHz]', 'Error [Hz]', 'Error [ppm]',
-  'Level [dBm]', 'Verdict', 'Note',
-]
+const CSV_TAIL = ['Tolerance [± ppm]', 'Measured [MHz]', 'Error [Hz]', 'Error [ppm]', 'Level [dBm]', 'Verdict', 'Note']
+const CSV_HEADER = ['Frequency [MHz]', 'Power [dBm]', 'PA mode', ...CSV_TAIL]
+const LTE_CSV_HEADER = ['EARFCN', 'Frequency [MHz]', 'Power [dBm]', ...CSV_TAIL]
 
 export function AutomationPanel({
-  rows, onRowsChange, measure, onMeasureChange, limitPpm, results, planned, onClear, disabled,
+  radio, sweepAction, rows, onRowsChange, measure, onMeasureChange, results, planned, onClear, disabled,
 }: {
-  rows: PlanRow[]
-  onRowsChange: (next: PlanRow[]) => void
+  radio: Radio
+  /** LTE: the channel unit and bands, beside Add. */
+  sweepAction?: ReactNode
+  rows: PlanRowSpec[]
+  onRowsChange: (next: PlanRowSpec[]) => void
   measure: MeasureSettings
   onMeasureChange: (next: MeasureSettings) => void
-  limitPpm: number | null
   /** Measured so far, in plan order. */
   results: AutoResult[]
   /** Points in the run filling `results` in, while one is. */
@@ -56,11 +80,15 @@ export function AutomationPanel({
 }) {
   const { status: bleStatus } = useConnection()
   const [filter, setFilter] = useState<VerdictFilter>('all')
-  const total = planPoints(rows).length
-  const update = (i: number, patch: Partial<PlanRow>) =>
+  const lte = radio.id === 'LTE'
+  const cols = lte ? LTE_COLS : COLS
+  const total = planPoints(rows, radio).length
+  const byEarfcn = radio.id === 'LTE' && radio.unit === 'earfcn'
+  const update = (i: number, patch: Partial<PlanRowSpec>) =>
     onRowsChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)))
 
-  const verdicts = results.map((r) => ppmVerdict(r.errorPpm, limitPpm))
+  const verdicts = results.map((r) =>
+    pointVerdict(r.errorPpm, r.limitPpm ?? null, r.stagePpm ?? [], r.stageLimits ?? []))
   const pass = verdicts.filter((v) => v === 'pass').length
   const fail = verdicts.filter((v) => v === 'fail').length
   const shown = results
@@ -69,16 +97,16 @@ export function AutomationPanel({
 
   const exportCsv = () => {
     const mac = bleStatus?.address ?? null
-    void downloadCsv(CSV_HEADER, results.map((r, i) => [
-      r.freqMhz, r.power, PA_MODE_LABEL[r.paMode] ?? r.paMode,
+    void downloadCsv(lte ? LTE_CSV_HEADER : CSV_HEADER, results.map((r, i) => [
+      ...(lte ? [r.earfcn ?? '', r.freqMhz, r.power] : [r.freqMhz, r.power, PA_MODE_LABEL[r.paMode] ?? r.paMode]),
+      r.limitPpm ?? '',
       r.measuredHz != null ? mhzToHz(r.measuredHz) : '',
       r.errorHz != null ? Math.round(r.errorHz) : '',
       r.errorPpm != null ? r.errorPpm.toFixed(4) : '',
       r.levelDbm != null ? r.levelDbm.toFixed(2) : '',
       verdicts[i] ?? '', r.note,
-    ]), exportName('frequency-accuracy', mac, 'csv'), {
-      test: 'LoRa frequency accuracy', dut_mac: mac,
-      limit_ppm: limitPpm ?? undefined,
+    ]), exportName(lte ? 'lte-frequency-accuracy' : 'frequency-accuracy', mac, 'csv'), {
+      test: `${radio.id} frequency accuracy`, dut_mac: mac,
       stages: measure.stages.map((s) => `${s.span_hz}/${s.rbw_hz}/${s.vbw_hz} Hz`).join(' > '),
     })
   }
@@ -93,6 +121,7 @@ export function AutomationPanel({
             <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
               {total} point{total === 1 ? '' : 's'}
             </Typography>
+            {sweepAction}
             <MiniAction startIcon={<AddIcon />} disabled={disabled}
               onClick={() => onRowsChange([...rows, { ...(rows[rows.length - 1] ?? DEFAULT_ROWS[0]), freq: '' }])}>
               Add
@@ -100,40 +129,72 @@ export function AutomationPanel({
           </Stack>
         }
       >
-        <Box sx={{ display: 'grid', gridTemplateColumns: COLS, gap: 1, mb: 0.75 }}>
-          <ColHead label="Frequency" hint="MHz · 868.1, 902.3-927.5:0.2" />
+        <PlanGrid cols={cols} minWidth={lte ? LTE_MIN_TABLE_W : MIN_TABLE_W} heads={<>
+          <span />
+          {byEarfcn ? <ColHead label="EARFCN" /> : <ColHead label="Freq" hint="MHz" />}
           <ColHead label="Power" hint="dBm" />
-          <ColHead label="PA mode" />
-          <Box />
-        </Box>
-        <Stack spacing={0.75}>
+          {!lte && <ColHead label="PA mode" />}
+          <ColHead label="Tolerance" hint="± ppm" />
+          <span />
+          <span />
+        </>}>
           {rows.map((r, i) => {
-            const badFreq = rowFreqs(r) === null
-            const badPower = rowPower(r) === null
+            const badFreq = rowChannels(r, radio) === null
+            const badPower = rowPowers(r, radio) === null
+            const badTol = !limitValid(r.tolPpm)
+            const n = rowPointCount(r, radio)
+            // Names the bands, so the fix (which to untick, or tick) is in it.
+            const freqHelp = !badFreq ? undefined
+              : radio.id === 'LTE'
+                ? shortChannelIssue(channelIssues(parseRangeSpec(r.freq), byEarfcn, radio.bands))
+                  || (byEarfcn ? 'Try 18900 or 18700-19100:200' : 'Try 1880 or 1860-1900:20')
+                : 'Try 915, 902.3,915 or 902.3-927.5:0.2'
             return (
-              <Box key={i} sx={{ display: 'grid', gridTemplateColumns: COLS, gap: 1, alignItems: 'center' }}>
-                <TextField size="small" value={r.freq} placeholder="915" disabled={disabled}
-                  error={badFreq} onFocus={selectOnFocus}
-                  title={badFreq ? 'Try 915, 868.1, 902.3 or 902.3-927.5:0.2' : undefined}
+              <PlanRow key={i} cols={cols} n={i + 1}
+                readout={`${n} point${n === 1 ? '' : 's'}`}
+                onRemove={() => onRowsChange(rows.filter((_, k) => k !== i))}
+                removeDisabled={disabled || rows.length <= 1}>
+                <CellField value={r.freq} disabled={disabled}
+                  placeholder={!lte ? '915 or 900-930' : byEarfcn ? '18900 or 18700-19100:200' : '1880 or 1860-1900:20'}
+                  error={badFreq} onFocus={selectOnFocus} title={freqHelp}
                   onChange={(e) => update(i, { freq: e.target.value })} />
-                <TextField size="small" type="number" value={r.power} disabled={disabled}
+                <CellField value={r.power} placeholder={lte ? '23 or 10,23' : '14 or 0,16,30'} disabled={disabled}
                   error={badPower} onFocus={selectOnFocus}
+                  title={!badPower ? undefined : lte
+                    ? `0 to ${LTE_MAX_POWER_DBM} dBm: 23, 10,23 or 10-20:5`
+                    : 'Whole dBm, 0 to 255: 14, 0,16,30 or 10-20:5'}
                   onChange={(e) => update(i, { power: e.target.value })} />
-                <TextField size="small" select value={r.paMode} disabled={disabled}
-                  onChange={(e) => update(i, { paMode: Number(e.target.value) })}>
-                  <MenuItem value={2}>Auto</MenuItem>
-                  <MenuItem value={1}>On</MenuItem>
-                  <MenuItem value={0}>Off</MenuItem>
-                </TextField>
-                <IconButton size="small" aria-label={`Remove row ${i + 1}`}
-                  disabled={disabled || rows.length <= 1}
-                  onClick={() => onRowsChange(rows.filter((_, k) => k !== i))}>
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              </Box>
+                {!lte && (
+                  <CellField select value={r.paMode} disabled={disabled}
+                    onChange={(e) => update(i, { paMode: Number(e.target.value) })}>
+                    <MenuItem value={2}>Auto</MenuItem>
+                    <MenuItem value={1}>On</MenuItem>
+                    <MenuItem value={0}>Off</MenuItem>
+                  </CellField>
+                )}
+                {/* No "±" in the field: the heading already says "± ppm". */}
+                <CellField type="number" value={r.tolPpm} disabled={disabled}
+                  error={badTol} onFocus={selectOnFocus}
+                  inputProps={{ min: 0, step: 1 }}
+                  title={badTol ? 'A tolerance in ppm above 0, or blank for no verdict' : undefined}
+                  onChange={(e) => update(i, { tolPpm: e.target.value })} />
+              </PlanRow>
             )
           })}
-        </Stack>
+        </PlanGrid>
+
+        <PlanFooter hint={!lte
+          ? 'Freq / Power: "915" · "900-930:5" · "902.3,915" · Tolerance blank = no verdict'
+          : byEarfcn
+            ? 'EARFCN / Power: "18900" · "18700-19100:200" · "18700,19100" · Tolerance blank = no verdict'
+            : 'MHz / Power: "1880" · "1860-1900:20" · "1860,1900" · Tolerance blank = no verdict'}>
+          {/* A long settle looks like a hung run; say the cost up front. */}
+          {total > 0 && (
+            <Typography sx={{ ...TEXT.micro, whiteSpace: 'nowrap', flexShrink: 0, color: 'text.secondary' }}>
+              ≈ {formatDuration(estimateRunMs(total, measure.stages, clampSettleMs(Number(measure.settleMs))))}
+            </Typography>
+          )}
+        </PlanFooter>
       </Section>
 
       <MeasureSection value={measure} onChange={onMeasureChange} disabled={disabled} />
@@ -164,7 +225,7 @@ export function AutomationPanel({
               <HeadCell label="#" />
               <HeadCell label="Frequency" unit="MHz" numeric />
               <HeadCell label="Power" unit="dBm" numeric />
-              <HeadCell label="PA" />
+              {lte ? <HeadCell label="EARFCN" numeric /> : <HeadCell label="PA" />}
               <HeadCell label="Measured" unit="MHz" numeric />
               <HeadCell label="Error" unit="Hz" numeric />
               <HeadCell label="Error" unit="ppm" numeric />
@@ -185,7 +246,9 @@ export function AutomationPanel({
                 <TableCell>{i + 1}</TableCell>
                 <TableCell sx={NUM_CELL_SX}>{r.freqMhz.toFixed(4)}</TableCell>
                 <TableCell sx={NUM_CELL_SX}>{r.power}</TableCell>
-                <TableCell>{PA_MODE_LABEL[r.paMode] ?? r.paMode}</TableCell>
+                {lte
+                  ? <TableCell sx={NUM_CELL_SX}>{r.earfcn ?? ''}</TableCell>
+                  : <TableCell>{PA_MODE_LABEL[r.paMode] ?? r.paMode}</TableCell>}
                 <TableCell sx={{ ...NUM_CELL_SX, fontFamily: MONO }}>
                   {r.measuredHz != null ? mhzToHz(r.measuredHz) : ''}
                 </TableCell>
@@ -203,14 +266,5 @@ export function AutomationPanel({
         </Table>
       </Section>
     </>
-  )
-}
-
-function ColHead({ label, hint }: { label: string; hint?: string }) {
-  return (
-    <Typography sx={{ ...TEXT.label, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-      {label}
-      {hint && <Box component="span" sx={{ ...TEXT.hint, color: 'text.secondary', ml: 0.75 }}>{hint}</Box>}
-    </Typography>
   )
 }

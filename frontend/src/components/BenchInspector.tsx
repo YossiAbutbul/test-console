@@ -1,8 +1,11 @@
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Box, Button, ButtonBase, Stack, Typography } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
+import HelpOutlineIcon from '@mui/icons-material/HelpOutlineRounded'
 import { DutControls, PathLossField } from './ConnectionPanel'
+import { PathLossGuide } from './pathLossGuide/PathLossGuide'
+import { focusRingOf } from '../ui'
 import { useConnection } from '../context/ConnectionContext'
 import { useDutLink } from '../context/dutLink'
 import { useNicknames } from '../context/NicknamesContext'
@@ -145,8 +148,28 @@ const POINTS_VISIBLE = 4
 function PathLossGroup() {
   const p = useAppPalette()
   const { points } = usePathLoss()
+  const [guideOpen, setGuideOpen] = useState(false)
   return (
-    <Group title="Path loss, DUT to sensor" plain>
+    <>
+    <Group
+      title="Path loss, DUT to sensor"
+      plain
+      trailing={
+        <ButtonBase
+          onClick={() => setGuideOpen((v) => !v)}
+          aria-expanded={guideOpen}
+          sx={(t) => ({
+            fontSize: 12, fontWeight: 500, color: 'primary.main', borderRadius: '6px',
+            px: 0.5, mr: -0.5, gap: 0.4, display: 'inline-flex', alignItems: 'center',
+            '&:hover': { textDecoration: 'underline' },
+            '&:focus-visible': { boxShadow: focusRingOf(t) },
+          })}
+        >
+          <HelpOutlineIcon sx={{ fontSize: 14 }} />
+          How to calibrate
+        </ButtonBase>
+      }
+    >
       {/* Label left, value right, as a settings row: the stacked label above
           the field wrapped onto two lines in a 280 px pane. */}
       <Box sx={{ display: 'flex', alignItems: 'center', minHeight: 48, px: 1.5, '& > *': { flexGrow: 1, justifyContent: 'space-between' } }}>
@@ -188,6 +211,11 @@ function PathLossGroup() {
         </Box>
       )}
     </Group>
+    <PathLossGuide
+      open={guideOpen}
+      onClose={() => setGuideOpen(false)}
+    />
+    </>
   )
 }
 

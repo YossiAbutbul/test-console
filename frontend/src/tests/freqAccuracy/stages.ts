@@ -1,5 +1,5 @@
 import type { FreqStage } from '../../api/freqAccuracy'
-import { parseRangeSpec } from '../../lib/numericList'
+import { LORA, powersOf, resolveSpec, type Channel, type Radio } from './radio'
 import { MIN_SETTLE_MS } from '../../lib/settle'
 
 /**
@@ -69,49 +69,79 @@ export function ppmVerdict(errorPpm: number | null | undefined, limitPpm: number
 }
 
 /** One row of the Automation tab's plan: a frequency spec ("868.1, 902.3-927.5:0.2")
- *  with the power and PA mode it is sent at. */
+ *  with the power and PA mode it is sent at, and the +- ppm its points must be
+ *  within (blank: measured, not judged). */
 export interface PlanRow {
   freq: string
   power: string
   paMode: number
+  tolPpm: string
 }
 
 export interface PlanPoint {
   freqMhz: number
+  /** LTE: the channel keyed; `freqMhz` is its uplink centre. */
+  earfcn?: number
   power: number
   paMode: number
+  limitPpm: number | null
 }
 
-/** A row's frequencies, or null when its spec does not parse. */
-export function rowFreqs(r: PlanRow): number[] | null {
-  if (r.freq.trim() === '') return []
-  const f = parseRangeSpec(r.freq).filter((x) => x > 0)
-  return f.length ? f : null
+export const DEFAULT_TOL_PPM = '30'
+
+/** A row read back from storage: rows saved before the tolerance moved onto
+ *  the row have none, and take the old run-wide default. */
+export function normaliseRow(r: Partial<PlanRow>): PlanRow {
+  return { freq: r.freq ?? '', power: r.power ?? '14', paMode: r.paMode ?? 2, tolPpm: r.tolPpm ?? DEFAULT_TOL_PPM }
 }
 
-/** A row's power, or null unless it is a whole dBm the DUT takes (0..255). */
-export function rowPower(r: PlanRow): number | null {
-  const p = Number(r.power)
-  return r.power.trim() !== '' && Number.isInteger(p) && p >= 0 && p <= 255 ? p : null
+/** A row's channels (for LoRa, its frequencies; for LTE, EARFCNs or MHz as
+ *  the unit reads them), or null when its spec does not resolve. */
+export function rowChannels(r: PlanRow, radio: Radio = LORA): Channel[] | null {
+  return resolveSpec(r.freq, radio)
 }
 
-/** Every point the plan measures, in table order. Rows that do not parse
- *  contribute nothing; the page marks them and blocks Run. */
-export function planPoints(rows: PlanRow[]): PlanPoint[] {
+/** A row's powers ("14", "0,16,30", "10-20:5"), or null unless every one is
+ *  one the radio takes (LoRa a whole dBm 0..255, LTE up to 23 dBm). */
+export function rowPowers(r: PlanRow, radio: Radio = LORA): number[] | null {
+  return powersOf(r.power, radio)
+}
+
+/** Points one row expands to: each channel at each power. */
+export function rowPointCount(r: PlanRow, radio: Radio = LORA): number {
+  return (rowChannels(r, radio)?.length ?? 0) * (rowPowers(r, radio)?.length ?? 0)
+}
+
+/** Every point the plan measures, in table order: each channel at each of its
+ *  row's powers. Rows that do not resolve contribute nothing; the page marks
+ *  them and blocks Run. */
+export function planPoints(rows: PlanRow[], radio: Radio = LORA): PlanPoint[] {
   const out: PlanPoint[] = []
   for (const r of rows) {
-    const freqs = rowFreqs(r)
-    const power = rowPower(r)
-    if (!freqs || power == null) continue
-    for (const f of freqs) out.push({ freqMhz: f, power, paMode: r.paMode })
+    const chans = rowChannels(r, radio)
+    const powers = rowPowers(r, radio)
+    if (!chans || !powers) continue
+    const limitPpm = limitOf(r.tolPpm)
+    for (const c of chans) {
+      for (const power of powers) {
+        out.push({ freqMhz: c.freqMhz, earfcn: c.earfcn, power, paMode: r.paMode, limitPpm })
+      }
+    }
   }
   return out
 }
 
+/** Rough run time for `points`, shown before Run: per point the CW command and
+ *  key-off, then per stage the settle and a sweep (narrow RBWs sweep slowest). */
+export function estimateRunMs(points: number, stages: FreqStage[], settleMs: number): number {
+  const perStage = stages.reduce((t, s) => t + settleMs + (s.rbw_hz < 100 ? 1500 : 500), 0)
+  return points * (1000 + perStage)
+}
+
 export const DEFAULT_ROWS: PlanRow[] = [
-  { freq: '902.3', power: '14', paMode: 2 },
-  { freq: '915', power: '14', paMode: 2 },
-  { freq: '927.5', power: '14', paMode: 2 },
+  { freq: '902.3', power: '14', paMode: 2, tolPpm: DEFAULT_TOL_PPM },
+  { freq: '915', power: '14', paMode: 2, tolPpm: DEFAULT_TOL_PPM },
+  { freq: '927.5', power: '14', paMode: 2, tolPpm: DEFAULT_TOL_PPM },
 ]
 
 /** Settle in ms: a whole number at or above the rig's floor (lib/settle.ts),
@@ -123,6 +153,37 @@ export function settleValid(raw: string): boolean {
 
 export function limitValid(raw: string): boolean {
   return raw.trim() === '' || (Number.isFinite(Number(raw)) && Number(raw) > 0)
+}
+
+/** A stage's peak as an error in ppm of the nominal frequency. */
+export function stagePpm(markerHz: number, nominalHz: number): number {
+  return ((markerHz - nominalHz) / nominalHz) * 1e6
+}
+
+/** One verdict from several: any fail fails; a pass needs at least one
+ *  judged check and no fail; nothing judged is no verdict. */
+export function combineVerdicts(vs: ('pass' | 'fail' | null)[]): 'pass' | 'fail' | null {
+  if (vs.includes('fail')) return 'fail'
+  return vs.includes('pass') ? 'pass' : null
+}
+
+/** A point's verdict: its final error against its own tolerance, and each
+ *  stage's peak against that stage's tolerance. */
+export function pointVerdict(
+  finalPpm: number | null | undefined, limitPpm: number | null,
+  stagePpms: number[], stageLimits: (number | null)[],
+): 'pass' | 'fail' | null {
+  if (finalPpm == null) return null
+  return combineVerdicts([
+    ppmVerdict(finalPpm, limitPpm),
+    ...stagePpms.map((p, i) => ppmVerdict(p, stageLimits[i] ?? null)),
+  ])
+}
+
+/** The stage tolerances, one per stage: saved settings from before stages
+ *  had one, or a list out of step after an edit, are padded with the default. */
+export function stageTols(raw: string[] | undefined, n: number): string[] {
+  return Array.from({ length: n }, (_, i) => raw?.[i] ?? DEFAULT_TOL_PPM)
 }
 
 export function limitOf(raw: string): number | null {

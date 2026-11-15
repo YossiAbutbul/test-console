@@ -38,6 +38,10 @@ export const STORAGE_KEYS = {
   spectrumPage: 'spectrum-page-snapshot-v1',
   // v2: PA mode now defaults to Auto, as on the CW page; v1 saved Off.
   freqAccuracyPage: 'freq-accuracy-page-v2',
+  // The LTE page's own: its channels, power and plan are not LoRa's.
+  lteFreqAccuracyPage: 'lte-freq-accuracy-page-v1',
+  // Where the path loss guide was dragged to; null/absent = docked.
+  pathLossGuidePos: 'path-loss-guide-pos-v1',
   powerSweepPage: 'power-sweep-page-snapshot-v1',
 } as const
 
