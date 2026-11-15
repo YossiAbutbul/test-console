@@ -11,9 +11,10 @@ turns that heading into the version and date.
 ## [Unreleased]
 
 ### Fixed
-- `publish-release.ps1` stopped before creating the GitHub Release under
-  Windows PowerShell 5.1: its "does this release exist" probe answers "not
-  found" on stderr, which 5.1 turned into a fatal error.
+- `publish-release.ps1` stopped before doing anything under Windows
+  PowerShell 5.1: its quiet checks (`gh auth status`, the tag on origin,
+  "does this release exist") write to stderr, which 5.1 turned into a fatal
+  error. They now run for their exit code alone.
 
 ## [1.2.0] - 2026-11-15
 

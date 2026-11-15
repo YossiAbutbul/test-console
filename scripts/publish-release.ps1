@@ -39,19 +39,29 @@ Set-Location $Root
 
 function Fail($msg) { Write-Host "publish-release: $msg" -ForegroundColor Red; exit 1 }
 
+# Runs a native command for its exit code alone. Windows PowerShell 5.1 turns
+# a native command's redirected stderr into an error record, and under 'Stop'
+# that ends the script: `gh release view` answers "release not found" there
+# for every new tag, and `gh auth status` prints its account there whenever its
+# output is not a console. Both stopped a v1.2.0 publish before it did anything.
+function Test-Native([scriptblock]$cmd) {
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $cmd *> $null; return $LASTEXITCODE -eq 0 }
+    finally { $ErrorActionPreference = $eap }
+}
+
 # winget puts gh on PATH only for shells opened after the install.
 $gh = (Get-Command gh -ErrorAction SilentlyContinue).Source
 if (-not $gh) {
     $fallback = Join-Path $env:ProgramFiles 'GitHub CLI\gh.exe'
     if (Test-Path $fallback) { $gh = $fallback } else { Fail 'GitHub CLI not found; winget install GitHub.cli, then gh auth login.' }
 }
-& $gh auth status *> $null
-if ($LASTEXITCODE) { Fail 'GitHub CLI is not signed in; run gh auth login.' }
+if (-not (Test-Native { & $gh auth status })) { Fail 'GitHub CLI is not signed in; run gh auth login.' }
 
 # The tag has to be on GitHub already: a release made for a tag that is only
 # local would have GitHub create a new tag at the default branch's tip.
-git ls-remote --exit-code --tags origin "refs/tags/$Tag" *> $null
-if ($LASTEXITCODE) { Fail "$Tag is not on origin; push it first (git push origin $Tag)." }
+if (-not (Test-Native { git ls-remote --exit-code --tags origin "refs/tags/$Tag" })) { Fail "$Tag is not on origin; push it first (git push origin $Tag)." }
 
 $version = $Tag.Substring(1)
 
@@ -74,17 +84,8 @@ if ($Bundle) {
 }
 
 try {
-    # "release not found" is the expected answer for a new tag, written to
-    # stderr. Windows PowerShell 5.1 turns a native command's stderr into an
-    # error record, and under 'Stop' that ended the script here, before the
-    # release was created (v1.2.0). The exit code is the answer, so the probe
-    # runs with errors left non-terminating.
-    $eap = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    & $gh release view $Tag *> $null
-    $exists = $LASTEXITCODE -eq 0
-    $ErrorActionPreference = $eap
-    if ($exists) {
+    # "release not found" is the expected answer for a new tag; see Test-Native.
+    if (Test-Native { & $gh release view $Tag }) {
         & $gh release edit $Tag --title $version --notes-file $notesFile
         if ($LASTEXITCODE) { Fail "could not update the $Tag release." }
         if ($assets) {
