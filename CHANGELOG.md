@@ -10,6 +10,8 @@ turns that heading into the version and date.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-15
+
 ### Added
 - The launcher's window says not to close it: its title reads "TEST
   CONSOLE - RUNNING - DO NOT CLOSE (Ctrl+C to stop)", which stays in the
@@ -41,11 +43,11 @@ turns that heading into the version and date.
   error in Hz and ppm, and each stage's peak; flags a peak at the edge of a
   span. Manual and Automation tabs: Automation measures a plan of
   frequencies across bands ("868.1, 902.3-927.5:0.2" per row, with its own
-  powers, "0,16,30", PA mode and ± ppm tolerance; blank = no verdict),
+  powers, "0,16,30", PA mode and Â± ppm tolerance; blank = no verdict),
   judges each point against its row's tolerance, and exports CSV. Its plan
   and the zoom stages use the Sweep table's layout from the power page
   (numbered rows, settle in the heading); the stages show three rows and
-  scroll past that. Each stage has its own ± ppm tolerance for its peak
+  scroll past that. Each stage has its own Â± ppm tolerance for its peak
   (default 30 ppm, as for a sweep row); on Automation a point passes only
   when its row's tolerance and every judged stage do, on Manual when every
   judged stage does. Stages measured shows each stage's error in ppm and
@@ -102,8 +104,8 @@ turns that heading into the version and date.
   best-efficiency load in the area and reads the interpolated values under
   the cursor.
 - Load Pull Smith chart: an Electrical delay field (ps), in the working
-  area's settings, moves the VNA's reading to the PA, Z_PA = 50·(Z_VNA + j50·tan θ)/(50 + j·Z_VNA·tan θ) with
-  θ = 2π·f·τ, each point at its own frequency. Points, list, statistics
+  area's settings, moves the VNA's reading to the PA, Z_PA = 50Â·(Z_VNA + j50Â·tan Î¸)/(50 + jÂ·Z_VNAÂ·tan Î¸) with
+  Î¸ = 2Ï€Â·fÂ·Ï„, each point at its own frequency. Points, list, statistics
   and working area all follow it; the results table keeps the measured
   values.
 - The working area is drawn as a report figure: title, labelled Smith grid,
@@ -114,7 +116,7 @@ turns that heading into the version and date.
   spinner while the area is worked out in a background worker; both tabs
   stay mounted, and returning to the area with nothing changed does not
   work it out again. While it works -- on Apply and on first load -- a
-  frosted "Working out the area…" capsule takes the figure's title, which
+  frosted "Working out the areaâ€¦" capsule takes the figure's title, which
   steps aside, while the figure softens behind it, and Apply carries a new activity indicator (in the UI kit);
   both show at once and stay at least 450 ms, so a quick result is still
   seen to have happened -- for every change the operator makes (Apply,
@@ -190,12 +192,12 @@ turns that heading into the version and date.
   in the dialog and in Copy chart. Kept between sessions; Reset restores them.
 - Load Pull (LoRa and LTE): VNA span (Controls card) picks one of the plan's
   frequencies, or takes any typed one, and Apply (or Enter) puts the analyzer on the span and marker the run
-  reads it on (±0.5 %, 897.79-906.81 MHz for 902.3), so what a point
+  reads it on (Â±0.5 %, 897.79-906.81 MHz for 902.3), so what a point
   measures can be seen on the VNA before running. It leaves the RF switch
   where it is.
 - Network Analyzer: "To path loss" (Marker readings, S21 tab) writes the last
   S21 sweep's markers into the path loss table, one row per marker at its
-  frequency with the loss as a positive dB (S21 −20.5 dB → 20.5). A table
+  frequency with the loss as a positive dB (S21 âˆ’20.5 dB â†’ 20.5). A table
   that already has points asks first, showing the table as it is beside what
   replaces it, a row per frequency marked changed, added or removed; the
   default loss is kept. The path loss table opens afterwards.
@@ -210,13 +212,13 @@ turns that heading into the version and date.
   characters of Chrome's ~5 MB, less whatever else is saved, at 350 per row:
   ~11 400 points with nothing else stored), so no row is ever lost to
   Continue.
-- LTE Load Pull Test (LTE → Load Pull Test): the Load Pull run keyed with LTE
+- LTE Load Pull Test (LTE â†’ Load Pull Test): the Load Pull run keyed with LTE
   CW instead of LoRa. Channels in the LTE pages' unit (EARFCN or MHz, within
-  the selected bands), 0–23 dBm, no PA mode. The modem is turned on at the
+  the selected bands), 0â€“23 dBm, no PA mode. The modem is turned on at the
   start of the run (off, then on) and off once every cycle is done, or the
   run is stopped or fails; each point is a CW START, settle, read and ABORT. Same page as
   LoRa's with its own saved settings. The workbook's Run sheet names the
-  radio, and LTE files are named `…_lte-load-pull_…`.
+  radio, and LTE files are named `â€¦_lte-load-pull_â€¦`.
 - `scripts/publish-release.ps1` creates the GitHub Release page from the
   changelog; `release.ps1 -Push` runs it, and `-Bundle` attaches the
   DUT-only zip.
@@ -235,7 +237,7 @@ turns that heading into the version and date.
 
 ### Fixed
 - Load Pull results: the Power cell is red only when the raw sensor reading is
-  outside the sensor's range, −25 to +15 dBm, and its tooltip gives the raw
+  outside the sensor's range, âˆ’25 to +15 dBm, and its tooltip gives the raw
   value. An amber band from +10 to +16 dBm flagged readings well inside the
   range (+14 at full power) and is gone.
 - Load Pull Smith chart: the point list no longer opens blank until scrolled.
@@ -249,7 +251,7 @@ turns that heading into the version and date.
   failed in every cycle ("target 51822 outside soft limits").
 - Results tables (Load Pull, Mode Sweep, the CW and Modulated automation
   panels) follow new rows only while scrolled to the bottom. Scrolling up to
-  read an older row during a run stops the jump back down, and a "↓ N new
+  read an older row during a run stops the jump back down, and a "â†“ N new
   rows" pill floats over the table until you are back; it, scrolling to the
   bottom, or Clear resumes following (`useFollowBottom` and `FollowLatest`
   in the kit). Only a wheel, key, scrollbar drag or touch stops it, never the
@@ -293,7 +295,7 @@ turns that heading into the version and date.
 - A late disconnect callback from a replaced BLE client no longer wipes the
   client that reconnected after it.
 - A timed-out instrument call keeps the driver's own message ("no SCPI
-  answer from 172.16.10.1:5555 …") instead of a bare "timed out".
+  answer from 172.16.10.1:5555 â€¦") instead of a bare "timed out".
 - Resizing the inspector tracks the pointer instead of trailing it: the
   column's open/close transition no longer runs during the drag, the width
   is painted once a frame without re-rendering the app, and it is saved once,
@@ -323,13 +325,13 @@ turns that heading into the version and date.
   prompt is raised by the backend and answered from the page, and comes back
   after a reload. One Load Pull run at a time across both pages. Graceful
   backend shutdown stops a run and keys the DUT down first.
-- Load Pull reads the VNA on a span of ±0.5 % around each frequency (995–1005
+- Load Pull reads the VNA on a span of Â±0.5 % around each frequency (995â€“1005
   MHz for 1000 MHz), one sweep per frequency per position, instead of on
   whatever span the analyzer was left at, where a marker snapped to a sweep
   point up to MHz away. Each span change waits one settle before the read,
   so a position now costs one settle per frequency.
 - LTE Load Pull names the channels the selected bands cannot resolve and the
-  band each needs ("725, 747.9 (band 28) · 1930 (band 1 or 65)"), and has an
+  band each needs ("725, 747.9 (band 28) Â· 1930 (band 1 or 65)"), and has an
   Edit bands key, instead of only counting them.
 - No em dashes in toasts or tooltips (run-complete toast, import errors and
   notices, meter info results, field validation, the Measurement card's
@@ -337,7 +339,7 @@ turns that heading into the version and date.
 - Load Pull: the trombone cards' controls fill the card instead of stopping
   at 232 px with empty card to their right.
 - Load Pull (LoRa and LTE): the attenuator sweep is one Att values field
-  taking the same specs as DUT power, whole dB within 0–20: a range
+  taking the same specs as DUT power, whole dB within 0â€“20: a range
   ("0-20", or "20-0" downwards), a stepped range ("0-20:2") or any list
   ("0-5, 8, 9, 20"), run in the order typed. It replaces an Att max that
   always went from 0 in 1 dB steps; a saved Att max carries over as "0-max".
@@ -373,7 +375,7 @@ turns that heading into the version and date.
   over a "LoRa" caption. Rig pages show the page name alone.
 - Measurement card: the Measured (TX power) reading leads the strip on an
   accent-tinted cell with an accent bar and label (`primary` on `StatTile`).
-- Readout tiles show an empty value instead of a "—" when there is no
+- Readout tiles show an empty value instead of a "â€”" when there is no
   reading; the caption already says why. Captions share one baseline across
   the strip.
 
@@ -407,6 +409,7 @@ The first versioned release.
 - DESIGN.md, the user manual and the testing guide describe this release.
   Manual screenshots still show the previous design.
 
-[Unreleased]: https://github.com/YossiAbutbul/test-console/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/YossiAbutbul/test-console/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/YossiAbutbul/test-console/releases/tag/v1.2.0
 [1.1.0]: https://github.com/YossiAbutbul/test-console/releases/tag/v1.1.0
 [1.0.0]: https://github.com/YossiAbutbul/test-console/releases/tag/v1.0.0
