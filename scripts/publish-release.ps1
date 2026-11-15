@@ -74,8 +74,17 @@ if ($Bundle) {
 }
 
 try {
+    # "release not found" is the expected answer for a new tag, written to
+    # stderr. Windows PowerShell 5.1 turns a native command's stderr into an
+    # error record, and under 'Stop' that ended the script here, before the
+    # release was created (v1.2.0). The exit code is the answer, so the probe
+    # runs with errors left non-terminating.
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     & $gh release view $Tag *> $null
-    if ($LASTEXITCODE -eq 0) {
+    $exists = $LASTEXITCODE -eq 0
+    $ErrorActionPreference = $eap
+    if ($exists) {
         & $gh release edit $Tag --title $version --notes-file $notesFile
         if ($LASTEXITCODE) { Fail "could not update the $Tag release." }
         if ($assets) {
