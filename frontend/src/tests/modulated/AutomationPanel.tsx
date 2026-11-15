@@ -53,6 +53,7 @@ import {
   type ModulatedSweepRow,
 } from '../../store/modulatedPageStore'
 import { selectOnFocus } from '../../lib/selectOnFocus'
+import { AddToReport } from '../../components/reports/AddToReport'
 
 type ResultRow = ModulatedResultRow
 type SweepRow = ModulatedSweepRow
@@ -942,6 +943,15 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
             >
               Export
             </MiniAction>
+            {/* The table as Export writes it, into a product's report. */}
+            <AddToReport
+              disabled={results.length === 0 || running}
+              build={() => ({
+                test: 'lora-modulated-automation', title: 'LoRa modulated automation',
+                settings: [['Settle', `${settleMs} ms`]],
+                columns: [...CSV_HEADER], rows: toCsvBody(results),
+              })}
+            />
             <MiniAction
               startIcon={<UploadIcon />}
               onClick={() => fileInput.current?.click()}

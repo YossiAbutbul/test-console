@@ -10,6 +10,7 @@ import { formatDuration } from '../../lib/async'
 import { downloadCsv, exportName } from '../../lib/download'
 import { clampSettleMs } from '../../lib/settle'
 import { selectOnFocus } from '../../lib/selectOnFocus'
+import { AddToReport } from '../../components/reports/AddToReport'
 import { parseRangeSpec } from '../../lib/numericList'
 import { channelIssues, shortChannelIssue } from '../../lib/earfcn'
 import {
@@ -19,7 +20,8 @@ import {
 import { MeasureSection, type MeasureSettings } from './MeasureSection'
 import { CellField, ColHead, PlanFooter, PlanGrid, PlanRow } from './planTable'
 import {
-  DEFAULT_ROWS, PA_MODE_LABEL, estimateRunMs, formatErrorHz, limitValid, mhzToHz, planPoints, pointVerdict,
+  DEFAULT_ROWS, PA_MODE_LABEL, estimateRunMs, formatErrorHz, formatHz, limitValid, mhzToHz, planPoints, pointVerdict,
+  stageTols,
   rowChannels, rowPointCount, rowPowers, type PlanRow as PlanRowSpec,
 } from './stages'
 import { LTE_MAX_POWER_DBM, type Radio } from './radio'
@@ -95,20 +97,38 @@ export function AutomationPanel({
     .map((r, i) => ({ r, v: verdicts[i], i }))
     .filter(({ v }) => filter === 'all' || v === filter)
 
+  // One table for Export and for Add to report, so both say the same.
+  const csvHeader = lte ? LTE_CSV_HEADER : CSV_HEADER
+  const csvRows = () => results.map((r, i) => [
+    ...(lte ? [r.earfcn ?? '', r.freqMhz, r.power] : [r.freqMhz, r.power, PA_MODE_LABEL[r.paMode] ?? r.paMode]),
+    r.limitPpm ?? '',
+    r.measuredHz != null ? mhzToHz(r.measuredHz) : '',
+    r.errorHz != null ? Math.round(r.errorHz) : '',
+    r.errorPpm != null ? r.errorPpm.toFixed(4) : '',
+    r.levelDbm != null ? r.levelDbm.toFixed(2) : '',
+    verdicts[i] ?? '', r.note,
+  ])
+  const slug = lte ? 'lte-frequency-accuracy' : 'frequency-accuracy'
+
   const exportCsv = () => {
     const mac = bleStatus?.address ?? null
-    void downloadCsv(lte ? LTE_CSV_HEADER : CSV_HEADER, results.map((r, i) => [
-      ...(lte ? [r.earfcn ?? '', r.freqMhz, r.power] : [r.freqMhz, r.power, PA_MODE_LABEL[r.paMode] ?? r.paMode]),
-      r.limitPpm ?? '',
-      r.measuredHz != null ? mhzToHz(r.measuredHz) : '',
-      r.errorHz != null ? Math.round(r.errorHz) : '',
-      r.errorPpm != null ? r.errorPpm.toFixed(4) : '',
-      r.levelDbm != null ? r.levelDbm.toFixed(2) : '',
-      verdicts[i] ?? '', r.note,
-    ]), exportName(lte ? 'lte-frequency-accuracy' : 'frequency-accuracy', mac, 'csv'), {
+    void downloadCsv(csvHeader, csvRows(), exportName(slug, mac, 'csv'), {
       test: `${radio.id} frequency accuracy`, dut_mac: mac,
       stages: measure.stages.map((s) => `${s.span_hz}/${s.rbw_hz}/${s.vbw_hz} Hz`).join(' > '),
     })
+  }
+
+  // The zoom as it was set, one line per stage, for the report's Settings.
+  const reportSettings = (): Array<[string, string]> => {
+    const tols = stageTols(measure.stageTolPpm, measure.stages.length)
+    return [
+      ['Settle', `${clampSettleMs(Number(measure.settleMs))} ms`],
+      ...measure.stages.map((st, i): [string, string] => [
+        `Stage ${i + 1}`,
+        `span ${formatHz(st.span_hz)}, RBW ${formatHz(st.rbw_hz)}, VBW ${formatHz(st.vbw_hz)}`
+          + (tols[i].trim() ? `, within ± ${tols[i]} ppm` : ''),
+      ]),
+    ]
   }
 
   return (
@@ -207,6 +227,13 @@ export function AutomationPanel({
             <MiniAction startIcon={<DownloadIcon />} disabled={results.length === 0} onClick={exportCsv}>
               Export
             </MiniAction>
+            <AddToReport
+              disabled={disabled || results.length === 0}
+              build={() => ({
+                test: slug, title: `${radio.id} frequency accuracy`,
+                settings: reportSettings(), columns: [...csvHeader], rows: csvRows(),
+              })}
+            />
             <MiniAction tone="destructive" startIcon={<DeleteSweepIcon />}
               disabled={disabled || results.length === 0}
               onClick={() => { setFilter('all'); onClear() }}>

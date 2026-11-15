@@ -25,3 +25,6 @@ build/
 
 # Sweeps the backend saved on its own when a run ended (backend/api/test.py).
 autosave/
+
+# Product reports (backend/reports): the operator's data, not source.
+/reports/

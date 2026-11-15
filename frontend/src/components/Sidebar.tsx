@@ -64,15 +64,21 @@ function byGroup(mods: TestModule[]): Array<{ group: string; mods: TestModule[] 
   return Array.from(groupMap.entries()).map(([group, mods]) => ({ group, mods }))
 }
 
+/** Fold state key for a root section. Components keeps the original 'root',
+ *  so a section the operator closed stays closed across this change. */
+function rootKey(group: string | undefined): string {
+  return !group || group === 'Components' ? 'root' : `root:${group}`
+}
+
 function useProtocolTree(): ProtocolTree {
   return useMemo(() => {
     // Rig-level pages sit below the protocols: they are not part of any
     // protocol's menu, and filing them under LoRa implied they were. Last
     // rather than first so the protocol a session starts from stays at the top.
     const rootMods = testRegistry.filter((m) => m.root)
-    const rootEntry = rootMods.length
-      ? [{ protocol: null, groups: byGroup(rootMods) }]
-      : []
+    // One section per group (Components, Reports): a report is not a
+    // component, and one section headed by its first group's name said so.
+    const rootEntry = byGroup(rootMods).map((g) => ({ protocol: null, groups: [g] }))
     return [
       ...PROTOCOLS.map((protocol) => ({
         protocol,
@@ -453,7 +459,7 @@ export function Sidebar({ activeId, onSelect, open, floating, onClose }: Sidebar
     // (Components) fold too, under the key 'root'.
     const out: Record<string, boolean> = { root: true }
     for (const p of PROTOCOLS) out[p] = true
-    if (initialMod) out[initialMod.root ? 'root' : initialMod.protocol] = true
+    if (initialMod) out[initialMod.root ? rootKey(initialMod.group) : initialMod.protocol] = true
     return out
   })
   const toggleProto = (key: string) => setExpandedProto((st) => ({ ...st, [key]: !st[key] }))
@@ -534,7 +540,7 @@ export function Sidebar({ activeId, onSelect, open, floating, onClose }: Sidebar
             did nothing. */}
         {tree.filter((p) => p.groups.length > 0).map(({ protocol, groups }) => {
           const isRoot = protocol == null
-          const pkey = protocol ?? 'root'
+          const pkey = protocol ?? rootKey(groups[0]?.group)
           const protoExp = expandedProto[pkey] ?? true
           const mods = groups.flatMap((g) => g.mods)
           const heading = isRoot ? (groups[0]?.group ?? 'Components') : protocol

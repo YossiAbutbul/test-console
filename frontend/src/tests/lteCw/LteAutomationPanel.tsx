@@ -55,6 +55,7 @@ import {
 } from '../../store/lteCwPageStore'
 import type { ChannelUnit } from '../lte/channel'
 import { selectOnFocus } from '../../lib/selectOnFocus'
+import { AddToReport } from '../../components/reports/AddToReport'
 
 type ResultRow = LteAutomationResultRow
 type SweepRow = LteAutomationRow
@@ -1052,6 +1053,15 @@ export function LteAutomationPanel({
             >
               Export
             </MiniAction>
+            {/* The table as Export writes it, into a product's report. */}
+            <AddToReport
+              disabled={results.length === 0 || running}
+              build={() => ({
+                test: 'lte-cw-automation', title: 'LTE CW automation',
+                settings: [['Settle', `${settleMs} ms`]],
+                columns: [...CSV_HEADER], rows: toCsvBody(results),
+              })}
+            />
             <MiniAction
               startIcon={<UploadIcon />}
               onClick={() => fileInput.current?.click()}

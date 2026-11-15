@@ -59,6 +59,7 @@ import {
   type LteModulatedRow,
 } from '../../store/lteModulatedPageStore'
 import { selectOnFocus } from '../../lib/selectOnFocus'
+import { AddToReport } from '../../components/reports/AddToReport'
 
 type ResultRow = LteModulatedResultRow
 type SweepRow = LteModulatedRow
@@ -1166,6 +1167,15 @@ export function AutomationPanel({
             >
               Export
             </MiniAction>
+            {/* The table as Export writes it, into a product's report. */}
+            <AddToReport
+              disabled={results.length === 0 || running}
+              build={() => ({
+                test: 'lte-modulated-automation', title: 'LTE modulated automation',
+                settings: [['Settle', `${settleMs} ms`]],
+                columns: [...CSV_HEADER], rows: toCsvBody(results),
+              })}
+            />
             <MiniAction
               startIcon={<UploadIcon />}
               onClick={() => fileInput.current?.click()}

@@ -10,6 +10,85 @@ turns that heading into the version and date.
 
 ## [Unreleased]
 
+### Added
+- Product reports (phase 1). A report collects the runs kept for one
+  product model, from any number of units. "Add to report" beside Export on
+  the CW and Modulated automation tabs (LoRa and LTE) and on Frequency
+  accuracy (LoRa and LTE) adds the run's results table, exactly as Export
+  writes it, with its settings, the unit (MAC, BLE name, nickname), the
+  operator and a note; the last product used is preselected. A new
+  "Product reports" page, in its own Reports section of the sidebar, is a
+  document editor: the report drawn as the paper it prints on, built from
+  components (cover, heading, text, summary table, one test run, all runs,
+  page break, picture). Text edits in place, and so does every other word
+  and value on the page -- the cover's title, subtitle and fields, a run's
+  title, details and result lines and note, every header and cell of the
+  Settings, Results and Summary tables, the unit IDs -- per block, emptied
+  back to the measured value, an edited value underlined on screen only.
+  A run in "All runs" opens as a block of its own ("Edit on its own").
+  Pictures come from the clipboard (Ctrl+V: after the block holding the
+  cursor, else the block last clicked; a click into a block's text selects
+  that block), a file
+  dropped on the page, or the file picker; sized S/M/L/full width with a
+  caption, converted to PNG/JPEG and capped at 2400 px for Word, kept under
+  `reports/images` and shared by id so a template can carry a logo. The
+  report's name in the toolbar switches reports. A block moves by dragging its handle
+  (it follows the pointer, the others make room, it settles into its slot)
+  or with its up/down keys; + between blocks or Add inserts one; a run's
+  block can hide its settings or note. A layout saves as a template (its
+  runs become an All runs component) to start or restyle another product's
+  report. Changes save automatically; add, move, remove and template
+  changes can be undone. Export Word prints the layout in order, runs
+  numbered as they appear, failed rows shaded, in the lab's RF report style
+  (taken from its SW2233 report): A4 portrait, Calibri with navy headings, a
+  cover page (logo, the product in large navy type, subtitle, photo, Tested
+  By, Date), the logo in the header and a blue page number on the pages
+  after it, tables with a light blue header row and black rules. The editor
+  draws the same pages, as Word's print layout does: A4 sheets (794 x 1123
+  px at 96 dpi) one below the other, the blocks flowing onto the next sheet
+  when they no longer fit (a heading going with the block it introduces, as
+  Word's keep-with-next does), the cover and page breaks starting a new one,
+  and each sheet after the cover with the header logo and its page number.
+  Every component resizes by dragging its edge -- pictures and the cover
+  photo from both edges, tables, runs, headings and text from the right --
+  following the pointer with a live percentage, settling on 25/33/50/66/75/
+  100 % as it passes, resisting past its limits; one undo step per drag.
+  Word prints the width: a picture's size, a table's column widths scaled,
+  a paragraph's right indent. New reports start from that report's intro: Test
+  Setup, Scope of Testing, Test Parameters (an editable Parameter / Value
+  table) and Unit IDs (filled from the runs), then the results and Notes.
+  The logo is a report setting (Templates menu), kept with the report data
+  rather than the code. Stored as one JSON
+  file per product under
+  `reports/` (git-ignored; `%LOCALAPPDATA%\TestConsole\reports` in the exe).
+  Backend: `/reports` routes (backend/api/reports.py), new dependency
+  `python-docx`.
+- Charts in product reports. A Chart component plots one run's results:
+  pick the run, the column across (frequency or channel to start with), the
+  columns plotted (the measured value to start with) and line, points or
+  bars, with a title. Drawn in the report's style (navy title, legend,
+  light grid, round axis steps, Office's chart colours from the report's
+  navy) and resized from both edges like a picture. The chart's settings
+  float under it while it is selected, so choosing one never moves the
+  page. Word gets a real Word chart of the same numbers, in the same style
+  (an XY chart for line and points over frequency, so points sit at their
+  true frequency): it restyles with Word's Chart Design tools and its data
+  opens with Edit Data from a workbook embedded with it. A template keeps a
+  chart's form but not its run; removing a run leaves its chart empty, to
+  be pointed at another.
+- Formatting in product reports. Any words on a report page -- text,
+  headings, labels, table cells, parameter rows -- can be made bold,
+  italic, underlined or coloured: select them and a format bar floats over
+  them (Bold, Italic, Underline -- Ctrl+B, Ctrl+I, Ctrl+U too -- nine text
+  colours and any other, Clear formatting); the colours open from one key
+  as a small panel, keeping the bar compact. With the cursor in a table, the
+  bar also fills the row: six light tints, No fill (which takes off a failed
+  row's red and the header's blue too) or Automatic (the table's own), the
+  header row included. A block's own keys now float just above it rather
+  than over its first line. Word prints the same. Formatting is kept in the
+  value itself as a few tags; values without it read exactly as before.
+  Pasted text comes in as plain words.
+
 ### Fixed
 - `publish-release.ps1` stopped before doing anything under Windows
   PowerShell 5.1: its quiet checks (`gh auth status`, the tag on origin,

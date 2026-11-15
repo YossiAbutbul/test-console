@@ -17,6 +17,7 @@ export type LogSource =
   | 'Servo'
   | 'VNA'
   | 'Signal Gen'
+  | 'Report'
 
 export interface LogEntry {
   ts: string

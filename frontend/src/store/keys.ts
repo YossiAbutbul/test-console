@@ -40,6 +40,9 @@ export const STORAGE_KEYS = {
   freqAccuracyPage: 'freq-accuracy-page-v2',
   // The LTE page's own: its channels, power and plan are not LoRa's.
   lteFreqAccuracyPage: 'lte-freq-accuracy-page-v1',
+  // Product reports: the one runs are added to, and who is adding them.
+  activeReport: 'active-report-v1',
+  reportOperator: 'report-operator-v1',
   // Where the path loss guide was dragged to; null/absent = docked.
   pathLossGuidePos: 'path-loss-guide-pos-v1',
   powerSweepPage: 'power-sweep-page-snapshot-v1',
