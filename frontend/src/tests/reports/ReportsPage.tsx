@@ -414,6 +414,8 @@ export function ReportsPage({ protocol, group }: TestPageProps) {
                 stays in reach without taking a band of its own. */}
             <Stack
               direction="row" alignItems="center" spacing={1} useFlexGap flexWrap="wrap"
+              // The format bar stays below this: the page under it is out of view.
+              data-format-ceiling=""
               sx={(t) => ({
                 position: 'sticky', top: 0, zIndex: 5, mb: 2, px: 1.25, py: 1,
                 borderRadius: '12px', border: 1, borderColor: 'divider',

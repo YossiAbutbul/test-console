@@ -88,6 +88,13 @@ turns that heading into the version and date.
   than over its first line. Word prints the same. Formatting is kept in the
   value itself as a few tags; values without it read exactly as before.
   Pasted text comes in as plain words.
+- The format bar's "Other colour…" and "Other fill…" open its own colour
+  picker -- a saturation and brightness square, a hue strip, the hex code
+  and the colour before and after -- in place of the system dialog, and
+  the custom colours used last are kept under the swatches as Recent.
+  The bar follows its words while the page scrolls, on the same side of
+  them, and steps out of the way when they scroll under the toolbar or out
+  of view.
 
 ### Fixed
 - `publish-release.ps1` stopped before doing anything under Windows

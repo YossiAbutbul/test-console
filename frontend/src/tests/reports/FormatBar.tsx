@@ -19,6 +19,7 @@ import UnderlineIcon from '@mui/icons-material/FormatUnderlinedRounded'
 import ClearIcon from '@mui/icons-material/FormatClearRounded'
 import FillIcon from '@mui/icons-material/FormatColorFillRounded'
 import ChevronIcon from '@mui/icons-material/ExpandMoreRounded'
+import { ColorPicker } from './ColorPicker'
 
 /** Text colours: the inks, the report's navy and blues, Office's standard
  *  colours, and the report's own pass green. */
@@ -34,7 +35,26 @@ const ROW_FILLS: Array<[string, string]> = [
   ['#FCE4D6', 'Orange'], ['#FBE9E9', 'Red'], ['#EDEDED', 'Grey'],
 ]
 
+/** The custom colours used last, per kind, newest first: kept in this
+ *  browser only, a convenience. */
+const RECENT_MAX = 6
+function recent(kind: 'text' | 'fill'): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(`reports.recentColors.${kind}`) ?? '[]')
+    return Array.isArray(v) ? v.filter((c) => typeof c === 'string' && /^#[0-9A-F]{6}$/.test(c)).slice(0, RECENT_MAX) : []
+  } catch {
+    return []
+  }
+}
+function remember(kind: 'text' | 'fill', c: string) {
+  try {
+    const next = [c, ...recent(kind).filter((x) => x !== c)].slice(0, RECENT_MAX)
+    localStorage.setItem(`reports.recentColors.${kind}`, JSON.stringify(next))
+  } catch { /* storage off: nothing to remember */ }
+}
+
 const INK = '#1D1D1F'
+const BAR_H = 34
 const ACCENT = '#0071E3'
 const MATERIAL = {
   bgcolor: 'rgba(250, 250, 252, 0.86)',
@@ -48,6 +68,11 @@ interface Target {
   el: HTMLElement
   /** Where to stand: over the selection, or the field when nothing is selected. */
   rect: DOMRect
+  /** The part of the page in view: the scroller's box, below the report's
+   *  floating toolbar. Words outside it have no bar. */
+  view: { top: number; bottom: number }
+  /** The bar's side of the words, kept while the page scrolls. */
+  above: boolean
   bold: boolean
   italic: boolean
   underline: boolean
@@ -55,12 +80,36 @@ interface Target {
   row: null | { blockId: string; key: string }
 }
 
+/** The same words moved by a scroll: the same size, anywhere. */
+function sameRange(a: DOMRect, b: DOMRect) {
+  return Math.abs(a.width - b.width) < 1 && Math.abs(a.height - b.height) < 1
+}
+
 function rgbHex(c: string): string | null {
   const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c)
   return m ? `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`.toUpperCase() : null
 }
 
-function read(): Target | null {
+function viewOf(el: HTMLElement): { top: number; bottom: number } {
+  let top = 0
+  let bottom = window.innerHeight
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY
+    if ((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight) {
+      const r = p.getBoundingClientRect()
+      top = Math.max(top, r.top)
+      bottom = Math.min(bottom, r.bottom)
+      break
+    }
+  }
+  const ceiling = document.querySelector('[data-format-ceiling]')?.getBoundingClientRect()
+  if (ceiling) top = Math.max(top, ceiling.bottom)
+  return { top, bottom }
+}
+
+const BAR_GAP = 8
+
+function read(prev?: Target | null): Target | null {
   const sel = document.getSelection()
   const node = sel?.anchorNode
   const at = node instanceof HTMLElement ? node : node?.parentElement
@@ -72,8 +121,14 @@ function read(): Target | null {
   if (!rect || (rect.width === 0 && rect.height === 0)) rect = el.getBoundingClientRect()
   const tr = el.closest<HTMLElement>('tr[data-fill-key]')
   const block = el.closest<HTMLElement>('[data-block-id]')
+  const view = viewOf(el)
   return {
-    el, rect,
+    el, rect, view,
+    // Chosen when the bar comes up over these words, and kept while they
+    // scroll: flipping under them on the way up made it jump.
+    above: prev && prev.el === el && sameRange(prev.rect, rect)
+      ? prev.above
+      : rect.top - BAR_H - BAR_GAP > view.top,
     bold: document.queryCommandState('bold'),
     italic: document.queryCommandState('italic'),
     underline: document.queryCommandState('underline'),
@@ -82,7 +137,6 @@ function read(): Target | null {
   }
 }
 
-const BAR_H = 34
 
 export function FormatBar({ fillOf, onFill }: {
   /** A table row's fill now: a colour, 'none', or '' for the row's own. */
@@ -91,23 +145,31 @@ export function FormatBar({ fillOf, onFill }: {
   onFill: (blockId: string, key: string, color: string) => void
 }) {
   const [t, setT] = useState<Target | null>(null)
-  const [panel, setPanel] = useState<null | 'text' | 'fill'>(null)
-  // While the system colour picker is open the field loses the focus; the
-  // selection is kept here to give back to it.
+  const [panel, setPanel] = useState<null | 'text' | 'fill' | 'text-custom' | 'fill-custom'>(null)
+  // While the colour picker's hex field is typed in, the words lose the
+  // focus; their selection is kept here to give back to them.
   const saved = useRef<{ el: HTMLElement; range: Range } | null>(null)
   const [picking, setPicking] = useState(false)
   const field = useRef<HTMLElement | null>(null)
+  const last = useRef<Target | null>(null)
 
   useEffect(() => {
     let raf = 0
     let late = 0
     const look = () => {
-      const next = read()
-      // The system colour picker has the focus: keep the bar as it was.
-      if (!next && picking) return
+      const prev = last.current
+      let next = read(prev)
+      // The colour picker's hex field has the focus: the bar stays, and goes
+      // on following the words it is colouring as the page scrolls.
+      if (!next && picking) {
+        if (!prev) return
+        const r = saved.current?.range.getBoundingClientRect()
+        next = { ...prev, rect: r && (r.width || r.height) ? r : prev.el.getBoundingClientRect(), view: viewOf(prev.el) }
+      }
       // Another field, or none: the swatch panel closes with it.
       if (next?.el !== field.current) setPanel(null)
       field.current = next?.el ?? null
+      last.current = next
       setT(next)
     }
     const update = () => {
@@ -118,11 +180,14 @@ export function FormatBar({ fillOf, onFill }: {
       // command Chrome can still report the state from before it.
       late = window.setTimeout(look, 120)
     }
+    // A scroll moves the bar in the same frame as the words, not one after:
+    // a bar a frame behind its words visibly trails them.
+    const follow = () => { if (last.current || picking) look() }
     document.addEventListener('selectionchange', update)
     document.addEventListener('focusin', update)
     document.addEventListener('focusout', update)
     document.addEventListener('input', update)
-    window.addEventListener('scroll', update, true)
+    window.addEventListener('scroll', follow, true)
     window.addEventListener('resize', update)
     return () => {
       cancelAnimationFrame(raf)
@@ -131,7 +196,7 @@ export function FormatBar({ fillOf, onFill }: {
       document.removeEventListener('focusin', update)
       document.removeEventListener('focusout', update)
       document.removeEventListener('input', update)
-      window.removeEventListener('scroll', update, true)
+      window.removeEventListener('scroll', follow, true)
       window.removeEventListener('resize', update)
     }
   }, [picking])
@@ -140,7 +205,8 @@ export function FormatBar({ fillOf, onFill }: {
 
   const act = (fn: () => void) => () => {
     fn()
-    setT(read())
+    last.current = read(last.current)
+    setT(last.current)
   }
   const setColor = (c: string) => {
     document.execCommand('styleWithCSS', false, 'true')
@@ -153,8 +219,12 @@ export function FormatBar({ fillOf, onFill }: {
   const width = row ? 262 : 222
   const center = t.rect.left + t.rect.width / 2
   const left = Math.max(12, Math.min(window.innerWidth - width - 12, center - width / 2))
-  const above = t.rect.top - BAR_H - 8 > 72
-  const top = above ? t.rect.top - BAR_H - 8 : t.rect.bottom + 8
+  const above = t.above
+  const top = above ? t.rect.top - BAR_H - BAR_GAP : t.rect.bottom + BAR_GAP
+  // Out of view -- the words scrolled away, or the bar would sit on the
+  // toolbar or past the page's edge: it fades out until they come back.
+  const shown = top >= t.view.top + 2 && top + BAR_H <= t.view.bottom - 2
+    && t.rect.bottom > t.view.top && t.rect.top < t.view.bottom
 
   return (
     <Portal>
@@ -166,6 +236,8 @@ export function FormatBar({ fillOf, onFill }: {
         onMouseDown={(e) => e.preventDefault()}
         sx={{
           position: 'fixed', top, left, zIndex: 1400, height: BAR_H,
+          opacity: shown ? 1 : 0, visibility: shown ? 'visible' : 'hidden', pointerEvents: shown ? 'auto' : 'none',
+          transition: 'opacity 120ms ease, visibility 0s linear ' + (shown ? '0s' : '120ms'),
           display: 'flex', alignItems: 'center', gap: '1px', px: '3px',
           borderRadius: '10px', ...MATERIAL,
           boxShadow: '0 8px 24px rgba(0, 0, 0, 0.13), 0 1px 2px rgba(0, 0, 0, 0.08), inset 0 0.5px 0 rgba(255, 255, 255, 0.7)',
@@ -231,37 +303,41 @@ export function FormatBar({ fillOf, onFill }: {
                     <Swatch key={c} color={c} label={name} on={t.color === c} onClick={pick(c)} />
                   ))}
                 </Grid>
-                <Box component="label"
-                  onPointerDown={() => {
+                <Recent kind="text" current={t.color} onPick={(c) => pick(c)()} />
+                <Option label="Other colour…" on={false} swatch={<Rainbow />}
+                  onClick={() => {
                     const sel = document.getSelection()
                     if (sel?.rangeCount) saved.current = { el: t.el, range: sel.getRangeAt(0).cloneRange() }
-                    setPicking(true)
-                  }}
-                  sx={{
-                    position: 'relative', display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, px: 0.75, height: 28,
-                    borderRadius: '7px', cursor: 'pointer', fontSize: 12.5, color: INK,
-                    '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.05)' },
-                  }}>
-                  <Box sx={{
-                    width: 14, height: 14, borderRadius: '50%',
-                    background: 'conic-gradient(#FF3B30, #FFCC00, #34C759, #00C7BE, #007AFF, #AF52DE, #FF2D55, #FF3B30)',
+                    setPanel('text-custom')
                   }} />
-                  Other colour…
-                  <input type="color" aria-label="Other text colour"
-                    style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }}
-                    onChange={(e) => {
-                      const s = saved.current
-                      if (!s) return
-                      s.el.focus()
-                      const sel = document.getSelection()
-                      sel?.removeAllRanges()
-                      sel?.addRange(s.range)
-                      setColor(e.target.value)
-                      if (sel?.rangeCount) saved.current = { el: s.el, range: sel.getRangeAt(0).cloneRange() }
-                    }}
-                    onBlur={() => { setPicking(false); setPanel(null) }} />
-                </Box>
               </>
+            ) : panel === 'text-custom' ? (
+              <ColorPicker title="Text colour" initial={t.color ?? '#000000'} onEditing={setPicking}
+                onBack={() => setPanel('text')}
+                onApply={(c) => {
+                  const keep = saved.current
+                  if (keep) {
+                    keep.el.focus()
+                    const sel = document.getSelection()
+                    sel?.removeAllRanges()
+                    sel?.addRange(keep.range)
+                  }
+                  setColor(c)
+                  remember('text', c)
+                  setPicking(false)
+                  setPanel(null)
+                  last.current = read(last.current)
+                  setT(last.current)
+                }} />
+            ) : panel === 'fill-custom' && row ? (
+              <ColorPicker title="Row fill" initial={/^#[0-9A-F]{6}$/.test(fill) ? fill : '#D9E2F3'} onEditing={setPicking}
+                onBack={() => setPanel('fill')}
+                onApply={(c) => {
+                  onFill(row.blockId, row.key, c)
+                  remember('fill', c)
+                  setPicking(false)
+                  setPanel(null)
+                }} />
             ) : row && (
               <>
                 <Option label="Automatic" hint="table's own" on={!fill}
@@ -276,12 +352,43 @@ export function FormatBar({ fillOf, onFill }: {
                       onClick={act(() => { onFill(row.blockId, row.key, c); setPanel(null) })} />
                   ))}
                 </Grid>
+                <Recent kind="fill" current={fill} square
+                  onPick={(c) => { onFill(row.blockId, row.key, c); setPanel(null) }} />
+                <Option label="Other fill…" on={false} swatch={<Rainbow square />}
+                  onClick={() => setPanel('fill-custom')} />
               </>
             )}
           </Box>
         )}
       </Box>
     </Portal>
+  )
+}
+
+function Rainbow({ square }: { square?: boolean }) {
+  return (
+    <Box sx={{
+      width: 14, height: 14, borderRadius: square ? '4px' : '50%',
+      background: 'conic-gradient(#FF3B30, #FFCC00, #34C759, #00C7BE, #007AFF, #AF52DE, #FF2D55, #FF3B30)',
+    }} />
+  )
+}
+
+/** The custom colours used last, under the standard ones. */
+function Recent({ kind, current, onPick, square }: {
+  kind: 'text' | 'fill'; current: string | null; onPick: (c: string) => void; square?: boolean
+}) {
+  const list = recent(kind)
+  if (!list.length) return null
+  return (
+    <>
+      <Typography sx={{ fontSize: 11, fontWeight: 600, color: '#8E8E93', mt: 0.75, mx: 0.75 }}>Recent</Typography>
+      <Grid>
+        {list.map((c) => (
+          <Swatch key={c} color={c} label={c} square={square} on={current?.toUpperCase() === c} onClick={() => onPick(c)} />
+        ))}
+      </Grid>
+    </>
   )
 }
 
