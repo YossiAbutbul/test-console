@@ -32,6 +32,64 @@ turns that heading into the version and date.
   duration is capped at 255 s until a frame shows whether its field is one
   byte or two. New routes
   `/device/ble/tx-power` (GET/POST), `/device/ble/tone` and `/ble/relink`.
+- Path loss: Load… and Save as… in the Path loss dialog. Save as writes the
+  table as shown (default and per-frequency points) to a .json file; Load
+  fills the dialog from one, to review and apply with Save (Cancel still
+  discards it). A file that is not a path loss table, or has a bad or
+  repeated frequency, is refused whole, with the reason. A bare list of
+  `{"freq_mhz", "db"}` points loads too.
+- Load Pull: trombone range per frequency. Zero/End leave the Sweep
+  bounds card for one Range row (the extent swept, and how many frequencies
+  have their own range) with Set/Edit, which opens a dialog laid out like
+  Path loss: the trombone's live position, press-and-hold jog with its
+  speed, and Go to Lowest start / Highest end on top; below, an All
+  frequencies row (the former Zero/End, carried over) and a row per test
+  frequency, each with Start and Stop captured from where the carriage is
+  (Recapture, go back to a captured end, clear the row). Each capture is
+  saved as it is taken, one end alone included, so closing the dialog
+  midway loses nothing; Run stays blocked until every range in use has both
+  ends.
+  The run sweeps a frequency over its own range, or All frequencies when it
+  has none, on one shared grid of Delta X steps (anchored on the All
+  frequencies Start when it is used), so frequencies share positions instead
+  of each stepping from its own hand-captured Start -- a 7-frequency run went
+  from 124 positions per attenuator step to 34. Each position is visited
+  once, skipping the frequencies it is not in; the VNA reads only those planned there, and the
+  workbook's Run sheet lists each range. Go to on the Controls card is now
+  Start / Stop of the frequency picked under VNA span. Travel limits follow
+  the extent of the captured ranges, and are lifted while the dialog is open
+  so new ends can be reached. Nothing moves except on a key press.
+  The dialog dims the whole window, toolbar included, and carries its own
+  E-Stop; a VNA column puts the analyzer on a row's span and marker ("Show",
+  then "On VNA" on the row it is showing), so ends can be chosen watching
+  the Smith chart.
+  The Range row on the card is one line: how many ranges and where they
+  span, each frequency's figures on hover. The dialog draws them: a Sweep
+  column with each row's range on one shared scale (own blue, All
+  frequencies grey, one captured end an amber dot) and the carriage's live
+  position as a line across every row, so jogging toward an end shows where
+  it is against every range.
+- Power sensor dynamic range, a setting (default -30 to +20 dBm) in the
+  power sensor's settings on the Power Meter page. A raw reading outside it
+  is flagged: "outside dynamic range" in amber on the Power Meter's At
+  sensor tile and on the CW/Modulated measurement card, and in red, with
+  the reason on hover, in the Load Pull results (which used a fixed -25 to
+  +15 dBm before).
+- LTE Load Pull: the "Turning on modem" notice LTE CW shows, while a run's
+  first step cycles the modem; below the toolbar, so Stop and E-STOP stay
+  in reach.
+- Smith chart: Colour by Pout, beside Efficiency and Att (Att offered only
+  when the run swept the attenuator). The legend, the copied chart and the
+  hovered point's card follow the choice.
+- Load Pull run: the RF switch moves once per position instead of twice.
+  Positions alternate VNA-first and PCB-first, so the switch is already
+  where the next position starts; a PCB-first position's rows are published
+  once its VNA read has filled in R/X, and a Stop part-way through one keeps
+  none of it (Continue measures it again).
+- LTE Load Pull: an MHz / EARFCN switch on the Test point card, so the
+  channel unit can be set there rather than only on the other LTE pages.
+  It is the setting every LTE page shares, and switching rewrites the
+  channels already typed into the new unit.
 - Product reports (phase 1). A report collects the runs kept for one
   product model, from any number of units. "Add to report" beside Export on
   the CW and Modulated automation tabs (LoRa and LTE) and on Frequency
@@ -121,6 +179,17 @@ turns that heading into the version and date.
 - Measure reads the power (sensor or analyzer) and the DC analyzer at the
   same time rather than one after the other, so a point's reading is
   shorter and its power and current come from the same moment.
+- Smith chart: switching to Working area no longer waits. The area is
+  worked out (and its figure mounted) in the background as soon as the
+  dialog opens and whenever its data changes, instead of only once the tab
+  was opened, and the tab control answers the click at once while the
+  content follows.
+- The report's editable words run on TipTap (MIT) instead of the browser's
+  deprecated editing commands. Formatting is applied and read the same way
+  in every browser, undo works per field, a paste is cut down to plain words
+  in the formatting where it lands, and Bold in a heading or table head
+  turns the place's own bold off and on. Reports are stored exactly as
+  before, so existing reports and the Word export are unchanged.
 
 ### Fixed
 - Backend start: the DC analyzer (and any VISA instrument) no longer fails
@@ -138,6 +207,20 @@ turns that heading into the version and date.
   page redraws during the settle. Any redraw in those 400 ms cancelled the
   pending read for good, leaving "not read yet" while the DUT transmitted;
   only a newer Send now cancels it.
+- A Load Pull page opened or reloaded during a run could reset the
+  trombone's travel limits from its own ranges before it had learned a run
+  was going, and the run's moves outside them then failed "outside soft
+  limits" for the rest of it. A page now leaves the limits alone until its
+  first look at the run has answered, and the run sets its own limits
+  again before every trombone move, so nothing changed in between can
+  refuse its positions.
+- A short click on a trombone jog arrow could leave the motor jogging: start
+  and stop went out together, the stop reached the backend while the start
+  was still waiting for the motor to idle, and the jog that followed was never
+  stopped. It ran to the soft limit, or with none set (the range dialog lifts
+  them) kept going. A jog's stop is now sent only after its start has
+  answered, and the backend stops any jog whose keepalives (sent every 250 ms
+  while the key is held) stop for a second. Load Pull and Trombone pages.
 - `publish-release.ps1` stopped before doing anything under Windows
   PowerShell 5.1: its quiet checks (`gh auth status`, the tag on origin,
   "does this release exist") write to stderr, which 5.1 turned into a fatal

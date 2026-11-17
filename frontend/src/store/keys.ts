@@ -26,6 +26,8 @@ export const STORAGE_KEYS = {
   // and a channel spec typed in EARFCNs is not a LoRa frequency.
   lteLoadPullPage: 'lte-load-pull-page-snapshot-v1',
   smithStyle: 'smith-chart-style-v1',
+  /** The power sensor's dynamic range (lib/sensorRange.ts). */
+  sensorRange: 'power-sensor-range-v1',
   smithArea: 'smith-working-area-v1',
   smithDelay: 'smith-cable-delay-v1',
   smithAreaView: 'smith-area-view-v1',

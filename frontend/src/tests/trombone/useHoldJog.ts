@@ -5,8 +5,8 @@
  * unset), which on this page would wipe limits set elsewhere.
  */
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { motor } from '../../api/motor'
 import { useLog } from '../../context/LogContext'
+import { startJogSession, type JogSession } from '../../lib/jogSession'
 
 interface HoldJogArgs {
   /** False blocks starting a jog (disconnected, a move in flight). */
@@ -20,7 +20,11 @@ export function useHoldJog({ enabled, speed, onStopped }: HoldJogArgs) {
   const { log } = useLog()
   // A ref tracks the active direction so key-repeat / duplicate keydown
   // doesn't restart it, and so we only stop the jog we started.
+  // Each hold is a session (lib/jogSession.ts): its stop waits for its start,
+  // and it keeps the backend's deadman fed while held.
   const dirRef = useRef<number>(0)
+  const sessionRef = useRef<JogSession | null>(null)
+  const lastStopRef = useRef<Promise<void>>(Promise.resolve())
   const [dir, setDir] = useState<number>(0)
   const [focused, setFocused] = useState(false)
 
@@ -28,19 +32,25 @@ export function useHoldJog({ enabled, speed, onStopped }: HoldJogArgs) {
     if (!enabled) return
     const d = positive ? 1 : -1
     if (dirRef.current === d) return
+    if (sessionRef.current) lastStopRef.current = sessionRef.current.stop().catch(() => {})
     dirRef.current = d
     setDir(d)
-    motor.jogStart(positive, speed).catch((e: Error) => {
+    const session = startJogSession(positive, speed, (e) => {
+      if (sessionRef.current !== session) return
+      sessionRef.current = null
       dirRef.current = 0
       setDir(0)
       log('Motor', `jog ${positive ? '+' : '−'} failed: ${e.message}`, 'error')
-    })
+    }, lastStopRef.current)
+    sessionRef.current = session
   }
   const stop = () => {
-    if (dirRef.current === 0) return
+    const session = sessionRef.current
+    sessionRef.current = null
     dirRef.current = 0
     setDir(0)
-    motor.jogStop()
+    if (!session) return
+    lastStopRef.current = session.stop()
       .then(() => onStopped())
       .catch((e: Error) => log('Motor', `jog stop failed: ${e.message}`, 'error'))
   }
@@ -59,7 +69,7 @@ export function useHoldJog({ enabled, speed, onStopped }: HoldJogArgs) {
   }
 
   // Safety: stop any running jog when the page unmounts.
-  useEffect(() => () => { if (dirRef.current !== 0) void motor.jogStop().catch(() => {}) }, [])
+  useEffect(() => () => { void sessionRef.current?.stop().catch(() => {}) }, [])
 
   return { dir, focused, setFocused, start, stop, onKeyDown, onKeyUp }
 }

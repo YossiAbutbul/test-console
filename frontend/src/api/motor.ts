@@ -36,6 +36,8 @@ export const motor = {
       body: JSON.stringify({ positive, speed: speed ?? null }),
     }),
   jogStop: () => http<MotorStatus>('/motor/jog/stop', { method: 'POST' }),
+  /** The jog key is still held; see lib/jogSession.ts. */
+  jogKeepalive: () => http<void>('/motor/jog/keepalive', { method: 'POST' }),
   setLimits: (softMin: number | null, softMax: number | null) =>
     http<MotorStatus>('/motor/limits', {
       method: 'POST',

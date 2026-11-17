@@ -265,11 +265,19 @@ def _write_run_sheet(ws: Worksheet, meta: LoadPullMeta, rows: list[LoadPullRow])
         ("PA mode", f"{_PA_MODE_NAMES.get(meta.pa_mode, '?')} ({meta.pa_mode})"
                     if meta.pa_mode is not None else "—"),
         ("Settle [ms]", dash(meta.settle_ms)),
-        ("Trombone zero", _mm(meta.zero_pulses)),
-        ("Trombone end", _mm(meta.end_pulses)),
+        ("Trombone start (all freqs)", _mm(meta.zero_pulses)),
+        ("Trombone stop (all freqs)", _mm(meta.end_pulses)),
         ("Delta X [mm]", dash(meta.delta_x_mm)),
-        ("Path loss default [dB]", dash(meta.path_loss_default_db)),
     ]
+    # Per frequency, when the run swept each over its own captured travel; a
+    # frequency that took Zero/End says so rather than looking captured.
+    for tr in meta.trombone_ranges:
+        entries.append((
+            f"Trombone @ {tr.freq_mhz:g} MHz",
+            f"{tr.start_pulses / 400:.2f} - {tr.stop_pulses / 400:.2f} mm"
+            + ("" if tr.own else "  (all freqs)"),
+        ))
+    entries.append(("Path loss default [dB]", dash(meta.path_loss_default_db)))
     # Per frequency, so a reader can see which figure corrected which column -
     # and which of them was a guess.
     for pt in meta.path_loss_points:

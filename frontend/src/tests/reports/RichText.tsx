@@ -3,13 +3,22 @@
  * words made bold or coloured from the format bar (FormatBar.tsx), which
  * appears over any of these while it has the cursor.
  *
- * A contenteditable rather than an input, because an input holds one style.
- * It is kept in step with its value only when the two differ: re-setting it
- * on every keystroke would throw the caret back to the start.
+ * A TipTap editor (richEditor.ts) rather than a bare contenteditable: the
+ * browser's own editing commands (execCommand) are deprecated, and wrote
+ * formatting each browser its own way, which then had to be read back out
+ * of the page. Here the words and their formatting are a document the
+ * editor owns, turned to and from the stored form (rich.ts) directly.
+ *
+ * It is set from its value only when the two differ: re-setting it on every
+ * keystroke would throw the caret back to the start.
  */
-import { useLayoutEffect, useRef, type ClipboardEvent, type KeyboardEvent } from 'react'
+import { useEffect, useRef } from 'react'
+import { EditorContent, useEditor } from '@tiptap/react'
+import { Fragment, Slice } from '@tiptap/pm/model'
+import type { EditorView } from '@tiptap/pm/view'
 import { Box, type SxProps, type Theme } from '@mui/material'
-import { fromDom, plain, serialize, toHtml } from './rich'
+import { fromDoc, toDoc, type DocNode } from './rich'
+import { extensions, RICH_UPDATE } from './richEditor'
 import { PAPER } from './paperStyle'
 
 export function RichText({
@@ -29,63 +38,74 @@ export function RichText({
   /** As wide as its words, in a line of other words. */
   inline?: boolean
 }) {
-  const ref = useRef<HTMLDivElement>(null)
+  // The editor is made once; what it reads of the props, it reads from here.
+  const props = useRef({ onChange, onBlur, multiline, placeholder, label })
+  useEffect(() => { props.current = { onChange, onBlur, multiline, placeholder, label } })
 
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (el && serialize(fromDom(el)) !== value) el.innerHTML = toHtml(value)
-  }, [value])
+  const editor = useEditor({
+    extensions: extensions(),
+    content: toDoc(value),
+    autofocus: autoFocus ? 'end' : false,
+    // Built in the first render, not after it: a page of fields that each
+    // came up a frame late would flicker in.
+    immediatelyRender: true,
+    shouldRerenderOnTransaction: false,
+    onUpdate: ({ editor }) => props.current.onChange(fromDoc(editor.getJSON() as DocNode)),
+    onBlur: ({ editor }) => props.current.onBlur?.(fromDoc(editor.getJSON() as DocNode)),
+    onTransaction: () => document.dispatchEvent(new Event(RICH_UPDATE)),
+    editorProps: {
+      attributes: (state) => {
+        const p = props.current
+        const empty = state.doc.textContent === '' && state.doc.firstChild?.childCount === 0
+        return {
+          'aria-label': p.label ?? '',
+          ...(p.multiline ? { 'aria-multiline': 'true' } : {}),
+          spellcheck: 'false',
+          'data-rich': '',
+          'data-placeholder': p.placeholder ?? '',
+          ...(empty ? { 'data-empty': '' } : {}),
+        }
+      },
+      handleKeyDown: (view, e) => {
+        if (e.key !== 'Enter') return false
+        e.preventDefault()
+        if (props.current.multiline && !e.ctrlKey && !e.metaKey) {
+          const br = view.state.schema.nodes.hardBreak.create()
+          view.dispatch(view.state.tr.replaceSelectionWith(br, true).scrollIntoView())
+        } else {
+          (view.dom as HTMLElement).blur()
+        }
+        return true
+      },
+      // Words only from the clipboard: another program's fonts and colours do
+      // not come in with them, but the words take the formatting where they
+      // land. A picture goes on to the page's paste handler.
+      handlePaste: (view, e) => {
+        const text = e.clipboardData?.getData('text/plain')
+        if (!text) return false
+        e.preventDefault()
+        insertPlain(view, props.current.multiline ? text : text.replace(/\s*\n\s*/g, ' '))
+        return true
+      },
+    },
+  })
 
-  useLayoutEffect(() => {
-    if (autoFocus) ref.current?.focus()
-    // Only on mount: a new empty block takes the cursor once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // Kept in step with the value when it changes from outside: an undo of the
+  // report, another field's edit of the same words.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    if (fromDoc(editor.getJSON() as DocNode) === value) return
+    editor.commands.setContent(toDoc(value), { emitUpdate: false })
+  }, [editor, value])
 
-  const read = () => (ref.current ? serialize(fromDom(ref.current)) : value)
-
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      if (multiline && !e.ctrlKey && !e.metaKey) document.execCommand('insertLineBreak')
-      else ref.current?.blur()
-      return
-    }
-    // The format bar's Bold, Italic and Underline, from the keyboard too.
-    const cmd = { b: 'bold', i: 'italic', u: 'underline' }[e.key.toLowerCase()]
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && cmd) {
-      e.preventDefault()
-      document.execCommand(cmd)
-      // The selection did not move, so tell the format bar to look again.
-      document.dispatchEvent(new Event('selectionchange'))
-    }
-  }
-
-  // Words only from the clipboard: another program's fonts and colours do
-  // not come in with them. A picture goes on to the page's paste handler.
-  const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
-    const text = e.clipboardData.getData('text/plain')
-    if (!text) return
-    e.preventDefault()
-    document.execCommand('insertText', false, multiline ? text : text.replace(/\s*\n\s*/g, ' '))
-  }
+  // Label and placeholder are attributes of the editor's element: set them
+  // again when they change.
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) editor.view.setProps({})
+  }, [editor, label, placeholder, multiline])
 
   return (
     <Box
-      ref={ref}
-      contentEditable
-      suppressContentEditableWarning
-      role="textbox"
-      aria-label={label}
-      aria-multiline={multiline || undefined}
-      spellCheck={false}
-      data-rich=""
-      data-empty={plain(value) ? undefined : ''}
-      data-placeholder={placeholder}
-      onInput={() => onChange(read())}
-      onBlur={() => onBlur?.(read())}
-      onKeyDown={onKeyDown}
-      onPaste={onPaste}
       // Clicks in the words edit them; they must not start a block drag.
       onPointerDown={(e) => e.stopPropagation()}
       sx={{
@@ -94,26 +114,42 @@ export function RichText({
         minWidth: inline ? '0.5em' : undefined,
         width: inline ? undefined : '100%',
         textAlign: align ?? 'left',
-        whiteSpace: 'pre-wrap',
-        overflowWrap: 'anywhere',
-        outline: 'none',
-        cursor: 'text',
         borderRadius: '4px',
         mx: -0.5,
         px: 0.5,
+        cursor: 'text',
         transition: 'background-color 120ms ease',
         '&:hover': { bgcolor: 'rgba(0, 113, 227, 0.06)' },
-        '&:focus': { bgcolor: 'rgba(0, 113, 227, 0.09)' },
-        // An empty field keeps its line, and shows its hint without moving
-        // the caret off the start.
-        minHeight: '1lh',
-        '&[data-empty]::before': {
-          content: 'attr(data-placeholder)', color: PAPER.muted, opacity: 0.6, pointerEvents: 'none',
-          position: 'absolute', left: 4, right: 4, textAlign: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden',
+        '&:focus-within': { bgcolor: 'rgba(0, 113, 227, 0.09)' },
+        '& .ProseMirror': {
+          outline: 'none',
+          whiteSpace: 'pre-wrap',
+          overflowWrap: 'anywhere',
+          // An empty field keeps its line, and shows its hint without moving
+          // the caret off the start.
+          minHeight: '1lh',
+          position: 'relative',
         },
-        '&[data-empty]': { position: 'relative' },
-        '&[data-empty] > br': { display: 'none' },
+        '& .ProseMirror[data-empty]::before': {
+          content: 'attr(data-placeholder)', color: PAPER.muted, opacity: 0.6, pointerEvents: 'none',
+          position: 'absolute', left: 0, right: 0, textAlign: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden',
+        },
       }}
-    />
+    >
+      <EditorContent editor={editor} />
+    </Box>
   )
+}
+
+/** Plain words in at the cursor, lines as line breaks, in the formatting
+ *  the cursor has. */
+function insertPlain(view: EditorView, text: string) {
+  const { state } = view
+  const { schema } = state
+  const marks = state.storedMarks ?? state.selection.$from.marks()
+  const nodes = text.split(/\r?\n/).flatMap((line, i) => [
+    ...(i ? [schema.nodes.hardBreak.create()] : []),
+    ...(line ? [schema.text(line, marks)] : []),
+  ])
+  view.dispatch(state.tr.replaceSelection(new Slice(Fragment.fromArray(nodes), 0, 0)).scrollIntoView())
 }

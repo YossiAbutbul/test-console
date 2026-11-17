@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parse, plain, serialize, toHtml } from './rich'
+import { fromDoc, parse, plain, serialize, toDoc } from './rich'
 
 describe('formatted words', () => {
   it('reads plain text as written', () => {
@@ -26,16 +26,34 @@ describe('formatted words', () => {
       { text: 'all', bold: true, italic: true, underline: true, color: '#C00000' },
     ])
     expect(parse(serialize(parse(v)))).toEqual(parse(v))
-    expect(toHtml('<u>x</u>')).toBe('<u>x</u>')
   })
 
   it('stays plain until something is formatted', () => {
     expect(serialize([{ text: 'a < b' }, { text: ' & c' }])).toBe('a < b & c')
   })
 
-  it('edits as our own tags only', () => {
-    expect(toHtml('<b>x</b> <em>y</em>')).toBe('<b>x</b> &lt;em&gt;y&lt;/em&gt;')
-    expect(toHtml('<span style="color:#002060;background:url(x)">y</span>')).toBe('<span style="color:#002060">y</span>')
-    expect(toHtml('a\n')).toBe('a\n<br>')
+  it('edits as our own formatting only', () => {
+    // A tag of ours goes in as a mark; anything else stays its words.
+    expect(toDoc('<b>x</b> <em>y</em>')).toEqual({ type: 'doc', content: [{ type: 'paragraph', content: [
+      { type: 'text', text: 'x', marks: [{ type: 'bold' }] }, { type: 'text', text: ' <em>y</em>' },
+    ] }] })
+    expect(fromDoc(toDoc('<span style="color:#002060;background:url(x)">y</span>')))
+      .toBe('<span style="color:#002060">y</span>')
+  })
+
+  it('goes to the editor and back unchanged', () => {
+    for (const v of [
+      '', 'plain < 30 & more', 'a\nb', 'a\n',
+      'Plain <b>bold</b> <span style="font-weight:400">light</span>',
+      '<span style="color:#C00000"><b><i><u>all</u></i></b></span> rest',
+    ]) expect(fromDoc(toDoc(v))).toBe(serialize(parse(v)))
+    expect(toDoc('a\nb').content?.[0].content?.map((n) => n.type)).toEqual(['text', 'hardBreak', 'text'])
+  })
+
+  it('reads a colour the editor wrote another way', () => {
+    const doc = { type: 'doc', content: [{ type: 'paragraph', content: [
+      { type: 'text', text: 'x', marks: [{ type: 'textStyle', attrs: { color: 'rgb(192, 0, 0)' } }] },
+    ] }] }
+    expect(fromDoc(doc)).toBe('<span style="color:#C00000">x</span>')
   })
 })

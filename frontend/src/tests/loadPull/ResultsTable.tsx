@@ -5,7 +5,8 @@ import { HeadCell, NUM_CELL_SX, RESULTS_H, FollowLatest, useFollowBottom } from 
 import type { PathLossAt } from '../../lib/pathLoss'
 import type { LoadPullResultRow } from '../../store/loadPullPageStore'
 import { vswrLabel } from './smith'
-import { SENSOR_MAX_DBM, SENSOR_MIN_DBM, confidenceColor, powerConfidence } from './powerConfidence'
+import { confidenceColor, powerConfidence } from './powerConfidence'
+import { outsideRangeMessage, useSensorRange } from '../../lib/sensorRange'
 
 /** Columns in the table, for the spacer rows' colSpan. */
 const COLS = 12
@@ -35,6 +36,7 @@ interface Props {
  * rows change; windowed, that costs the same at row 10 000 as at row 10.
  */
 export const LoadPullResultsTable = memo(function LoadPullResultsTable({ results, lossAt, judgeSensorRange = true }: Props) {
+  const [sensorRange] = useSensorRange()
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const firstRowRef = useRef<HTMLTableRowElement | null>(null)
   const [scrollTop, setScrollTop] = useState(0)
@@ -133,7 +135,7 @@ export const LoadPullResultsTable = memo(function LoadPullResultsTable({ results
             const raw = r.power_dbm_raw
               ?? (r.power_dbm == null ? null : r.power_dbm - lossAt(r.freq_mhz).db)
             // The sensor's range says nothing about an analyzer reading.
-            const confidence = judgeSensorRange ? powerConfidence(raw) : 'ok'
+            const confidence = judgeSensorRange ? powerConfidence(raw, sensorRange) : 'ok'
             return (
               <TableRow key={i} ref={j === 0 ? firstRowRef : undefined}>
                 <TableCell sx={NUM_CELL_SX}>{i + 1}</TableCell>
@@ -144,9 +146,7 @@ export const LoadPullResultsTable = memo(function LoadPullResultsTable({ results
                 <TableCell
                   // Says why it is red: the corrected figure in the cell can
                   // look perfectly ordinary while the sensor was out of range.
-                  title={confidence === 'poor' && raw != null
-                    ? `Sensor read ${raw.toFixed(2)} dBm, outside its ${SENSOR_MIN_DBM} to +${SENSOR_MAX_DBM} dBm range`
-                    : undefined}
+                  title={confidence === 'poor' && raw != null ? outsideRangeMessage(raw, sensorRange) : undefined}
                   sx={{
                     ...NUM_CELL_SX,
                     color: confidenceColor(confidence),

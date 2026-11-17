@@ -73,6 +73,8 @@ export interface LoadPullExportMeta {
   end_pulses?: number | null
   path_loss_default_db?: number
   path_loss_points?: Array<{ freq_mhz: number; db: number; calibrated: boolean }>
+  /** Per frequency, when any had its own trombone range (backend TromboneRange). */
+  trombone_ranges?: Array<{ freq_mhz: number; start_pulses: number; stop_pulses: number; own: boolean }>
   dut_mac?: string | null
   /** Epoch seconds, when the page knows them; the Run sheet says "—" otherwise. */
   started_at?: number | null

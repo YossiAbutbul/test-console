@@ -13,6 +13,7 @@ import {
 } from '../../context/InstrumentsContext'
 import { usePathLoss } from '../../context/PathLossContext'
 import { useLog } from '../../context/LogContext'
+import { outsideSensorRange, sensorRangeText, useSensorRange } from '../../lib/sensorRange'
 import { describeMeasureError } from '../../lib/instrumentError'
 import { DASH } from '../../lib/format'
 import {
@@ -226,6 +227,10 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
   const max = corrected.length ? Math.max(...corrected) : null
   const mean = corrected.length ? corrected.reduce((a, b) => a + b, 0) / corrected.length : null
   const underRange = raw != null && raw <= UNDER_RANGE_DBM
+  const [sensorRange] = useSensorRange()
+  // Off the sensor's dynamic range but still a level (not the no-signal
+  // sentinel above): the figure is shown, and said not to be trusted.
+  const offRange = !underRange ? outsideSensorRange(raw, sensorRange) : null
   const failure = error ? describeMeasureError(error) : null
   const busy = reading || connecting
 
@@ -300,6 +305,7 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
               <Typography sx={{ ...TEXT.micro, color: 'text.secondary', mt: 0.75 }}>
                 Needed only with more than one sensor plugged in.
               </Typography>
+              <SensorRangeFields />
             </Box>
           }
         />
@@ -397,10 +403,11 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
               sub={
                 raw == null
                   ? (connected ? 'not read yet' : 'sensor off')
-                  : underRange ? 'under range · no signal' : 'measured'
+                  : underRange ? 'under range · no signal'
+                    : offRange ? `outside dynamic range (${sensorRangeText(sensorRange)})` : 'measured'
               }
               off={!connected || raw == null}
-              tone={underRange ? 'warn' : undefined}
+              tone={underRange || offRange ? 'warn' : undefined}
             />
             <StatTile
               label="Correction"
@@ -490,6 +497,49 @@ export function PowerMeterPage({ group, active }: TestPageProps) {
           </Box>
         </Section>
       </PageBody>
+    </Box>
+  )
+}
+
+/**
+ * The sensor's dynamic range, in its settings: what the app judges its raw
+ * readings against here, on the measurement cards and in Load Pull. Typed as
+ * text and kept only when both ends are numbers with the lower one first, so
+ * an end being retyped never puts an unusable range into effect.
+ */
+function SensorRangeFields() {
+  const [range, setRange] = useSensorRange()
+  const [lo, setLo] = useState(String(range.minDbm))
+  const [hi, setHi] = useState(String(range.maxDbm))
+  // Kept only when both ends are numbers, lower first.
+  const commit = (l: string, h: string) => {
+    if (l.trim() === '' || h.trim() === '') return
+    const min = Number(l), max = Number(h)
+    if (Number.isFinite(min) && Number.isFinite(max) && min < max) setRange({ minDbm: min, maxDbm: max })
+  }
+  const bad = lo.trim() === '' || hi.trim() === '' || !(Number(lo) < Number(hi))
+  const field = (value: string, onChange: (v: string) => void, label: string) => (
+    <TextField
+      size="small" type="number" value={value}
+      onChange={(e) => onChange(e.target.value)}
+      error={bad}
+      inputProps={{ step: 1, 'aria-label': `Dynamic range ${label}, dBm` }}
+      sx={{ width: 96, '& input': { fontFamily: MONO, fontSize: 12.5 } }}
+    />
+  )
+  return (
+    <Box sx={{ mt: 2 }}>
+      <Typography sx={{ ...TEXT.label, color: 'text.primary', mb: 0.5 }}>Dynamic range</Typography>
+      <Stack direction="row" alignItems="center" spacing={1}>
+        {field(lo, (v) => { setLo(v); commit(v, hi) }, 'lower end')}
+        <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>to</Typography>
+        {field(hi, (v) => { setHi(v); commit(lo, v) }, 'upper end')}
+        <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>dBm</Typography>
+      </Stack>
+      <Typography sx={{ ...TEXT.micro, color: bad ? 'error.main' : 'text.secondary', mt: 0.75 }}>
+        {bad ? 'The lower end must be below the upper one.'
+          : 'A raw reading outside it is flagged, here, on the test pages and in Load Pull.'}
+      </Typography>
     </Box>
   )
 }

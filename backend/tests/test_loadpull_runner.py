@@ -109,6 +109,96 @@ class TestOrder:
         assert r.status().completed == 4
 
     @sync
+    async def test_per_frequency_ranges_read_only_the_frequencies_planned_there(self) -> None:
+        # 902.3 swept over 0-400, 915 over 400-800: as the page lays out a plan
+        # with a trombone range captured per frequency.
+        pts = plan([0], [902.3]) + plan([400], [902.3, 915.0]) + plan([800], [915.0])
+        r, rig = FastRunner(), FakeRig()
+        await r.start(config(pts), rig)
+        await finish(r)
+        assert [c[1] for c in rig.calls if c[0] == "move"] == [0, 400, 800]
+        assert [c[1] for c in rig.calls if c[0] == "vna"] == [
+            902_300_000, 902_300_000, 915_000_000, 915_000_000,
+        ]
+        # The plan's own extent, set at the start and before every move.
+        assert {c for c in rig.calls if c[0] == "limits"} == {("limits", 0, 800)}
+        assert all(row.r_ohm == 50.0 for row in r.rows())
+
+    @sync
+    async def test_continue_mid_position_still_reads_every_frequency_there(self) -> None:
+        pts = plan([0, 400], [902.3, 915.0])
+        r, rig = FastRunner(), FakeRig()
+        await r.start(config(pts, start_index=3), rig)
+        await finish(r)
+        assert [c[1] for c in rig.calls if c[0] == "vna"] == [902_300_000, 915_000_000]
+        assert r.rows()[0].x_ohm == 0.915
+
+    @sync
+    async def test_the_switch_moves_once_per_position(self) -> None:
+        r, rig = FastRunner(), FakeRig()
+        await r.start(config(plan([0, 400, 800, 1200], [902.3, 915.0])), rig)
+        await finish(r)
+        switches = [c[1] for c in rig.calls if c[0] == "switch"]
+        # VNA-first, then PCB-first with its read after, and so on: the
+        # switch is already where the next position starts.
+        assert switches == ["VNA", "PCB", "VNA", "PCB", "VNA"]
+        order = [c[0] for c in rig.calls if c[0] in ("move", "vna", "tx_on")]
+        assert order[:8] == ["move", "vna", "vna", "tx_on", "tx_on", "move", "tx_on", "tx_on"]
+        assert order[8:10] == ["vna", "vna"]
+
+    @sync
+    async def test_a_pcb_first_position_still_gets_its_markers(self) -> None:
+        r, rig = FastRunner(), FakeRig()
+        await r.start(config(plan([0, 400], [902.3, 915.0])), rig)
+        await finish(r)
+        rows = r.rows()
+        assert [row.pos_pulses for row in rows] == [0, 0, 400, 400]
+        assert all(row.r_ohm == 50.0 for row in rows)
+        assert [row.x_ohm for row in rows[2:]] == [0.9023, 0.915]
+
+    @sync
+    async def test_stop_mid_pcb_first_position_publishes_none_of_it(self) -> None:
+        r, rig = FastRunner(), FakeRig()
+
+        def stop_at_second_position(point: PlanPoint) -> None:
+            if point.pos == 400 and point.freq_mhz == 915.0:
+                asyncio.get_running_loop().create_task(r.cancel())
+
+        rig.on_tx = stop_at_second_position
+        await r.start(config(plan([0, 400], [902.3, 915.0])), rig)
+        await finish(r)
+        assert r.status().state == RunState.CANCELLED
+        assert [row.pos_pulses for row in r.rows()] == [0, 0]
+
+    @sync
+    async def test_limits_changed_mid_run_are_put_back_before_the_next_move(self) -> None:
+        class LimitedRig(FakeRig):
+            lo: int = 0
+            hi: int = 0
+
+            async def travel_limits(self, lo, hi):
+                self.calls.append(("limits", lo, hi))
+                self.lo, self.hi = lo, hi
+
+            async def move(self, pos):
+                # As motor.manager.move: a target outside the limits is refused.
+                if not self.lo <= pos <= self.hi:
+                    raise ValueError(f"target {pos} outside soft limits [{self.lo}, {self.hi}]")
+                self.calls.append(("move", pos))
+
+        r, rig = FastRunner(), LimitedRig()
+
+        def page_resets_limits(point: PlanPoint) -> None:
+            # Another page narrowing the limits mid-run, as one opened mid-run did.
+            rig.lo, rig.hi = 300, 500
+
+        rig.on_tx = page_resets_limits
+        await r.start(config(plan([0, 400, 800], [915.0])), rig)
+        await finish(r)
+        assert [row.error for row in r.rows()] == [None, None, None]
+        assert [c[1] for c in rig.calls if c[0] == "move"] == [0, 400, 800]
+
+    @sync
     async def test_span_is_half_a_percent_either_side(self) -> None:
         r, rig = FastRunner(), FakeRig()
         await r.start(config(plan([0], [1000.0])), rig)

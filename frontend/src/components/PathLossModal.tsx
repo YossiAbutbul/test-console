@@ -1,12 +1,17 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Alert, Box, Button, IconButton, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/AddRounded'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineRounded'
+import FileOpenIcon from '@mui/icons-material/FileOpenRounded'
+import SaveAltIcon from '@mui/icons-material/SaveAltRounded'
 import { usePathLoss } from '../context/PathLossContext'
-import type { PathLossPoint } from '../lib/pathLoss'
+import { parsePathLossJson, pathLossToJson, type PathLossPoint } from '../lib/pathLoss'
+import { saveBlob, timestamp } from '../lib/download'
+import { useLog } from '../context/LogContext'
+import { useNotify } from '../context/NotifyContext'
 import { ModalShell, MONO, TEXT } from '../ui'
 import { selectOnFocus } from '../lib/selectOnFocus'
 
@@ -39,6 +44,9 @@ export function PathLossModal({ open, onClose }: Props) {
   const { defaultDb, setDefaultDb, points, setPoints } = usePathLoss()
   const [rows, setRows] = useState<DraftRow[]>(() => toDraft(points))
   const [draftDefault, setDraftDefault] = useState(String(defaultDb))
+  const { log } = useLog()
+  const notify = useNotify()
+  const fileInput = useRef<HTMLInputElement | null>(null)
 
   // Reload from context each time it opens, so a cancelled edit is really
   // discarded rather than lingering in this component's state.
@@ -77,17 +85,44 @@ export function PathLossModal({ open, onClose }: Props) {
   const defaultOk = draftDefault.trim() !== '' && Number.isFinite(Number(draftDefault))
   const canSave = invalid.length === 0 && duplicates.size === 0 && defaultOk
 
-  const save = () => {
-    const kept: PathLossPoint[] = rows
+  /** The rows that Save would keep, sorted. */
+  const keptPoints = (): PathLossPoint[] => rows
       .map((r, i) => ({ r, p: parsed[i] }))
       .filter(({ r, p }) => !isBlank(r) && p.freqOk && p.dbOk)
       // Sorted on save rather than while typing — reordering rows under the
       // cursor makes the table impossible to fill in.
       .map(({ p }) => ({ freqMhz: p.freq, db: p.db }))
       .sort((a, b) => a.freqMhz - b.freqMhz)
-    setPoints(kept)
+
+  const save = () => {
+    setPoints(keptPoints())
     setDefaultDb(Number(draftDefault))
     onClose()
+  }
+
+  // Load fills the dialog, not the table: what came in is reviewed here and
+  // applied with Save like any other edit, and Cancel still throws it away.
+  const loadFile = async (file: File) => {
+    try {
+      const t = parsePathLossJson(await file.text())
+      setRows(toDraft(t.points))
+      if (t.defaultDb != null) setDraftDefault(String(t.defaultDb))
+      log('System', `Loaded ${t.points.length} points from ${file.name} - Save to apply`)
+    } catch (e) {
+      notify.error((e as Error).message, { title: `Load ${file.name}` })
+    }
+  }
+  // What is on screen, so a table can be saved before (or without) applying it.
+  const saveFile = async () => {
+    const text = pathLossToJson({ defaultDb: Number(draftDefault), points: keptPoints() })
+    const name = `path-loss_${timestamp()}.json`
+    try {
+      if (await saveBlob(new Blob([text], { type: 'application/json' }), name) === 'saved') {
+        log('System', `Saved the table to ${name}`)
+      }
+    } catch (e) {
+      notify.error((e as Error).message, { title: 'Save path loss' })
+    }
   }
 
   return (
@@ -98,6 +133,44 @@ export function PathLossModal({ open, onClose }: Props) {
       maxWidth="sm"
       dividers
       footer={{
+        // The file keys sit apart, on the left: they move the table in and
+        // out of a file, while Cancel/Save decide what this app uses.
+        leading: (
+          <>
+            <Button
+              variant="text" color="inherit" size="small"
+              startIcon={<FileOpenIcon sx={{ fontSize: 17 }} />}
+              onClick={() => fileInput.current?.click()}
+            >
+              Load…
+            </Button>
+            <Tooltip title={canSave ? 'Save the table as shown to a .json file' : 'Fix the table first'}>
+              <span>
+                <Button
+                  variant="text" color="inherit" size="small"
+                  startIcon={<SaveAltIcon sx={{ fontSize: 17 }} />}
+                  onClick={() => { void saveFile() }}
+                  disabled={!canSave}
+                >
+                  Save as…
+                </Button>
+              </span>
+            </Tooltip>
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".json,application/json"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                // Reset first: picking the same file again fires no change
+                // event otherwise, so a second load would look ignored.
+                e.target.value = ''
+                if (f) void loadFile(f)
+              }}
+            />
+          </>
+        ),
         secondary: <Button onClick={onClose} variant="outlined" color="inherit">Cancel</Button>,
         primary: <Button onClick={save} variant="contained" disabled={!canSave}>Save</Button>,
       }}

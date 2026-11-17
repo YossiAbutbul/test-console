@@ -108,6 +108,13 @@ class _Ctx:
     pos: Optional[int] = None
     #: The VNA markers read at `pos`, by requested frequency (Hz).
     markers: dict[int, dict] = field(default_factory=dict)
+    #: The plan's travel extent, (lo, hi) pulses, set before every move.
+    limits: Optional[tuple[int, int]] = None
+    #: Where the RF switch was last sent ("VNA"/"PCB"), None when unknown.
+    switch_at: Optional[str] = None
+    #: True while the position in hand is measured PCB-first: its VNA read
+    #: comes after its points, and their rows wait for it (see `_run`).
+    vna_after: bool = False
 
 
 def _hz(mhz: float) -> int:
@@ -119,6 +126,27 @@ def _message(e: BaseException) -> str:
     # in `detail`; anything else is named by type.
     detail = getattr(e, "detail", None)
     return str(detail) if detail else f"{type(e).__name__}: {e}"
+
+
+def _freqs_by_position(points: list[PlanPoint]) -> list[list[float]]:
+    """For each plan index, the distinct frequencies of the consecutive points
+    at its position, in plan order.
+
+    By run rather than by position: the attenuator re-runs the trombone
+    cycle, and a Continue may start part-way into a position's points, which
+    still need the markers of every frequency taken there.
+    """
+    out: list[list[float]] = [[] for _ in points]
+    i = 0
+    while i < len(points):
+        j = i
+        while j < len(points) and points[j].pos == points[i].pos:
+            j += 1
+        group = list(dict.fromkeys(p.freq_mhz for p in points[i:j]))
+        for k in range(i, j):
+            out[k] = group
+        i = j
+    return out
 
 
 class LoadPullRunner:
@@ -236,7 +264,7 @@ class LoadPullRunner:
         # effect while it is dialled in. Non-fatal -- it can be set blind, and
         # the next point re-routes the switch itself.
         try:
-            await ctx.rig.switch("VNA")
+            await self._switch(ctx, "VNA")
         except Exception as e:
             log.warning("could not park the switch on VNA: %s", _message(e))
         ctx.prompt_seq += 1
@@ -248,12 +276,63 @@ class LoadPullRunner:
         proceed, att_db = await fut
         return bool(proceed), att_db
 
+    @staticmethod
+    async def _switch(ctx: _Ctx, target: str) -> None:
+        """Route the RF switch, unless this run already left it there -- a
+        repeated command is still a servo move on the bench."""
+        if ctx.switch_at == target:
+            return
+        ctx.switch_at = None  # unknown until it has answered
+        await ctx.rig.switch(target)
+        ctx.switch_at = target
+
+    async def _read_vna(self, ctx: _Ctx, freqs: list[float]) -> Optional[dict[int, dict]]:
+        """Switch to the VNA and read each frequency on its own zoomed span.
+        None if Stop cut it short.
+
+        The settle after each span change lets a fresh sweep land -- the
+        analyzer free-runs and a read takes its latest trace -- and the first
+        one also covers the switch settling.
+        """
+        c = ctx.config
+        ctx.phase = "vna"
+        await self._switch(ctx, "VNA")
+        markers: dict[int, dict] = {}
+        for f in freqs:
+            fhz = _hz(f)
+            half = round(fhz * c.vna_half_span_frac)
+            await ctx.rig.vna_span(fhz - half, fhz + half)
+            await self._sleep(ctx, c.settle_ms / 1000.0)
+            if ctx.cancel.is_set():
+                return None
+            mk = await ctx.rig.vna_read(fhz)
+            if mk is not None:
+                markers[fhz] = mk
+        if not markers:
+            log.warning("no VNA markers at %.2f mm", (ctx.pos or 0) / PULSES_PER_MM)
+        return markers
+
+    @staticmethod
+    def _apply_markers(row: LoadPullRow, markers: dict[int, dict]) -> None:
+        mk = markers.get(_hz(row.freq_mhz)) if row.freq_mhz is not None else None
+        if mk:
+            row.r_ohm = mk.get("r_ohm")
+            row.x_ohm = mk.get("x_ohm")
+            row.s11_db = mk.get("s11_mag_db")
+
     async def _run(self, ctx: _Ctx) -> None:
         c = ctx.config
         final = RunState.DONE
         freqs = list(dict.fromkeys(p.freq_mhz for p in c.points))
         att_steps = list(dict.fromkeys(p.att_db for p in c.points if p.att_db is not None))
         loss = {round(pl.freq_mhz, 6): pl.db for pl in c.path_loss}
+        # The frequencies measured at each point's position: those of the run
+        # of consecutive points parked there. With one trombone range for the
+        # whole plan that is every frequency, as before; with a range captured
+        # per frequency, a position only some of them reach is read on the VNA
+        # for those alone -- a span and settle per frequency is the slow part
+        # of a position, and a marker nothing will use is a wasted one.
+        freqs_at = _freqs_by_position(c.points)
         step_timeout = (
             c.settle_ms / 1000.0 * (len(freqs) + 2)
             + len(freqs) * _VNA_READ_S + _STEP_OVERHEAD_S
@@ -262,6 +341,10 @@ class LoadPullRunner:
         # for it when the operator chose another (None: as planned).
         att_plan: Optional[float] = None
         att_override: Optional[float] = None
+        # Rows of the position in hand when it is measured PCB-first: they
+        # are published together once its VNA read has filled in R/X, so the
+        # page never copies a row without them.
+        held: list[LoadPullRow] = []
         log.info(
             "Load Pull (%s) started: points %d-%d of %d",
             c.radio, c.start_index + 1, len(c.points), len(c.points),
@@ -272,8 +355,15 @@ class LoadPullRunner:
             # page's left in place refused this plan's positions past them.
             # So the run sets them from its own plan, the whole of it, which
             # a Continue needs as much as a fresh start.
+            #
+            # And again before every move (`_point`): setting them once was
+            # not enough. A Load Pull page opened mid-run set its own before it
+            # had learned a run was going, and 20 points of a 600-point run
+            # were refused as outside them. The run owns the limits while it
+            # runs; re-asserting them costs nothing next to the move.
             positions = [p.pos for p in c.points]
-            await ctx.rig.travel_limits(min(positions), max(positions))
+            ctx.limits = (min(positions), max(positions))
+            await ctx.rig.travel_limits(*ctx.limits)
 
             # Once per run, as on the LTE CW sweep: down and up again, so the
             # run starts from a known modem. One that will not come up fails
@@ -316,7 +406,7 @@ class LoadPullRunner:
                 if att_override is not None:
                     p = p.model_copy(update={"att_db": att_override})
                 try:
-                    row = await asyncio.wait_for(self._point(ctx, p, freqs, loss), step_timeout)
+                    row = await asyncio.wait_for(self._point(ctx, p, freqs_at[i], loss), step_timeout)
                 except asyncio.TimeoutError:
                     row = self._blank(p)
                     row.error = f"point timed out after {step_timeout:.0f}s"
@@ -327,14 +417,23 @@ class LoadPullRunner:
                 # measures it again.
                 if ctx.cancel.is_set():
                     break
-                ctx.rows.append(row)
-                n = c.start_index + len(ctx.rows) + ctx.skipped
-                if len(ctx.rows) <= _LOG_HEAD or n % _LOG_EVERY == 0:
-                    log.info("Load Pull point %d/%d%s", n, len(c.points), f": {row.error}" if row.error else "")
+                if ctx.vna_after:
+                    held.append(row)
+                else:
+                    self._publish(ctx, row)
                 if ctx.tx_failures >= _LINK_FAIL_LIMIT:
                     raise RuntimeError(
                         f"DUT not answering: {_LINK_FAIL_LIMIT} commands failed in a row, last: {row.error}"
                     )
+                # Last point at this position (or of this attenuator cycle):
+                # a PCB-first position takes its VNA read now, leaving the
+                # switch on the VNA for the next position to read first.
+                nxt = c.points[i + 1] if i + 1 < len(c.points) else None
+                if held and (nxt is None or nxt.pos != c.points[i].pos or nxt.att_db != c.points[i].att_db):
+                    await self._finish_held(ctx, held, freqs_at[i])
+                    if ctx.cancel.is_set():
+                        break
+                    held = []
                 i += 1
             if ctx.cancel.is_set():
                 final = RunState.CANCELLED
@@ -356,6 +455,34 @@ class LoadPullRunner:
             # while this one is still tearing down.
             ctx.state = final
             log.info("Load Pull ended: %s, %d rows", final.value, len(ctx.rows))
+
+    def _publish(self, ctx: _Ctx, row: LoadPullRow) -> None:
+        ctx.rows.append(row)
+        n = ctx.config.start_index + len(ctx.rows) + ctx.skipped
+        if len(ctx.rows) <= _LOG_HEAD or n % _LOG_EVERY == 0:
+            log.info("Load Pull point %d/%d%s", n, len(ctx.config.points), f": {row.error}" if row.error else "")
+
+    async def _finish_held(self, ctx: _Ctx, held: list[LoadPullRow], freqs: list[float]) -> None:
+        """The VNA read of a PCB-first position, into its held rows, which
+        are then published. Stopped part-way, nothing is published: Continue
+        measures the position again, as it does a point Stop interrupted."""
+        c = ctx.config
+        budget = c.settle_ms / 1000.0 * (len(freqs) + 1) + len(freqs) * _VNA_READ_S + _STEP_OVERHEAD_S
+        try:
+            markers = await asyncio.wait_for(self._read_vna(ctx, freqs), budget)
+        except Exception as e:
+            # The power readings stand; the rows say the impedance is missing.
+            msg = "VNA read timed out" if isinstance(e, asyncio.TimeoutError) else _message(e)
+            log.warning("VNA read after the points at %.2f mm failed: %s", (ctx.pos or 0) / PULSES_PER_MM, msg)
+            for row in held:
+                row.error = row.error or f"VNA: {msg}"
+            markers = {}
+        if markers is None or ctx.cancel.is_set():
+            return
+        ctx.vna_after = False
+        for row in held:
+            self._apply_markers(row, markers)
+            self._publish(ctx, row)
 
     @staticmethod
     def _blank(p: PlanPoint) -> LoadPullRow:
@@ -382,6 +509,13 @@ class LoadPullRunner:
         The trombone moves, and the VNA is read, only when the position changes
         -- both are the slow parts, and repeating them per (frequency, power)
         would multiply a run by the electrical sweep for nothing new.
+
+        Which comes first at a position follows the RF switch, so it moves
+        once per position rather than twice: left on the PCB, the position's
+        points are measured straight away and its VNA read follows them (see
+        `_finish_held`), leaving the switch on the VNA, where the next
+        position reads first and then switches to the PCB. A run of 34
+        positions over 5 attenuator steps went from 340 switch moves to ~175.
         """
         c = ctx.config
         rig = ctx.rig
@@ -391,41 +525,28 @@ class LoadPullRunner:
         try:
             if ctx.pos != p.pos:
                 ctx.phase = "moving"
+                ctx.pos = None
+                if ctx.limits is not None:
+                    await rig.travel_limits(*ctx.limits)
                 await rig.move(p.pos)
                 await rig.wait_motor_idle(ctx.cancel)
                 if ctx.cancel.is_set():
                     return row
-                # Each frequency on its own zoomed span. The settle after each
-                # span change lets a fresh sweep land -- the analyzer free-runs
-                # and a read takes its latest trace -- and the first one also
-                # covers the switch settling.
-                ctx.phase = "vna"
-                await rig.switch("VNA")
-                markers: dict[int, dict] = {}
-                for f in freqs:
-                    fhz = _hz(f)
-                    half = round(fhz * c.vna_half_span_frac)
-                    await rig.vna_span(fhz - half, fhz + half)
+                ctx.markers = {}
+                ctx.vna_after = ctx.switch_at == "PCB"
+                if not ctx.vna_after:
+                    markers = await self._read_vna(ctx, freqs)
+                    if markers is None:
+                        return row
+                    ctx.markers = markers
+                    await self._switch(ctx, "PCB")
                     await self._sleep(ctx, settle)
                     if ctx.cancel.is_set():
                         return row
-                    mk = await rig.vna_read(fhz)
-                    if mk is not None:
-                        markers[fhz] = mk
-                ctx.markers = markers
-                if not markers:
-                    log.warning("no VNA markers at %.2f mm", p.pos / PULSES_PER_MM)
-                await rig.switch("PCB")
-                await self._sleep(ctx, settle)
-                if ctx.cancel.is_set():
-                    return row
                 ctx.pos = p.pos
 
-            mk = ctx.markers.get(hz)
-            if mk:
-                row.r_ohm = mk.get("r_ohm")
-                row.x_ohm = mk.get("x_ohm")
-                row.s11_db = mk.get("s11_mag_db")
+            if not ctx.vna_after:
+                self._apply_markers(row, ctx.markers)
 
             ctx.phase = "measuring"
             try:

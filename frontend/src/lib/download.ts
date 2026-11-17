@@ -37,6 +37,9 @@ function typesFor(filename: string): SaveFilePickerOptions['types'] {
   if (filename.endsWith('.csv')) {
     return [{ description: 'CSV', accept: { 'text/csv': ['.csv'] } }]
   }
+  if (filename.endsWith('.json')) {
+    return [{ description: 'JSON', accept: { 'application/json': ['.json'] } }]
+  }
   return undefined
 }
 

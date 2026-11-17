@@ -60,6 +60,19 @@ def set_limits(soft_min: Optional[int], soft_max: Optional[int]) -> None:
 _jog_stop_evt = threading.Event()
 _jog_thread: Optional[threading.Thread] = None
 
+# Deadman for the continuous jog: the page holding the jog key sends
+# `jog_keepalive` every few hundred ms, and the watcher stops the motor once
+# none has arrived for this long. A jog must never outlive the hand on the key.
+#
+# It did: a short click on a jog arrow sent start and stop together, the stop
+# landed while `jog_start` was still waiting for the motor to idle, and the J+
+# that followed had nothing left to stop it. With soft limits set it ran to the
+# limit; with none (the range dialog lifts them) it ran on. The page now sends
+# stop only after start has answered, and this catches anything else that
+# loses the release -- a dropped request, a closed tab, a frozen page.
+JOG_DEADMAN_S = 1.0
+_jog_last_beat = 0.0
+
 
 # ---------- Lib loading ----------
 
@@ -214,11 +227,18 @@ def _set_high_speed(m, hz: int) -> None:
         pass
 
 
+def jog_keepalive() -> None:
+    """The jog key is still held: hold off the deadman for another period."""
+    global _jog_last_beat
+    _jog_last_beat = time.monotonic()
+
+
 def jog_start(positive: bool, speed: Optional[int] = None) -> None:
     """Begin continuous motion (J+/J-) at a reduced speed until `jog_stop`.
 
     A daemon watcher thread polls position and stops the motor at the soft
-    limit, because the raw jog command has no limit awareness.
+    limit, because the raw jog command has no limit awareness -- and stops it
+    when the caller's keepalives stop arriving (`JOG_DEADMAN_S`).
     """
     global _jog_thread
     m = _require()
@@ -253,11 +273,23 @@ def jog_start(positive: bool, speed: Optional[int] = None) -> None:
                 raise
 
     _jog_stop_evt.clear()
+    jog_keepalive()
+
+    def _halt() -> None:
+        with _io_lock:
+            try:
+                m.stop()
+            except Exception:
+                pass
 
     def _watch() -> None:
         while not _jog_stop_evt.wait(0.03):
-            # No limit set in this direction → nothing to enforce; the user
-            # stops the jog manually by releasing the arrow.
+            if time.monotonic() - _jog_last_beat > JOG_DEADMAN_S:
+                _halt()
+                _set_high_speed(m, DEFAULT_HIGH_SPEED)
+                break
+            # No limit set in this direction → nothing more to enforce; the
+            # user stops the jog by releasing the arrow (or the deadman does).
             limit = hi if positive else lo
             if limit is None:
                 continue
@@ -265,11 +297,7 @@ def jog_start(positive: bool, speed: Optional[int] = None) -> None:
             if p is None:
                 continue
             if (positive and p >= limit) or (not positive and p <= limit):
-                with _io_lock:
-                    try:
-                        m.stop()
-                    except Exception:
-                        pass
+                _halt()
                 break
 
     _jog_thread = threading.Thread(target=_watch, daemon=True)

@@ -47,6 +47,19 @@ class PathLossPoint(BaseModel):
     calibrated: bool = True
 
 
+class TromboneRange(BaseModel):
+    """The trombone travel a frequency was swept over, in pulses.
+
+    Mirrors `TromboneRangeAt` in frontend/src/tests/loadPull/tromboneRanges.ts.
+    """
+    freq_mhz: float
+    start_pulses: int
+    stop_pulses: int
+    #: False when the frequency had no range of its own and took the run's
+    #: Zero/End -- recorded so the file says which ranges were chosen.
+    own: bool = True
+
+
 class LoadPullMeta(BaseModel):
     """What the run was asked to do, for the workbook's Run sheet.
 
@@ -66,6 +79,9 @@ class LoadPullMeta(BaseModel):
     end_pulses: Optional[int] = None
     path_loss_default_db: Optional[float] = None
     path_loss_points: list[PathLossPoint] = []
+    #: Per frequency, when any frequency had a range of its own. Empty when
+    #: the whole run used Zero/End.
+    trombone_ranges: list[TromboneRange] = []
     dut_mac: Optional[str] = None
     #: The DUT's advertised name -- the nearest thing to a device type the BLE
     #: link carries.

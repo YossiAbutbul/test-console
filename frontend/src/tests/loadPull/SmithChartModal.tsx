@@ -1,5 +1,5 @@
 import {
-  memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type Ref,
+  memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type Ref,
 } from 'react'
 import {
   Box, Button, ButtonBase, Dialog, DialogContent, DialogTitle, IconButton, MenuItem, Popover, Stack,
@@ -46,8 +46,8 @@ interface SmithStyle {
   /** The constant-R and constant-X circles. */
   grid: boolean
   dot: 's' | 'm' | 'l'
-  /** Efficiency ramp, or one colour per attenuator setting. */
-  color: 'eff' | 'att'
+  /** Efficiency ramp, Pout ramp, or one colour per attenuator setting. */
+  color: 'eff' | 'pout' | 'att'
 }
 const STYLE_DEFAULT: SmithStyle = { lines: true, grid: true, dot: 'm', color: 'eff' }
 /** Dot radius at rest; a hovered dot grows by the same 2.5. */
@@ -302,12 +302,15 @@ const Dot = memo(function Dot({
  * store, so moving between points redraws this card and nothing else.
  */
 const PointCard = memo(function PointCard({
-  hovered, points, hasAtt, effColor,
+  hovered, points, hasAtt, colorBy, metricColor,
 }: {
   hovered: CursorStore
   points: Pt[]
   hasAtt: boolean
-  effColor: (eff: number | null) => string
+  /** Which figure the chart's dots are coloured by -- that one is drawn in
+   *  its dot's colour here, so the card and the chart agree. */
+  colorBy: 'eff' | 'pout' | 'att'
+  metricColor: (v: number | null) => string
 }) {
   const pal = useAppPalette()
   const hover = useSyncExternalStore(hovered.subscribe, hovered.get)
@@ -350,7 +353,7 @@ const PointCard = memo(function PointCard({
                       <Typography
                         sx={{
                           fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em',
-                          color: hp ? effColor(hp.eff) : 'text.disabled',
+                          color: !hp ? 'text.disabled' : colorBy === 'eff' ? metricColor(hp.eff) : 'text.primary',
                         }}
                       >
                         {hp?.eff == null ? DASH_TXT : `${(hp.eff * 100).toFixed(1)}%`}
@@ -358,7 +361,12 @@ const PointCard = memo(function PointCard({
                       <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>efficiency</Typography>
                     </Box>
                     <Box>
-                      <Typography sx={{ fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
+                      <Typography
+                        sx={{
+                          fontFamily: MONO, fontSize: 22, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em',
+                          color: hp && colorBy === 'pout' ? metricColor(hp.row.power_dbm) : undefined,
+                        }}
+                      >
                         {hp?.row.power_dbm == null ? DASH_TXT : hp.row.power_dbm.toFixed(2)}
                         <Box component="span" sx={{ fontSize: 12, fontWeight: 500, color: 'text.secondary', ml: 0.5 }}>dBm</Box>
                       </Typography>
@@ -420,8 +428,21 @@ const PointCard = memo(function PointCard({
                     </Typography>
                   </Stack>
                   <Box sx={{ borderRadius: '10px', bgcolor: alpha(pal.sidebar.text, 0.04), px: 1.25, py: 1 }}>
-                    <Typography sx={{ ...TEXT.micro, color: 'text.disabled', mb: 0.25 }}>Colour = efficiency</Typography>
-                    <EfficiencyFormula vcc={VCC} />
+                    {colorBy === 'pout' ? (
+                      <>
+                        <Typography sx={{ ...TEXT.micro, color: 'text.disabled', mb: 0.25 }}>Colour = Pout</Typography>
+                        <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>
+                          Power out of the PA, path loss added, in dBm.
+                        </Typography>
+                      </>
+                    ) : colorBy === 'att' ? (
+                      <Typography sx={{ ...TEXT.micro, color: 'text.disabled' }}>Colour = attenuator setting</Typography>
+                    ) : (
+                      <>
+                        <Typography sx={{ ...TEXT.micro, color: 'text.disabled', mb: 0.25 }}>Colour = efficiency</Typography>
+                        <EfficiencyFormula vcc={VCC} />
+                      </>
+                    )}
                   </Box>
                 </Box>
               </Box>
@@ -431,7 +452,20 @@ const PointCard = memo(function PointCard({
 
 const TAB_OPTIONS = [{ value: 'points' as const, label: 'Points' }, { value: 'area' as const, label: 'Working area' }]
 const DOT_OPTIONS = [{ value: 's' as const, label: 'S' }, { value: 'm' as const, label: 'M' }, { value: 'l' as const, label: 'L' }]
-const COLOUR_BY_OPTIONS = [{ value: 'eff' as const, label: 'Efficiency' }, { value: 'att' as const, label: 'Att' }]
+const COLOUR_BY_OPTIONS = [
+  { value: 'eff' as const, label: 'Efficiency' },
+  { value: 'pout' as const, label: 'Pout' },
+  { value: 'att' as const, label: 'Att' },
+]
+/** What a ramp-coloured point is graded by, and how its figure is written. */
+const METRIC = {
+  eff: { label: 'Efficiency', of: (p: { eff: number | null }) => p.eff, fmt: (v: number) => `${(v * 100).toFixed(1)}%` },
+  pout: {
+    label: 'Pout',
+    of: (p: { row: { power_dbm: number | null } }) => p.row.power_dbm,
+    fmt: (v: number) => `${v.toFixed(2)} dBm`,
+  },
+} as const
 
 /**
  * The dialog's title bar: name, point count, the tab switch, graph options
@@ -547,13 +581,14 @@ const SmithTitle = memo(function SmithTitle({
             onChange={(v) => setStyleOpt('dot', v)}
           />
         </SheetRow>
-        {/* Attenuator only means something on a run that swept it. */}
+        {/* Attenuator only means something on a run that swept it, so it is
+            offered only then; efficiency and Pout always. */}
         <SheetRow label="Colour by">
           <SegmentedChoice
-            text aria-label="Colour by" value={attsCount > 1 ? style.color : 'eff'}
-            options={COLOUR_BY_OPTIONS}
+            text aria-label="Colour by"
+            value={style.color === 'att' && attsCount < 2 ? 'eff' : style.color}
+            options={attsCount > 1 ? COLOUR_BY_OPTIONS : COLOUR_BY_OPTIONS.filter((o) => o.value !== 'att')}
             onChange={(v) => setStyleOpt('color', v)}
-            disabled={attsCount < 2}
           />
         </SheetRow>
       </SheetGroup>
@@ -1321,6 +1356,11 @@ export function SmithChartModal({
   const style = useMemo(() => ({ ...STYLE_DEFAULT, ...savedStyle }), [savedStyle])
   // The measured points, or the working area they map out under the limits.
   const [tab, setTab] = useState<'points' | 'area'>('points')
+  // The switch's own state, set at once, while `tab` -- which swaps the
+  // content -- follows as a transition: the control answers the click on the
+  // next frame whatever the swap costs, and a second click interrupts it.
+  const [tabIntent, setTabIntent] = useState<'points' | 'area'>('points')
+  const [, startTabTransition] = useTransition()
   const [savedArea, setAreaSettings] = usePersistedState<AreaSettings>(STORAGE_KEYS.smithArea, AREA_DEFAULT)
   const areaSettings = useMemo(() => ({ ...AREA_DEFAULT, ...savedArea }), [savedArea])
   const [cursor] = useState(createCursorStore)
@@ -1400,13 +1440,6 @@ export function SmithChartModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shown])
 
-  // Efficiency color domain from the finite values present.
-  const effDomain = useMemo(() => {
-    const vals = points.map((p) => p.eff).filter((e): e is number => e != null)
-    if (vals.length === 0) return null
-    return { min: Math.min(...vals), max: Math.max(...vals) }
-  }, [points])
-
   /**
    * Points grouped into the runs that are actually continuous.
    *
@@ -1425,23 +1458,21 @@ export function SmithChartModal({
   }, [points])
 
   const pathC = pal.sidebar.textDim
-  const effSpan = effDomain ? effDomain.max - effDomain.min : 0
-  // Three points that differ only in the noise still print the same figure
-  // at both ends, and a full colour ramp between two identical numbers reads
-  // as though the colours mean something. Compare the rendered values.
-  const effFlat = effDomain != null
-    && (effDomain.min * 100).toFixed(1) === (effDomain.max * 100).toFixed(1)
-
-  const effColor = useCallback((eff: number | null): string => {
-    if (eff == null || !effDomain) return pal.sidebar.successOff
-    // Every point measured the same: colour carries no information, so use one
-    // neutral tone rather than painting them all at the ramp's cold end.
-    if (effSpan === 0 || effFlat) return rampColor(0.5)
-    // In the working area's bands, so one efficiency is one colour on both
-    // tabs -- and a new point mid-run recolours the others only when it
-    // moves a band edge, not at every row.
-    return bandColor(bandOf(eff, effDomain))
-  }, [effDomain, effSpan, effFlat, pal])
+  // The ramp's metric: efficiency, or Pout when chosen. Graded on its own
+  // values, in the same bands, so a Pout ramp reads as the efficiency one does.
+  const metric: 'eff' | 'pout' = style.color === 'pout' ? 'pout' : 'eff'
+  const M = METRIC[metric]
+  const metricDomain = useMemo(() => {
+    const vals = points.map((p) => METRIC[metric].of(p)).filter((v): v is number => v != null && Number.isFinite(v))
+    if (vals.length === 0) return null
+    return { min: Math.min(...vals), max: Math.max(...vals) }
+  }, [points, metric])
+  const metricFlat = metricDomain != null && M.fmt(metricDomain.min) === M.fmt(metricDomain.max)
+  const metricColor = useCallback((v: number | null): string => {
+    if (v == null || !metricDomain) return pal.sidebar.successOff
+    if (metricFlat) return rampColor(0.5)
+    return bandColor(bandOf(v, metricDomain))
+  }, [metricDomain, metricFlat, pal])
   // By attenuator only when there is more than one setting to tell apart.
   // Each setting keeps its colour (its place among all the run's settings)
   // whichever are filtered off, so 4 dB is the same colour alone as among
@@ -1449,7 +1480,7 @@ export function SmithChartModal({
   const byAtt = style.color === 'att' && atts.length > 1
   const attColor = useCallback((att: number | null | undefined): string =>
     att == null ? pathC : pal.chart.series[Math.max(0, atts.indexOf(att)) % pal.chart.series.length], [pathC, pal, atts])
-  const colorOf = (pt: Pt): string => (byAtt ? attColor(pt.row.att_db) : effColor(pt.eff))
+  const colorOf = (pt: Pt): string => (byAtt ? attColor(pt.row.att_db) : metricColor(M.of(pt)))
   const shownAtts = atts.filter((a) => !hiddenAtt.has(a))
   const statGroups = useMemo(() => statSlices.map((g) => ({
     ...g,
@@ -1491,8 +1522,12 @@ export function SmithChartModal({
   const areaView2 = { ...AREA_VIEW_DEFAULT, ...savedView }
   const contourKey = areaView2.contours
   const areaMeta = useMemo(() => ({ fieldFreqs, tauPs, power, contourKey }), [fieldFreqs, tauPs, power, contourKey])
-  // In a worker, and only while the tab shows; the last result is kept.
-  const { view: areaView, pending: areaPending } = useWorkingArea(tab === 'area' ? areaSamples : null, limits, areaMeta)
+  // In a worker, whenever the dialog is open -- not only while the tab shows,
+  // which made every first visit (and every visit after a new row or another
+  // slice) wait for the worker and the busy indicator's 450 ms hold. It is
+  // ~50 ms of the worker's time for a 7-frequency run, off this thread, so it
+  // is simply ready when the tab is opened.
+  const { view: areaView, pending: areaPending } = useWorkingArea(open ? areaSamples : null, limits, areaMeta)
   // What the eye is shown: the work at once, held at least 450 ms. Results
   // land in a tenth of a second; delayed instead, the indicator never showed
   // and Apply seemed to do nothing, and shown bare it flashed for a frame.
@@ -1522,10 +1557,22 @@ export function SmithChartModal({
     pal.chart.series[Math.max(0, f == null ? 0 : freqs.indexOf(f)) % pal.chart.series.length], [pal, freqs])
   const isArea = tab === 'area'
   const onTab = useCallback((v: 'points' | 'area') => {
-    setTab(v)
+    setTabIntent(v)
     cursor.set(null)
-    if (v === 'area') setAreaSeen(true)
+    startTabTransition(() => {
+      setTab(v)
+      if (v === 'area') setAreaSeen(true)
+    })
   }, [cursor])
+
+  // Mount the working area behind the Points tab once the dialog has opened
+  // and painted, rather than on the first switch: mounting the figure and its
+  // limit fields was most of the wait the first time the tab was opened.
+  useEffect(() => {
+    if (!open || areaSeen) return
+    const id = window.setTimeout(() => startTabTransition(() => setAreaSeen(true)), 250)
+    return () => window.clearTimeout(id)
+  }, [open, areaSeen])
 
 
   /**
@@ -1571,10 +1618,10 @@ export function SmithChartModal({
       ctx.textBaseline = 'middle'
       const y = S + LEGEND_H / 2
       ctx.fillStyle = ink
-      ctx.fillText(byAtt ? 'Att (dB)' : 'Efficiency', 8, y)
+      ctx.fillText(byAtt ? 'Att (dB)' : M.label, 8, y)
       const ramp = (lo: number, hi: number) => {
-        const l = `${lo.toFixed(1)}%`
-        const h = `${hi.toFixed(1)}%`
+        const l = M.fmt(lo)
+        const h = M.fmt(hi)
         const barX = 76 + ctx.measureText(l).width + 8
         const barW = S - barX - ctx.measureText(h).width - 16
         ctx.fillText(l, 76, y)
@@ -1596,12 +1643,12 @@ export function SmithChartModal({
           ctx.fillText(String(a), lx + 12, y)
           lx += 12 + ctx.measureText(String(a)).width + 14
         }
-      } else if (effDomain == null) {
+      } else if (metricDomain == null) {
         ctx.fillText('not computable', 76, y)
-      } else if (effFlat) {
-        ctx.fillText(`${(effDomain.min * 100).toFixed(1)}% at every point`, 76, y)
+      } else if (metricFlat) {
+        ctx.fillText(`${M.fmt(metricDomain.min)} at every point`, 76, y)
       } else {
-        ramp(effDomain.min * 100, effDomain.max * 100)
+        ramp(metricDomain.min, metricDomain.max)
       }
 
       const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
@@ -1692,7 +1739,7 @@ export function SmithChartModal({
       }}
     >
       <SmithTitle
-        nPoints={points.length} tauPs={tauPs} tab={tab} onTab={onTab}
+        nPoints={points.length} tauPs={tauPs} tab={tabIntent} onTab={onTab}
         style={style} onStyle={setStyle} attsCount={atts.length}
         copied={copied} onCopy={onCopy} onClose={onClose}
       />
@@ -1903,7 +1950,7 @@ export function SmithChartModal({
                   does not move the chart. */}
               <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1, px: 0.5, minHeight: 18 }}>
                 <Typography sx={{ fontSize: 12, color: 'text.secondary', whiteSpace: 'nowrap' }}>
-                  {byAtt ? 'Att' : 'Efficiency'}
+                  {byAtt ? 'Att' : M.label}
                 </Typography>
                 {byAtt ? (
                   <Stack direction="row" spacing={1.25} sx={{ minWidth: 0, overflow: 'hidden' }}>
@@ -1917,25 +1964,25 @@ export function SmithChartModal({
                     ))}
                     <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>dB</Typography>
                   </Stack>
-                ) : effDomain == null ? (
+                ) : metricDomain == null ? (
                   <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
-                    not computable — needs power and current
+                    {metric === 'eff' ? 'not computable — needs power and current' : 'no power readings'}
                   </Typography>
-                ) : effFlat ? (
+                ) : metricFlat ? (
                   <Typography sx={{ fontSize: 12, fontFamily: MONO, color: 'text.secondary' }}>
-                    {(effDomain.min * 100).toFixed(1)}% at every point
+                    {M.fmt(metricDomain.min)} at every point
                   </Typography>
                 ) : (
                   <>
                     <Typography sx={{ fontSize: 12, fontFamily: MONO, color: 'text.secondary' }}>
-                      {(effDomain.min * 100).toFixed(1)}%
+                      {M.fmt(metricDomain.min)}
                     </Typography>
                     <Box sx={{
                       flexGrow: 1, height: 9, borderRadius: '2px', background: BANDED_GRADIENT,
                       boxShadow: `inset 0 0 0 0.5px ${alpha(pal.sidebar.text, 0.25)}`,
                     }} />
                     <Typography sx={{ fontSize: 12, fontFamily: MONO, color: 'text.secondary' }}>
-                      {(effDomain.max * 100).toFixed(1)}%
+                      {M.fmt(metricDomain.max)}
                     </Typography>
                   </>
                 )}
@@ -1962,7 +2009,10 @@ export function SmithChartModal({
                 </Box>
               )}
               <Box sx={{ display: isArea ? 'none' : 'block' }}>
-              <PointCard hovered={hoverStore} points={points} hasAtt={hasAtt} effColor={effColor} />
+              <PointCard
+                hovered={hoverStore} points={points} hasAtt={hasAtt}
+                colorBy={byAtt ? 'att' : metric} metricColor={metricColor}
+              />
 
               {/* Under the point card: the figures for the whole slice beside
                   the one for the point under the cursor, the two read

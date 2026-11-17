@@ -6,6 +6,7 @@ import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 import { useMutation } from '@tanstack/react-query'
 import { instrumentsApi, type MeasureResponse } from '../api/instruments'
 import { useInstruments } from '../context/InstrumentsContext'
+import { outsideSensorRange, sensorRangeText, useSensorRange } from '../lib/sensorRange'
 import { usePathLoss } from '../context/PathLossContext'
 import { describeMeasureError } from '../lib/instrumentError'
 import { DEFAULT_SETTLE_MS } from '../lib/settle'
@@ -191,6 +192,11 @@ export function MeasurementCard({
   const cur = isStatic ? staticData?.current_a : data?.current_a
   const volt = isStatic ? staticData?.voltage_v : data?.voltage_v
   const power_mW = power != null && Number.isFinite(power) ? Math.pow(10, power / 10) : null
+  // The raw sensor reading against the sensor's dynamic range (Power Meter
+  // settings). Only for a live sensor reading: the analyzer has its own
+  // range, and a static row's raw figure is not to hand.
+  const [sensorRange] = useSensorRange()
+  const offRange = !isStatic && powerId === 'power-sensor' ? outsideSensorRange(live, sensorRange) : null
   const cur_mA = cur != null ? cur * 1000 : null
 
   // Show the voltage tile whenever there's a DC channel in play (live or
@@ -328,7 +334,10 @@ export function MeasurementCard({
               ? (power_mW != null ? `${power_mW.toFixed(2)} mW` : undefined)
               : !ps
                 ? (powerId === 'spectrum' ? 'analyzer off' : 'sensor off')
-                : power_mW != null
+                : offRange && live != null
+                  // Replaces the mW line, in its place, so the card keeps its height.
+                  ? `outside sensor range (${sensorRangeText(sensorRange)})`
+                  : power_mW != null
                   ? `${power_mW.toFixed(2)} mW`
                   // "not read yet" after a failed read is a lie — the read
                   // happened, it just did not produce a number.
@@ -337,6 +346,7 @@ export function MeasurementCard({
           // An unread value is dimmed like every other empty readout, so a
           // bare dash in full ink does not pass for data.
           off={!ps || measured == null}
+          tone={offRange ? 'warn' : undefined}
         />
         {hasTarget && (
           <StatTile

@@ -4,13 +4,12 @@ import {
 } from '../../lib/powerSource'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Autocomplete, Box, Button, Divider, IconButton, MenuItem, Stack, TextField,
+  Autocomplete, Box, Button, Divider, MenuItem, Stack, TextField,
   Tooltip, Typography,
 } from '@mui/material'
 import FirstPageIcon from '@mui/icons-material/FirstPageRounded'
 import LastPageIcon from '@mui/icons-material/LastPageRounded'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweepRounded'
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineRounded'
 import DownloadIcon from '@mui/icons-material/DownloadRounded'
 import UploadFileIcon from '@mui/icons-material/UploadFileRounded'
 import ScatterPlotIcon from '@mui/icons-material/ScatterPlotRounded'
@@ -56,7 +55,8 @@ import {
 } from '../../store/loadPullPageStore'
 import { STORAGE_KEYS } from '../../store/keys'
 import { BandsModal } from '../lte/BandsModal'
-import { useLteBands, useLteChannelUnit } from '../lte/channel'
+import { ModemBootDialog } from '../lte/ModemBootDialog'
+import { convertChannelSpec, useLteBands, useLteChannelUnit, type ChannelUnit } from '../lte/channel'
 import { channelIssues, describeChannelIssues, uplinkFromEarfcn, uplinkFromMhz } from '../../lib/earfcn'
 import { SmithChartModal } from './SmithChartModal'
 import { RemeasureDialog } from './RemeasureDialog'
@@ -64,7 +64,8 @@ import { LoadPullResultsTable } from './ResultsTable'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'
 import type { InstrumentId } from '../../context/InstrumentsContext'
-import { planPositions } from './plan'
+import { findRange, isComplete, planTrombone, rangeAt, type FreqRange } from './tromboneRanges'
+import { TromboneRangesModal } from './TromboneRangesModal'
 import { useTromboneJog } from './useTromboneJog'
 import { loadPullApi, type LoadPullRunStatus } from '../../api/loadPull'
 import { useChatSource } from '../../context/ChatContext'
@@ -339,71 +340,6 @@ const PAIR_SX = {
   gap: 1,
 } as const
 
-interface BoundRowProps {
-  label: string
-  value: number | null
-  onCapture: () => void
-  onClear: () => void
-  captureDisabled: boolean
-  clearDisabled: boolean
-}
-
-/**
- * One end of the sweep, as two cells of the bounds form: its label, then its
- * captured position, the Capture key and a clear icon -- all in the control
- * column, so Zero and End line up and end where Delta X does.
- */
-function BoundRow({
-  label, value, onCapture, onClear, captureDisabled, clearDisabled,
-}: BoundRowProps) {
-  return (
-    <>
-      <DriveLabel>{label}</DriveLabel>
-      <Box sx={{ ...CONTROL_COL_SX, display: 'grid', gridTemplateColumns: '1fr 112px', columnGap: 1, alignItems: 'center' }}>
-        <Stack direction="row" alignItems="center" sx={{ minWidth: 0 }}>
-          <Typography
-            sx={{
-              fontFamily: MONO, fontSize: 13, fontVariantNumeric: 'tabular-nums',
-              color: value == null ? 'text.secondary' : 'text.primary',
-              fontWeight: value == null ? 400 : 600, whiteSpace: 'nowrap', flexGrow: 1,
-            }}
-          >
-            {value == null ? 'not set' : `${(value / PULSES_PER_MM).toFixed(2)} mm`}
-          </Typography>
-          {/* Icon only, and only once there is something to clear; held in
-              its slot with `visibility` so the value never shifts. `span` so
-              the tooltip still fires while the key is disabled mid-run. */}
-          <Tooltip title={`Clear ${label.toLowerCase()}`}>
-            <span style={{ visibility: value == null ? 'hidden' : 'visible' }}>
-              <IconButton
-                size="small"
-                onClick={onClear}
-                disabled={clearDisabled || value == null}
-                aria-label={`Clear ${label.toLowerCase()}`}
-                sx={{ color: 'text.secondary', '&:hover': { color: 'error.main', bgcolor: 'transparent' } }}
-              >
-                <DeleteOutlineIcon sx={{ fontSize: 16 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-        </Stack>
-        <Button
-          size="small"
-          // Grey in both states: filled blue is kept for Run.
-          variant="outlined"
-          color="inherit"
-          onClick={onCapture}
-          disabled={captureDisabled}
-          // Fixed: "Capture" and "Recapture" share one width.
-          sx={{ width: 112, minWidth: 112, height: DRIVE_H }}
-        >
-          {value == null ? 'Capture' : 'Recapture'}
-        </Button>
-      </Box>
-    </>
-  )
-}
-
 /**
  * The Load Pull test, for either radio.
  *
@@ -435,7 +371,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const { lossAt, defaultDb } = usePathLoss()
   const { status: bleStatus } = useConnection()
   const hasBackend = protocol === 'LoRa' || isLte
-  const [channelUnit] = useLteChannelUnit()
+  const [channelUnit, setChannelUnit] = useLteChannelUnit()
   const [lteBands, setLteBands] = useLteBands()
   const [bandsOpen, setBandsOpen] = useState(false)
 
@@ -505,6 +441,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const [jogSpeed, setJogSpeed] = useState<number>(() => snap.jogSpeed ?? 800)
   const [zeroPulses, setZeroPulses] = useState<number | null>(() => snap.zeroPulses ?? null)
   const [endPulses, setEndPulses] = useState<number | null>(() => snap.endPulses ?? null)
+  const [freqRanges, setFreqRanges] = useState<FreqRange[]>(() => snap.freqRanges ?? [])
+  const [rangesOpen, setRangesOpen] = useState(false)
   // Starts false every session on purpose: it asserts how the bench is
   // cabled *now*, which is the one precondition nothing here can verify.
   const [pathAck, setPathAck] = useState(false)
@@ -516,6 +454,9 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const [resumeBase, setResumeBase] = useState(0)
   const [smithOpen, setSmithOpen] = useState(false)
   const [setupOpen, setSetupOpen] = useState(false)
+  /** The frequency last put on the VNA from this page, for the range dialog's
+   *  rows. Not read back from the analyzer: someone may have changed it since. */
+  const [vnaShownMhz, setVnaShownMhz] = useState<number | null>(null)
 
   // Read live rather than from the snapshot: a Load Pull run is driven from
   // this page, so a question asked mid-run should see the rows already taken.
@@ -558,6 +499,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   useEffect(() => { saveSnapshot(isLte, { zeroPulses }) }, [zeroPulses, isLte])
   useEffect(() => { saveSnapshot(isLte, { runKey }, true) }, [runKey, isLte])
   useEffect(() => { saveSnapshot(isLte, { endPulses }) }, [endPulses, isLte])
+  useEffect(() => { saveSnapshot(isLte, { freqRanges }) }, [freqRanges, isLte])
 
   // One frequency per run, so the correction is decided once.
 
@@ -625,18 +567,6 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     }
   }
 
-  // Trombone status + jog + soft-limit sync + wait-for-idle, all in one hook.
-  const {
-    motorConnected, motorMoving, motorPos,
-    jogDir, jogFocused, setJogFocused,
-    startJog, stopJog, onJogKeyDown, onJogKeyUp,
-    goMinM, goMaxM, motorJogBusy,
-    travelMin, travelMax,
-  } = useTromboneJog({
-    running, active: !!active, anyRunning: running || otherRunning,
-    zeroPulses, endPulses, jogSpeed, abortRef,
-  })
-
   // Manual RF switch routing — same servo presets the run loop uses.
   const swConnected = sw.status === 'connected'
   const switchM = useMutation({
@@ -656,7 +586,6 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // before moving on; frequency and power are re-commanded electrically and
   // cost nothing by comparison.
   const deltaPulses = Math.max(1, Math.round(deltaXmm * PULSES_PER_MM))
-  const positions = deltaXmm <= 0 ? [] : planPositions(zeroPulses, endPulses, deltaPulses)
   // LTE reads the field as channels, in the LTE pages' shared unit, and
   // resolves each to its uplink frequency -- which is what the VNA marker, the
   // sensor's calibration and the path loss are all keyed by. A value that
@@ -685,6 +614,52 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const channelProblems: string[] = !isLte || unresolvedChannels === 0 ? []
     : describeChannelIssues(channelIssues(specValues, channelUnit === 'earfcn', lteBands))
   const freqs = channels.map((c) => c.freqMhz)
+  // Positions: Zero to End for every frequency, unless a frequency has its own
+  // Start/Stop captured (Trombone per frequency), in which case it is swept
+  // over that and only that. Still one visit per position -- see planTrombone.
+  const tromb = planTrombone(freqs, freqRanges, zeroPulses, endPulses, deltaPulses)
+  const positions = deltaXmm <= 0 ? [] : tromb.positions
+  /** Frequencies with a range of their own, among the plan's. */
+  const ownRanges = tromb.ranges.filter((r) => r?.own).length
+  /** Frequencies with only one end of their own range captured. Saved as
+   *  taken, so leaving the dialog loses nothing; the run waits for both. */
+  const halfRanged = channels.filter((c) => {
+    const r = findRange(freqRanges, c.freqMhz)
+    return r != null && !isComplete(r)
+  })
+  /** Some frequency has no range of its own, so Zero/End are needed. */
+  const needsZeroEnd = freqs.length === 0
+    || tromb.ranges.some((r, i) => !r?.own && !halfRanged.some((c) => c.freqMhz === freqs[i]))
+  /** The positions' extent, for the Sweep bounds header. */
+  const spanPulses = positions.length ? Math.max(...positions) - Math.min(...positions) : 0
+  /** Every captured end the sweep can reach: the All frequencies range and
+   *  each frequency's own. Their extent is the motor's travel limits. */
+  const rangeEnds = [
+    zeroPulses, endPulses,
+    ...tromb.ranges.flatMap((r) => (r ? [r.startPulses, r.stopPulses] : [])),
+  ].filter((p): p is number => p != null)
+  const rangeLo = rangeEnds.length ? Math.min(...rangeEnds) : null
+  const rangeHi = rangeEnds.length ? Math.max(...rangeEnds) : null
+
+  // Trombone status + jog + soft-limit sync + wait-for-idle, all in one hook.
+  // No limits while the range dialog is open: it is where the ends are
+  // found, and limits from the old ones would stop the jog short of new ones.
+  const {
+    motorConnected, motorMoving, motorPos,
+    jogDir, jogFocused, setJogFocused,
+    startJog, stopJog, onJogKeyDown, onJogKeyUp,
+  } = useTromboneJog({
+    running, active: !!active,
+    // Treated as running until the first status poll has answered. A page
+    // opened (or reloaded) mid-run used to push its own travel limits in the
+    // moment before it learned a run was going, and the run's moves outside
+    // them were refused for the rest of it: 20 points of a 600-point run
+    // failed "outside soft limits" that way.
+    anyRunning: running || otherRunning || runStatus == null,
+    limitLo: rangesOpen ? null : rangeLo,
+    limitHi: rangesOpen ? null : rangeHi,
+    jogSpeed, abortRef,
+  })
 
   // VNA span: puts the analyzer on the span and marker the run reads a
   // frequency on (one of the plan's, or any typed), so what a point will measure can be seen on
@@ -697,6 +672,13 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const spanTypedOk = spanTyped != null && Number.isFinite(spanTyped) && spanTyped > 0
   const spanFreq: number | null = spanTyped == null ? (channels[0]?.freqMhz ?? null)
     : spanTypedOk ? spanTyped : null
+  /** The trombone range of the VNA span's frequency (All frequencies when
+   *  there is none, or it has no range of its own), for Go to Start / Stop. */
+  const spanRange = spanFreq != null
+    ? rangeAt(freqRanges, zeroPulses, endPulses, spanFreq)
+    : zeroPulses != null && endPulses != null
+      ? { startPulses: zeroPulses, stopPulses: endPulses, own: false } : null
+  const spanRangeName = spanFreq != null && spanRange?.own ? `${num(spanFreq, 3)} MHz` : 'All frequencies'
   const spanM = useMutation({
     mutationFn: async (freqMhz: number) => {
       const { hz, startHz, stopHz } = vnaSpanHz(freqMhz)
@@ -704,6 +686,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       await vna.setMarkers([hz])
     },
     onSuccess: (_d, f) => {
+      setVnaShownMhz(f)
       const { startHz, stopHz } = vnaSpanHz(f)
       log('VNA', `span ${num(startHz / 1e6, 2)}-${num(stopHz / 1e6, 2)} MHz, marker ${num(f, 3)} MHz`)
     },
@@ -725,7 +708,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const plan: PlanPoint[] = []
   for (const attDb of attSteps) {
     for (const pos of positions) {
-      for (const { freqMhz, earfcn } of channels) {
+      for (const k of tromb.at.get(pos) ?? []) {
+        const { freqMhz, earfcn } = channels[k]
         for (const pw of powers) plan.push({ pos, freqMhz, earfcn, powerDbm: pw, attDb })
       }
     }
@@ -755,6 +739,11 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
    */
   const planKey = JSON.stringify({
     c: channels, p: powers, a: attSteps, z: zeroPulses, e: endPulses, d: deltaPulses,
+    // Only when some frequency has its own range, so a plan saved before
+    // per-frequency ranges existed still matches and can be continued.
+    // `g`: the shared position grid. A run saved when each range stepped from
+    // its own Start took other points, and must not be continued into these.
+    ...(ownRanges ? { r: tromb.ranges, g: 1 } : {}),
     m: isLte ? null : paMode,
   })
   // Each attenuator step re-runs the trombone cycle, and every position visit
@@ -803,8 +792,12 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   if (!dutConnected) blockers.push('connect the DUT over BLE')
   if (missingRig.length) blockers.push(`connect the ${missingRig.join(', ')}`)
   if (!pathAck) blockers.push('confirm the RF path')
-  if (zeroPulses == null) blockers.push('capture the zero position')
-  if (endPulses == null) blockers.push('capture the end position')
+  if (needsZeroEnd && (zeroPulses == null || endPulses == null)) {
+    blockers.push('capture the trombone range (Sweep bounds, Edit)')
+  }
+  if (halfRanged.length) {
+    blockers.push(`capture the other end of the trombone range at ${halfRanged.map((c) => `${num(c.freqMhz, 3)} MHz`).join(', ')}`)
+  }
   if (deltaXmm <= 0) blockers.push('set Delta X above 0')
   if (freqs.length === 0) blockers.push(isLte ? 'enter at least one channel' : 'enter at least one frequency')
   if (unresolvedChannels > 0) {
@@ -842,7 +835,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // holding Run.
   const pointOk = freqs.length > 0 && powers.length > 0 && settleMs != null
     && !(attEnabled && !attRangeOk) && unresolvedChannels === 0 && !powersOutOfRange && !planTooBig
-  const tromboneOk = zeroPulses != null && endPulses != null && deltaXmm > 0
+  const tromboneOk = (!needsZeroEnd || (zeroPulses != null && endPulses != null))
+    && halfRanged.length === 0 && deltaXmm > 0
   /** The first check still in the way, named on the Run button and the Run
    *  step. Same order as the rail. */
   const firstBlocked = !dutConnected ? 'DUT'
@@ -885,7 +879,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       state: tromboneOk ? 'ok' : 'block',
       summary: tromboneOk
         ? `${totalPoints} points`
-        : zeroPulses == null || endPulses == null ? 'capture Zero and End' : 'set Delta X',
+        : halfRanged.length ? 'one end missing'
+          : needsZeroEnd && (zeroPulses == null || endPulses == null) ? 'capture the range' : 'set Delta X',
       targetId: anchor('trombone'),
     },
   ]
@@ -1151,6 +1146,12 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         const l = lossAt(f)
         return { freq_mhz: f, db: l.db, calibrated: l.calibrated }
       }),
+      // Only when some frequency had its own range: otherwise Zero/End above
+      // already say what every frequency was swept over.
+      trombone_ranges: ownRanges ? freqs.flatMap((f, i) => {
+        const r = tromb.ranges[i]
+        return r ? [{ freq_mhz: f, start_pulses: r.startPulses, stop_pulses: r.stopPulses, own: r.own }] : []
+      }) : [],
       dut_mac: bleStatus?.address ?? null,
       started_at: runTimesRef.current?.started_at ?? null,
       finished_at: runTimesRef.current?.finished_at ?? null,
@@ -1306,7 +1307,29 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           </Section>
         </TwoCol>
 
-        <Section title="Test point" anchorId={anchor('test-point')} panel>
+        <Section
+          title="Test point"
+          anchorId={anchor('test-point')}
+          panel
+          // LTE only: which unit Channel is read in. The setting every LTE
+          // page shares; switching here rewrites the channels typed so far
+          // into the new unit, as the LTE automation tabs do.
+          action={isLte && (
+            <SegmentedChoice
+              aria-label="Channel unit"
+              value={channelUnit}
+              options={[
+                { value: 'mhz', label: 'MHz' },
+                { value: 'earfcn', label: 'EARFCN' },
+              ]}
+              onChange={(next: ChannelUnit) => {
+                setFreqSpec((spec) => convertChannelSpec(spec, channelUnit, next, lteBands))
+                setChannelUnit(next)
+              }}
+              disabled={running}
+            />
+          )}
+        >
           <FieldGrid columns={4}>
             {/* The list syntax lives on the two fields that take it, rather
                 than as a line of its own under the grid. A wrapper because
@@ -1316,8 +1339,9 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               placement="top-start"
             >
               <Box>
-                {/* LTE takes channels in the unit every LTE page reads (set on
-                    the LTE CW page), resolved within its selected bands. */}
+                {/* LTE takes channels in the unit every LTE page reads (the
+                    switch on this card's header), resolved within its
+                    selected bands. */}
                 <LabeledField
                   label={isLte ? 'Channel' : 'Frequency'} hint={freqUnit} value={freqSpec}
                   onChange={(e) => setFreqSpec(e.target.value)}
@@ -1541,25 +1565,30 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
                   </Button>
                 </Box>
 
+                {/* The Start / Stop of the frequency picked under VNA span
+                    below -- its own range, or All frequencies -- so the
+                    carriage and the analyzer can be put on the same point. */}
                 <DriveLabel>Go to</DriveLabel>
                 <Box sx={PAIR_SX}>
                   <Button
                     variant="outlined" size="small" startIcon={<FirstPageIcon sx={{ fontSize: 16 }} />}
-                    onClick={() => goMinM.mutate()}
-                    disabled={!motorConnected || motorJogBusy || running || travelMin == null}
-                    title={travelMin == null ? 'Capture zero first' : undefined}
+                    onClick={() => { if (spanRange) goToM.mutate(spanRange.startPulses) }}
+                    disabled={!motorConnected || goToM.isPending || running || otherRunning || spanRange == null}
+                    title={spanRange == null ? 'Capture the trombone range first'
+                      : `${spanRangeName} start · ${fmt(mm(spanRange.startPulses), 2)} mm`}
                     sx={[{ height: DRIVE_H }, hazardRingSx('move')]}
                   >
-                    Zero
+                    Start
                   </Button>
                   <Button
                     variant="outlined" size="small" endIcon={<LastPageIcon sx={{ fontSize: 16 }} />}
-                    onClick={() => goMaxM.mutate()}
-                    disabled={!motorConnected || motorJogBusy || running || travelMax == null}
-                    title={travelMax == null ? 'Capture end first' : undefined}
+                    onClick={() => { if (spanRange) goToM.mutate(spanRange.stopPulses) }}
+                    disabled={!motorConnected || goToM.isPending || running || otherRunning || spanRange == null}
+                    title={spanRange == null ? 'Capture the trombone range first'
+                      : `${spanRangeName} stop · ${fmt(mm(spanRange.stopPulses), 2)} mm`}
                     sx={[{ height: DRIVE_H }, hazardRingSx('move')]}
                   >
-                    End
+                    Stop
                   </Button>
                 </Box>
 
@@ -1641,31 +1670,91 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           <Section
             title="Sweep bounds"
             panel
+            // Short, with the whole of it on hover: the full "600 points over
+            // 125.00 mm · 11m 52s elapsed · ~12m 43s left" squeezed the title
+            // onto two lines and ran under it.
             action={totalPoints > 0 && (
-              <Typography sx={{ ...TEXT.hint, color: 'text.secondary', whiteSpace: 'nowrap' }}>
-                <Box component="b" sx={{ color: 'text.primary' }}>{totalPoints}</Box> points over {fmt(Math.abs(mm((endPulses ?? 0) - (zeroPulses ?? 0))), 2)} mm
+              <Typography
+                title={`${totalPoints} points over ${fmt(mm(spanPulses), 2)} mm · ${
+                  runEta ? formatRunTiming(runEta) : `≈ ${formatDuration(estimatedRunMs)}`}`}
+                sx={{
+                  ...TEXT.hint, color: 'text.secondary', whiteSpace: 'nowrap',
+                  minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                <Box component="b" sx={{ color: 'text.primary' }}>{totalPoints}</Box> pts
                 {' · '}
-                {runEta ? formatRunTiming(runEta) : `≈ ${formatDuration(estimatedRunMs)}`}
+                {runEta?.remainingMs != null ? `~${formatDuration(runEta.remainingMs)} left`
+                  : runEta ? `${formatDuration(runEta.elapsedMs)} elapsed`
+                    : `≈ ${formatDuration(estimatedRunMs)}`}
               </Typography>
             )}
           >
             <Box sx={FORM_SX}>
-              <BoundRow
-                label="Zero"
-                value={zeroPulses}
-                onCapture={() => setZeroPulses(motorPos)}
-                onClear={() => setZeroPulses(null)}
-                captureDisabled={motorPos == null || running}
-                clearDisabled={running}
-              />
-              <BoundRow
-                label="End"
-                value={endPulses}
-                onCapture={() => setEndPulses(motorPos)}
-                onClear={() => setEndPulses(null)}
-                captureDisabled={motorPos == null || running}
-                clearDisabled={running}
-              />
+              {/* One row whatever is captured, so the card never changes
+                  height: the extent swept, and the key that sets it. */}
+              {/* One row: how many ranges and where they span, every
+                  frequency's figures on hover. The ranges themselves are
+                  drawn in the dialog, beside the keys that capture them --
+                  drawn here too, at card size, they were a cramped copy. */}
+              <DriveLabel>Range</DriveLabel>
+              <Box sx={{ ...CONTROL_COL_SX, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 88px', columnGap: 1, alignItems: 'center' }}>
+                <Tooltip
+                  placement="top"
+                  slotProps={{ tooltip: { sx: { maxWidth: 'none' } } }}
+                  title={rangeLo == null ? 'Capture where the trombone sweeps' : (
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'auto auto', columnGap: 1.5, rowGap: 0.25, fontVariantNumeric: 'tabular-nums' }}>
+                      {(ownRanges > 0 || halfRanged.length > 0 ? channels : []).map((c, i) => {
+                        const r = halfRanged.includes(c) ? null : tromb.ranges[i]
+                        return (
+                          <Box key={c.freqMhz} sx={{ display: 'contents' }}>
+                            <span>{c.earfcn != null ? `${c.earfcn} · ${num(c.freqMhz, 1)} MHz` : `${num(c.freqMhz, 3)} MHz`}</span>
+                            <Box component="span" sx={{ fontFamily: MONO, opacity: r?.own ? 1 : 0.7 }}>
+                              {r ? `${fmt(mm(r.startPulses), 2)} – ${fmt(mm(r.stopPulses), 2)} mm${r.own ? '' : '  (all)'}` : 'one end missing'}
+                            </Box>
+                          </Box>
+                        )
+                      })}
+                      {ownRanges === 0 && halfRanged.length === 0 && (
+                        <span>Every frequency sweeps {fmt(mm(rangeLo), 2)} – {fmt(mm(rangeHi ?? rangeLo), 2)} mm</span>
+                      )}
+                    </Box>
+                  )}
+                >
+                  <Typography
+                    component="div"
+                    sx={{
+                      display: 'flex', alignItems: 'baseline', gap: 0.75, minWidth: 0,
+                      whiteSpace: 'nowrap', overflow: 'hidden', fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {rangeLo == null || rangeHi == null ? (
+                      <Box component="span" sx={{ ...TEXT.hint, color: 'text.secondary' }}>not set</Box>
+                    ) : ownRanges > 0 || halfRanged.length > 0 ? (
+                      <>
+                        <Box component="span" sx={{ fontSize: 13, fontWeight: 600, color: halfRanged.length ? 'warning.main' : 'text.primary' }}>
+                          {halfRanged.length ? `${halfRanged.length} unfinished` : `${ownRanges} ${ownRanges === 1 ? 'range' : 'ranges'}`}
+                        </Box>
+                        <Box component="span" sx={{ fontFamily: MONO, fontSize: 12, color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {fmt(mm(rangeLo), 1)}–{fmt(mm(rangeHi), 1)}
+                        </Box>
+                      </>
+                    ) : (
+                      <Box component="span" sx={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {fmt(mm(rangeLo), 2)} – {fmt(mm(rangeHi), 2)} mm
+                      </Box>
+                    )}
+                  </Typography>
+                </Tooltip>
+                <Button
+                  size="small" variant="outlined" color="inherit"
+                  onClick={() => setRangesOpen(true)}
+                  disabled={running}
+                  sx={{ width: 88, minWidth: 88, height: DRIVE_H }}
+                >
+                  {rangeLo == null ? 'Set…' : 'Edit…'}
+                </Button>
+              </Box>
 
               <DriveLabel>Delta X</DriveLabel>
               <TextField
@@ -1780,10 +1869,53 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         onReplace={takeRemeasured}
         onClose={() => setRemeasureIdx(null)}
       />
+      <TromboneRangesModal
+        open={rangesOpen}
+        onClose={() => setRangesOpen(false)}
+        freqs={channels.map((c) => ({
+          freqMhz: c.freqMhz,
+          label: c.earfcn != null ? `${c.earfcn} · ${num(c.freqMhz, 1)}` : `${num(c.freqMhz, 3)} MHz`,
+        }))}
+        ranges={freqRanges}
+        // Saved under their old names: Zero/End were this range, and a
+        // page's saved ends (and a run's plan key) carry straight over.
+        defaultRange={{ startPulses: zeroPulses, stopPulses: endPulses }}
+        onChange={(r, d) => { setFreqRanges(r); setZeroPulses(d.startPulses); setEndPulses(d.stopPulses) }}
+        locked={running || otherRunning}
+        onEmergencyStop={onEmergencyStop}
+        vna={{
+          ready: na.status === 'connected',
+          busy: spanM.isPending,
+          shownMhz: vnaShownMhz,
+          pendingMhz: spanM.isPending ? spanM.variables ?? null : null,
+          onShow: (f) => spanM.mutate(f),
+          describe: (f) => {
+            const { startHz, stopHz } = vnaSpanHz(f)
+            return `span ${num(startHz / 1e6, 2)}-${num(stopHz / 1e6, 2)} MHz`
+          },
+        }}
+        trombone={{
+          connected: motorConnected, moving: motorMoving, position: motorPos,
+          jogDir, jogFocused,
+          onJogStart: startJog, onJogStop: stopJog,
+          onJogKeyDown, onJogKeyUp, onJogFocusChange: setJogFocused,
+          jogSpeed, onJogSpeed: setJogSpeed,
+        }}
+      />
       <SetupDiagramModal open={setupOpen} onClose={() => setSetupOpen(false)} keepToolbar={running} />
 
       {attPrompt.dialog}
       {preflight.dialog}
+      {/* The run's first step on LTE is cycling the modem, ~10 s with
+          nothing else to see: the same notice LTE CW shows for the boot,
+          below the toolbar so Stop and E-STOP stay in reach. */}
+      {/* A Remeasure says so in its own dialog. */}
+      {isLte && (
+        <ModemBootDialog
+          open={running && mine?.phase === 'modem' && !mine.plan_key?.startsWith(REMEASURE_KEY)}
+          keepToolbar
+        />
+      )}
       {isLte && (
         <BandsModal
           open={bandsOpen}

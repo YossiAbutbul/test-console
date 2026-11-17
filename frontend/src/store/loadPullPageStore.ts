@@ -4,6 +4,7 @@
  */
 
 import type { PowerSourceState } from '../lib/powerSource'
+import type { FreqRange } from '../tests/loadPull/tromboneRanges'
 import { makePageStore } from './makePageStore'
 import { STORAGE_KEYS } from './keys'
 
@@ -73,6 +74,13 @@ export interface LoadPullPageSnapshot {
   jogSpeed?: number
   zeroPulses?: number | null
   endPulses?: number | null
+  /**
+   * Trombone Start/Stop captured per frequency (see tests/loadPull/
+   * tromboneRanges.ts). Per page, as Zero/End are: the two radios sweep
+   * different frequencies. Kept for frequencies no longer in the spec, as the
+   * path loss table keeps its rows, so editing the spec loses no capture.
+   */
+  freqRanges?: FreqRange[]
   results?: LoadPullResultRow[]
   /**
    * The plan `results` were measured against (see `planKey` on the page) and

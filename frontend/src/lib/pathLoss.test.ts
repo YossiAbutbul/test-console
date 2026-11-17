@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findLoss, pathLossFromS21, type PathLossPoint } from './pathLoss'
+import { findLoss, parsePathLossJson, pathLossFromS21, pathLossToJson, type PathLossPoint } from './pathLoss'
 
 const TABLE: PathLossPoint[] = [
   { freqMhz: 902.3, db: 20.5 },
@@ -71,5 +71,24 @@ describe('pathLossFromS21', () => {
   it('gives rows the lookup finds as calibrated', () => {
     const table = pathLossFromS21([{ requested_hz: 902.3e6, mag_db: -20.5 }])
     expect(findLoss(table, 0, 902.3)).toEqual({ db: 20.5, calibrated: true })
+  })
+})
+
+describe('path loss file', () => {
+  it('round-trips the default and the table', () => {
+    const text = pathLossToJson({ defaultDb: 36, points: [TABLE[2], TABLE[0], TABLE[1]] })
+    expect(parsePathLossJson(text)).toEqual({ defaultDb: 36, points: TABLE })
+  })
+  it('reads a bare hand-written list, with no default', () => {
+    expect(parsePathLossJson('[{"freqMhz": 915, "db": 21.1}]'))
+      .toEqual({ defaultDb: null, points: [{ freqMhz: 915, db: 21.1 }] })
+  })
+  it('refuses another kind of file by name', () => {
+    expect(() => parsePathLossJson('{"kind": "something-else", "points": []}')).toThrow(/something-else/)
+  })
+  it('refuses a bad point, a duplicate and non-JSON rather than half-loading', () => {
+    expect(() => parsePathLossJson('[{"freq_mhz": -1, "db": 2}]')).toThrow(/Point 1/)
+    expect(() => parsePathLossJson('[{"freq_mhz": 915, "db": 2}, {"freq_mhz": 915, "db": 3}]')).toThrow(/twice/)
+    expect(() => parsePathLossJson('freq,db')).toThrow(/JSON/)
   })
 })

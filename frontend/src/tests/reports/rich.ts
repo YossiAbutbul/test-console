@@ -138,55 +138,57 @@ export function serialize(spans: Span[]): string {
   return m.map(wrap).join('')
 }
 
-/** The value as HTML to edit in place: our own tags only, rebuilt from the
- *  parsed runs, so nothing else in a value can reach the page. */
-export function toHtml(value: string): string {
-  const html = parse(value).map(wrap).join('')
-  // A line the text ends on shows only with something after it.
-  return value.endsWith('\n') ? `${html}<br>` : html
+/**
+ * The editor's document (TipTap's JSON, RichText.tsx) for a value, and back.
+ * One line of words with line breaks; the marks are bold, weight (not bold),
+ * italic, underline and textStyle's colour. Built from the parsed runs, so
+ * nothing but our own formatting reaches the editor.
+ */
+export interface DocNode {
+  type: string
+  text?: string
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>
+  attrs?: Record<string, unknown>
+  content?: DocNode[]
 }
 
-/**
- * What the browser's editing left in an editable element, as runs: <b>,
- * <strong>, <i>, <em>, <u>, styled spans and <font color> (what execCommand
- * writes), line breaks and the <div>s Enter can make. Anything else keeps
- * its words and loses its looks.
- */
-export function fromDom(root: Node): Span[] {
-  const out: Span[] = []
-  const walk = (node: Node, f: Look) => {
-    node.childNodes.forEach((child, i) => {
-      if (child.nodeType === Node.TEXT_NODE) {
-        out.push({ text: child.textContent ?? '', ...f })
-        return
-      }
-      if (!(child instanceof HTMLElement)) return
-      const tag = child.tagName
-      if (tag === 'BR') {
-        // The browser's own last <br> holds an empty last line open; it is
-        // not a line of the text.
-        const last = i === node.childNodes.length - 1 && node === root
-        if (!last) out.push({ text: '\n', ...f })
-        return
-      }
-      const g = { ...f }
-      if (tag === 'B' || tag === 'STRONG') g.bold = true
-      if (tag === 'I' || tag === 'EM') g.italic = true
-      if (tag === 'U') g.underline = true
-      const st = child.style
-      const w = weight(st.fontWeight)
-      if (w !== undefined) g.bold = w
-      if (st.fontStyle === 'italic') g.italic = true
-      if (st.fontStyle === 'normal') delete g.italic
-      const deco = st.textDecorationLine || st.textDecoration
-      if (/underline/.test(deco)) g.underline = true
-      const c = hex(st.color || child.getAttribute('color') || '')
-      if (c) g.color = c
-      const block = tag === 'DIV' || tag === 'P'
-      if (block && out.length && !out[out.length - 1].text.endsWith('\n')) out.push({ text: '\n', ...f })
-      walk(child, g)
+export function toDoc(value: string): DocNode {
+  const content: DocNode[] = []
+  for (const s of parse(value)) {
+    const marks: NonNullable<DocNode['marks']> = []
+    if (s.bold === true) marks.push({ type: 'bold' })
+    if (s.bold === false) marks.push({ type: 'weight' })
+    if (s.italic) marks.push({ type: 'italic' })
+    if (s.underline) marks.push({ type: 'underline' })
+    if (s.color) marks.push({ type: 'textStyle', attrs: { color: s.color } })
+    s.text.split('\n').forEach((line, i) => {
+      if (i) content.push({ type: 'hardBreak' })
+      if (line) content.push({ type: 'text', text: line, ...(marks.length ? { marks } : null) })
     })
   }
-  walk(root, {})
-  return merge(out)
+  return { type: 'doc', content: [{ type: 'paragraph', ...(content.length ? { content } : null) }] }
+}
+
+export function fromDoc(doc: DocNode): string {
+  const out: Span[] = []
+  ;(doc.content ?? []).forEach((par, i) => {
+    if (i) out.push({ text: '\n' })
+    for (const n of par.content ?? []) {
+      if (n.type === 'hardBreak') { out.push({ text: '\n' }); continue }
+      if (n.type !== 'text' || !n.text) continue
+      const s: Span = { text: n.text }
+      for (const m of n.marks ?? []) {
+        if (m.type === 'bold') s.bold = true
+        if (m.type === 'weight') s.bold = false
+        if (m.type === 'italic') s.italic = true
+        if (m.type === 'underline') s.underline = true
+        if (m.type === 'textStyle' && typeof m.attrs?.color === 'string') {
+          const c = hex(m.attrs.color)
+          if (c) s.color = c
+        }
+      }
+      out.push(s)
+    }
+  })
+  return serialize(out)
 }

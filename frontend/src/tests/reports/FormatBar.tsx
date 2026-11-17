@@ -9,7 +9,8 @@
  * opening a small panel of swatches away from the words, then Clear.
  *
  * Nothing in it takes the focus (pointer-down is cancelled), so the words
- * stay selected while they are formatted.
+ * stay selected while they are formatted. It acts through the field's own
+ * editor (richEditor.ts), and reads its state from there.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Box, ButtonBase, Portal, Tooltip, Typography } from '@mui/material'
@@ -20,6 +21,7 @@ import ClearIcon from '@mui/icons-material/FormatClearRounded'
 import FillIcon from '@mui/icons-material/FormatColorFillRounded'
 import ChevronIcon from '@mui/icons-material/ExpandMoreRounded'
 import { ColorPicker } from './ColorPicker'
+import { editorOf, isBold, RICH_UPDATE, toggleBold } from './richEditor'
 
 /** Text colours: the inks, the report's navy and blues, Office's standard
  *  colours, and the report's own pass green. */
@@ -85,9 +87,8 @@ function sameRange(a: DOMRect, b: DOMRect) {
   return Math.abs(a.width - b.width) < 1 && Math.abs(a.height - b.height) < 1
 }
 
-function rgbHex(c: string): string | null {
-  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c)
-  return m ? `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`.toUpperCase() : null
+function hexOf(c: unknown): string | null {
+  return typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c.toUpperCase() : null
 }
 
 function viewOf(el: HTMLElement): { top: number; bottom: number } {
@@ -114,7 +115,8 @@ function read(prev?: Target | null): Target | null {
   const node = sel?.anchorNode
   const at = node instanceof HTMLElement ? node : node?.parentElement
   const el = at?.closest<HTMLElement>('[data-rich]')
-  if (!el || !sel || document.activeElement !== el) return null
+  const editor = el && editorOf(el)
+  if (!el || !editor || !sel || document.activeElement !== el) return null
   // Over the selected words; with only a caret, over the whole field, so the
   // bar never hides the lines being typed.
   let rect = sel.rangeCount && !sel.isCollapsed ? sel.getRangeAt(0).getBoundingClientRect() : null
@@ -129,10 +131,10 @@ function read(prev?: Target | null): Target | null {
     above: prev && prev.el === el && sameRange(prev.rect, rect)
       ? prev.above
       : rect.top - BAR_H - BAR_GAP > view.top,
-    bold: document.queryCommandState('bold'),
-    italic: document.queryCommandState('italic'),
-    underline: document.queryCommandState('underline'),
-    color: rgbHex(String(document.queryCommandValue('foreColor'))),
+    bold: isBold(editor),
+    italic: editor.isActive('italic'),
+    underline: editor.isActive('underline'),
+    color: hexOf(editor.getAttributes('textStyle').color),
     row: tr && block ? { blockId: block.dataset.blockId!, key: tr.dataset.fillKey! } : null,
   }
 }
@@ -148,14 +150,13 @@ export function FormatBar({ fillOf, onFill }: {
   const [panel, setPanel] = useState<null | 'text' | 'fill' | 'text-custom' | 'fill-custom'>(null)
   // While the colour picker's hex field is typed in, the words lose the
   // focus; their selection is kept here to give back to them.
-  const saved = useRef<{ el: HTMLElement; range: Range } | null>(null)
+  const saved = useRef<{ el: HTMLElement; range: Range; from: number; to: number } | null>(null)
   const [picking, setPicking] = useState(false)
   const field = useRef<HTMLElement | null>(null)
   const last = useRef<Target | null>(null)
 
   useEffect(() => {
     let raf = 0
-    let late = 0
     const look = () => {
       const prev = last.current
       let next = read(prev)
@@ -174,11 +175,7 @@ export function FormatBar({ fillOf, onFill }: {
     }
     const update = () => {
       cancelAnimationFrame(raf)
-      window.clearTimeout(late)
       raf = requestAnimationFrame(look)
-      // Once more when the page has settled: right after a formatting
-      // command Chrome can still report the state from before it.
-      late = window.setTimeout(look, 120)
     }
     // A scroll moves the bar in the same frame as the words, not one after:
     // a bar a frame behind its words visibly trails them.
@@ -187,21 +184,24 @@ export function FormatBar({ fillOf, onFill }: {
     document.addEventListener('focusin', update)
     document.addEventListener('focusout', update)
     document.addEventListener('input', update)
+    document.addEventListener(RICH_UPDATE, update)
     window.addEventListener('scroll', follow, true)
     window.addEventListener('resize', update)
     return () => {
       cancelAnimationFrame(raf)
-      window.clearTimeout(late)
       document.removeEventListener('selectionchange', update)
       document.removeEventListener('focusin', update)
       document.removeEventListener('focusout', update)
       document.removeEventListener('input', update)
+      document.removeEventListener(RICH_UPDATE, update)
       window.removeEventListener('scroll', follow, true)
       window.removeEventListener('resize', update)
     }
   }, [picking])
 
   if (!t) return null
+  const ed = editorOf(t.el)
+  if (!ed) return null
 
   const act = (fn: () => void) => () => {
     fn()
@@ -209,8 +209,8 @@ export function FormatBar({ fillOf, onFill }: {
     setT(last.current)
   }
   const setColor = (c: string) => {
-    document.execCommand('styleWithCSS', false, 'true')
-    document.execCommand('foreColor', false, c)
+    if (c === 'inherit') ed.chain().focus().unsetColor().removeEmptyTextStyle().run()
+    else ed.chain().focus().setColor(c).run()
   }
   const pick = (c: string) => act(() => { setColor(c); setPanel(null) })
 
@@ -247,13 +247,13 @@ export function FormatBar({ fillOf, onFill }: {
           '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
         }}
       >
-        <Key label="Bold (Ctrl+B)" on={t.bold} onClick={act(() => document.execCommand('bold'))}>
+        <Key label="Bold (Ctrl+B)" on={t.bold} onClick={act(() => toggleBold(ed))}>
           <BoldIcon sx={{ fontSize: 18 }} />
         </Key>
-        <Key label="Italic (Ctrl+I)" on={t.italic} onClick={act(() => document.execCommand('italic'))}>
+        <Key label="Italic (Ctrl+I)" on={t.italic} onClick={act(() => ed.chain().focus().toggleItalic().run())}>
           <ItalicIcon sx={{ fontSize: 18 }} />
         </Key>
-        <Key label="Underline (Ctrl+U)" on={t.underline} onClick={act(() => document.execCommand('underline'))}>
+        <Key label="Underline (Ctrl+U)" on={t.underline} onClick={act(() => ed.chain().focus().toggleUnderline().run())}>
           <UnderlineIcon sx={{ fontSize: 18 }} />
         </Key>
         <Sep />
@@ -274,7 +274,7 @@ export function FormatBar({ fillOf, onFill }: {
           </Key>
         )}
         <Sep />
-        <Key label="Clear formatting" onClick={act(() => document.execCommand('removeFormat'))}>
+        <Key label="Clear formatting" onClick={act(() => ed.chain().focus().unsetAllMarks().run())}>
           <ClearIcon sx={{ fontSize: 17 }} />
         </Key>
 
@@ -307,7 +307,8 @@ export function FormatBar({ fillOf, onFill }: {
                 <Option label="Other colour…" on={false} swatch={<Rainbow />}
                   onClick={() => {
                     const sel = document.getSelection()
-                    if (sel?.rangeCount) saved.current = { el: t.el, range: sel.getRangeAt(0).cloneRange() }
+                    const { from, to } = ed.state.selection
+                    if (sel?.rangeCount) saved.current = { el: t.el, range: sel.getRangeAt(0).cloneRange(), from, to }
                     setPanel('text-custom')
                   }} />
               </>
@@ -316,13 +317,8 @@ export function FormatBar({ fillOf, onFill }: {
                 onBack={() => setPanel('text')}
                 onApply={(c) => {
                   const keep = saved.current
-                  if (keep) {
-                    keep.el.focus()
-                    const sel = document.getSelection()
-                    sel?.removeAllRanges()
-                    sel?.addRange(keep.range)
-                  }
-                  setColor(c)
+                  if (keep) ed.chain().focus().setTextSelection({ from: keep.from, to: keep.to }).setColor(c).run()
+                  else setColor(c)
                   remember('text', c)
                   setPicking(false)
                   setPanel(null)

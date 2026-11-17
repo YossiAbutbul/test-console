@@ -1,7 +1,7 @@
 /**
  * Trombone motor control for the Load Pull page: live status polling,
- * press-and-hold continuous jog, soft-limit sync from the captured zero/end,
- * Go-Zero / Go-End moves, and a wait-for-idle helper for the sweep loop.
+ * press-and-hold continuous jog, soft-limit sync from the captured range, and
+ * a wait-for-idle helper for the sweep loop.
  *
  * Kept out of the page component so LoadPullPage stays layout-focused.
  */
@@ -9,11 +9,12 @@ import {
   useEffect, useRef, useState,
   type KeyboardEvent as ReactKeyboardEvent, type RefObject,
 } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motor } from '../../api/motor'
 import { useLog } from '../../context/LogContext'
 import { useNotify } from '../../context/NotifyContext'
 import { sleep } from '../../lib/async'
+import { startJogSession, type JogSession } from '../../lib/jogSession'
 
 const POLL_MS = 500
 const MOTOR_WAIT_TIMEOUT_MS = 60_000
@@ -24,15 +25,17 @@ export interface TromboneJogArgs {
   active: boolean
   /** A Load Pull run is going, this page's or the other radio's. */
   anyRunning: boolean
-  zeroPulses: number | null
-  endPulses: number | null
+  /** The travel limits, in pulses: the extent of every captured range end.
+   *  Null for either leaves the jog free on that side. */
+  limitLo: number | null
+  limitHi: number | null
   jogSpeed: number
   /** Holds the current run's controller; Stop aborts it. */
   abortRef: RefObject<AbortController>
 }
 
 export function useTromboneJog({
-  running, active, anyRunning, zeroPulses, endPulses, jogSpeed, abortRef,
+  running, active, anyRunning, limitLo, limitHi, jogSpeed, abortRef,
 }: TromboneJogArgs) {
   const { log } = useLog()
   const notify = useNotify()
@@ -57,50 +60,50 @@ export function useTromboneJog({
   const motorPos = motorS?.position ?? null
 
   const refreshMotor = () => qc.invalidateQueries({ queryKey: ['motor', 'status'] })
-  const onMotorOk = (label: string) => () => { log('Motor', `${label} ok`); refreshMotor() }
-  const onMotorErr = (label: string) => (e: Error) => {
-    log('Motor', `${label} failed: ${e.message}`, 'error')
-    notify.error(e.message, { title: `Trombone ${label}` })
-  }
 
   // Continuous jog: press-and-hold a direction → motor runs at a reduced speed
   // until released. A ref tracks the active direction so key-repeat / duplicate
   // keydown doesn't restart it, and so we only stop the jog we started.
+  //
+  // Each hold is a session (lib/jogSession.ts): its stop waits for its start,
+  // and it keeps the backend's deadman fed while held.
   const jogDirRef = useRef<number>(0)
+  const sessionRef = useRef<JogSession | null>(null)
+  const lastStopRef = useRef<Promise<void>>(Promise.resolve())
   const [jogDir, setJogDir] = useState<number>(0)
   const startJog = (positive: boolean) => {
     if (!motorConnected || running) return
     const dir = positive ? 1 : -1
     if (jogDirRef.current === dir) return
+    // Reversed mid-hold: the old session stops before the new one starts.
+    if (sessionRef.current) lastStopRef.current = sessionRef.current.stop().catch(() => {})
     jogDirRef.current = dir
     setJogDir(dir)
-    motor.jogStart(positive, jogSpeed).catch((e: Error) => {
+    const session = startJogSession(positive, jogSpeed, (e) => {
+      if (sessionRef.current !== session) return
+      sessionRef.current = null
       jogDirRef.current = 0
       setJogDir(0)
       log('Motor', `jog ${positive ? '+' : '−'} failed: ${e.message}`, 'error')
       if (!/limit/i.test(e.message)) notify.error(e.message, { title: 'Trombone jog' })
-    })
+    }, lastStopRef.current)
+    sessionRef.current = session
   }
   const stopJog = () => {
-    if (jogDirRef.current === 0) return
+    const session = sessionRef.current
+    sessionRef.current = null
     jogDirRef.current = 0
     setJogDir(0)
-    motor.jogStop()
-      .then(() => refreshMotor())
+    if (!session) return
+    lastStopRef.current = session.stop()
+      .then(() => { void refreshMotor() })
       .catch((e: Error) => log('Motor', `jog stop failed: ${e.message}`, 'error'))
   }
 
-  // Min/Max jump to the user-captured zero/end (local state). Each enabled
-  // independently as soon as its own point is captured.
-  const travelMin = zeroPulses
-  const travelMax = endPulses
-  const goMinM = useMutation({ mutationFn: () => motor.move(travelMin ?? 0, true), onSuccess: onMotorOk('go zero'), onError: onMotorErr('go zero') })
-  const goMaxM = useMutation({ mutationFn: () => motor.move(travelMax ?? 0, true), onSuccess: onMotorOk('go end'), onError: onMotorErr('go end') })
-  const motorJogBusy = goMinM.isPending || goMaxM.isPending
-
-  // The captured zero & end define the travel range — push them to the backend
-  // as soft limits. While either is unset, limits are cleared so the user can
-  // jog freely to find the ends.
+  // The captured range ends define the travel range — push their extent to
+  // the backend as soft limits. While none is captured (or the range dialog is
+  // open, see the page), limits are cleared so the user can jog freely to
+  // find the ends.
   //
   // The limits are the motor's, one pair, but the ends are per page: LoRa and
   // LTE Load Pull are mounted together, and each used to push its own on any
@@ -111,12 +114,12 @@ export function useTromboneJog({
   // screen takes them back when it ends.
   useEffect(() => {
     if (!active || anyRunning) return
-    const apply = zeroPulses != null && endPulses != null
-      ? motor.setLimits(Math.min(zeroPulses, endPulses), Math.max(zeroPulses, endPulses))
+    const apply = limitLo != null && limitHi != null
+      ? motor.setLimits(limitLo, limitHi)
       : motor.setLimits(null, null)
     void apply.then(() => refreshMotor()).catch(() => { /* ignore */ })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zeroPulses, endPulses, active, anyRunning])
+  }, [limitLo, limitHi, active, anyRunning])
 
   // Keyboard jog: hold ← / → while the jog pad is focused; release/blur stops.
   const [jogFocused, setJogFocused] = useState(false)
@@ -124,7 +127,7 @@ export function useTromboneJog({
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
     e.preventDefault()
     if (e.repeat) return
-    if (!motorConnected || running || motorJogBusy) return
+    if (!motorConnected || running) return
     startJog(e.key === 'ArrowRight')
   }
   const onJogKeyUp = (e: ReactKeyboardEvent) => {
@@ -135,7 +138,7 @@ export function useTromboneJog({
   }
 
   // Safety: stop any running jog when the component unmounts.
-  useEffect(() => () => { if (jogDirRef.current !== 0) void motor.jogStop().catch(() => {}) }, [])
+  useEffect(() => () => { void sessionRef.current?.stop().catch(() => {}) }, [])
 
   // Used by the sweep loop: block until the motor reports idle (or abort).
   const waitForMotorIdle = async (): Promise<void> => {
@@ -156,8 +159,6 @@ export function useTromboneJog({
     refreshMotor,
     jogDir, jogFocused, setJogFocused,
     startJog, stopJog, onJogKeyDown, onJogKeyUp,
-    goMinM, goMaxM, motorJogBusy,
-    travelMin, travelMax,
     waitForMotorIdle,
   }
 }

@@ -14,7 +14,7 @@ from openpyxl import load_workbook
 from backend.loadpull import (
     HEADERS, TABLE_HEADERS, LoadPullMeta, LoadPullRow, build_workbook, parse_workbook,
 )
-from backend.loadpull.models import PathLossPoint
+from backend.loadpull.models import PathLossPoint, TromboneRange
 
 
 def row(pos_mm: float, freq: float | None, power: float | None, **over) -> LoadPullRow:
@@ -359,3 +359,13 @@ class TestRunSheetRig:
         wb = load_workbook(BytesIO(build_workbook([row(0, 902.3, 14)], LoadPullMeta(pa_mode=2))))
         pairs = {r[0]: r[1] for r in wb["Run"].iter_rows(min_row=2, values_only=True) if r[0]}
         assert pairs["PA mode"] == "Auto (2)"
+
+    def test_per_frequency_trombone_ranges_are_recorded(self) -> None:
+        meta = LoadPullMeta(trombone_ranges=[
+            TromboneRange(freq_mhz=902.3, start_pulses=400, stop_pulses=2000),
+            TromboneRange(freq_mhz=915, start_pulses=0, stop_pulses=4000, own=False),
+        ])
+        wb = load_workbook(BytesIO(build_workbook([row(0, 915, 0)], meta)))
+        pairs = {r[0]: r[1] for r in wb["Run"].iter_rows(min_row=2, values_only=True) if r[0]}
+        assert pairs["Trombone @ 902.3 MHz"] == "1.00 - 5.00 mm"
+        assert pairs["Trombone @ 915 MHz"] == "0.00 - 10.00 mm  (all freqs)"

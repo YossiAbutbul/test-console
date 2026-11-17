@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import {
-  Box, CircularProgress, Dialog, DialogContent, Stack, Typography,
-} from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
 import { useLiveOutputActions } from '../../context/liveOutput'
 import type { CommandResponse } from '../../types/models'
+import { ModemBootDialog } from './ModemBootDialog'
 
 /**
  * The LTE modem, as both LTE pages drive it.
@@ -232,23 +230,7 @@ export function useLteModem({ onFrame, pageId }: Options = {}): LteModem {
   const getRunning = useCallback(() => runningRef.current, [])
   const setRunning = setLive
 
-  const dialog = useMemo(() => (
-    <Dialog open={starting} maxWidth="xs">
-      <DialogContent>
-        <Stack direction="row" spacing={2} alignItems="center" sx={{ py: 1 }}>
-          <CircularProgress size={22} />
-          <Box>
-            <Typography sx={{ fontSize: 15, fontWeight: 600 }}>
-              Turning on modem
-            </Typography>
-            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-              A radio boot takes a few seconds.
-            </Typography>
-          </Box>
-        </Stack>
-      </DialogContent>
-    </Dialog>
-  ), [starting])
+  const dialog = useMemo(() => <ModemBootDialog open={starting} />, [starting])
 
   return useMemo(() => ({
     on, busy, toggle, cycle, prepare, powerOff, getRunning, setRunning, dialog,

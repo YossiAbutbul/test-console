@@ -63,3 +63,72 @@ export function pathLossFromS21(
   }
   return [...byFreq].map(([freqMhz, db]) => ({ freqMhz, db })).sort((a, b) => a.freqMhz - b.freqMhz)
 }
+
+// ---------- The table as a file ----------
+//
+// Saved and loaded so a calibration outlives this browser's storage: another
+// PC on the bench, a cleared profile, or going back to last week's figures
+// for a cable run that has not changed. JSON, so the file says which figure
+// is the default and which belong to frequencies, without a column
+// convention to remember.
+
+/** What the file says it is, so a JSON from elsewhere is refused by name. */
+export const PATH_LOSS_FILE_KIND = 'test-console/path-loss'
+
+export interface PathLossTable {
+  defaultDb: number
+  points: PathLossPoint[]
+}
+
+/** The table as file text. Points sorted by frequency, as the dialog saves them. */
+export function pathLossToJson(table: PathLossTable, now: Date = new Date()): string {
+  return JSON.stringify({
+    kind: PATH_LOSS_FILE_KIND,
+    version: 1,
+    saved_at: now.toISOString(),
+    default_db: table.defaultDb,
+    points: [...table.points]
+      .sort((a, b) => a.freqMhz - b.freqMhz)
+      .map((p) => ({ freq_mhz: p.freqMhz, db: p.db })),
+  }, null, 2) + '\n'
+}
+
+/**
+ * A path loss file read back. Throws, with a message fit to show, on
+ * anything that is not one: the dialog must not half-load a table.
+ *
+ * Takes this app's file, and also a bare list of `{freq_mhz, db}` (or
+ * `freqMhz`) points, which is what someone writing one by hand produces.
+ */
+export function parsePathLossJson(text: string): { defaultDb: number | null; points: PathLossPoint[] } {
+  let data: unknown
+  try {
+    data = JSON.parse(text.replace(/^\uFEFF/, ''))
+  } catch {
+    throw new Error('Not a JSON file')
+  }
+  const obj = data as { kind?: unknown; default_db?: unknown; points?: unknown }
+  const isObj = data != null && typeof data === 'object' && !Array.isArray(data)
+  if (isObj && obj.kind != null && obj.kind !== PATH_LOSS_FILE_KIND) {
+    throw new Error(`Not a path loss file (it is "${String(obj.kind)}")`)
+  }
+  const raw = Array.isArray(data) ? data : isObj ? obj.points : undefined
+  if (!Array.isArray(raw)) throw new Error('No path loss points in the file')
+  const points: PathLossPoint[] = raw.map((r, i) => {
+    const o = (r ?? {}) as Record<string, unknown>
+    const freqMhz = Number(o.freq_mhz ?? o.freqMhz)
+    const db = Number(o.db)
+    if (!Number.isFinite(freqMhz) || freqMhz <= 0 || !Number.isFinite(db)) {
+      throw new Error(`Point ${i + 1} needs a positive frequency and a numeric loss`)
+    }
+    return { freqMhz, db }
+  })
+  const dupes = points.map((p) => p.freqMhz).filter((f, i, all) => all.indexOf(f) !== i)
+  if (dupes.length) throw new Error(`${dupes[0]} MHz is listed twice`)
+  let defaultDb: number | null = null
+  if (isObj && obj.default_db != null) {
+    defaultDb = Number(obj.default_db)
+    if (!Number.isFinite(defaultDb)) throw new Error('The default loss is not a number')
+  }
+  return { defaultDb, points: points.sort((a, b) => a.freqMhz - b.freqMhz) }
+}

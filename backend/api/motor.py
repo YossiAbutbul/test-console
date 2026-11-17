@@ -109,6 +109,14 @@ async def jog_start(req: JogRequest) -> MotorStatus:
     return await _status()
 
 
+@router.post("/jog/keepalive", status_code=204)
+async def jog_keepalive() -> None:
+    """The jog key is still held. No motor I/O: it only feeds the deadman
+    (`motor.manager.JOG_DEADMAN_S`), so it answers at once whatever the
+    motor is doing."""
+    svc.jog_keepalive()
+
+
 @router.post("/jog/stop", response_model=MotorStatus)
 async def jog_stop() -> MotorStatus:
     with handle_driver_errors("motor jog stop"):
