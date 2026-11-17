@@ -20,6 +20,7 @@ export const STORAGE_KEYS = {
   lteModulatedPage: 'lte-modulated-page-snapshot-v1',
   lteBands: 'lte-bands-v1',
   lteChannelUnit: 'lte-channel-unit-v1',
+  bleCwPage: 'ble-cw-page-snapshot-v1',
   loadPullPage: 'load-pull-page-snapshot-v1',
   // Its own snapshot, not the LoRa one: the two pages are mounted together,
   // and a channel spec typed in EARFCNs is not a LoRa frequency.

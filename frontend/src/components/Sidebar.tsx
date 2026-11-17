@@ -535,9 +535,9 @@ export function Sidebar({ activeId, onSelect, open, floating, onClose }: Sidebar
         {/* Sections, not a folder tree. The protocol is the section header;
             its groups (TX, Other) were a second level of folders that each
             held a handful of rows, and opening one was a click spent on
-            finding a page rather than on using it. Protocols with no pages yet
-            (BLE) are not listed: a greyed "coming soon" row was a control that
-            did nothing. */}
+            finding a page rather than on using it. A protocol with no pages yet
+            is not listed (BLE was, until it had its CW page): a greyed "coming
+            soon" row was a control that did nothing. */}
         {tree.filter((p) => p.groups.length > 0).map(({ protocol, groups }) => {
           const isRoot = protocol == null
           const pkey = protocol ?? rootKey(groups[0]?.group)

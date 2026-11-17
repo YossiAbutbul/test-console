@@ -94,3 +94,29 @@ class TestInstrumentBus:
         for _ in range(5):
             await bus.call(note)
         assert len(threads) == 1, "vendor layers are not thread-safe"
+
+
+class TestCallWhenFree:
+    """`/instruments/measure` used to fail whenever its read landed on a
+    control panel's poll of the same instrument."""
+
+    @sync
+    async def test_waits_out_another_callers_call(self) -> None:
+        bus = InstrumentBus("test")
+        poll = asyncio.create_task(bus.call(lambda: time.sleep(0.4) or "poll"))
+        await asyncio.sleep(0.05)  # the poll is on the instrument
+        with pytest.raises(InstrumentBusy):
+            await bus.call(lambda: "read")
+        assert await bus.call_when_free(lambda: "read", wait=2.0) == "read"
+        assert await poll == "poll"
+
+    @sync
+    async def test_gives_up_on_a_call_that_does_not_finish(self) -> None:
+        bus = InstrumentBus("test")
+        stuck = asyncio.create_task(bus.call(lambda: time.sleep(1.0)))
+        await asyncio.sleep(0.05)
+        t0 = time.perf_counter()
+        with pytest.raises(InstrumentBusy):
+            await bus.call_when_free(lambda: "read", wait=0.3)
+        assert time.perf_counter() - t0 < 0.9
+        await stuck

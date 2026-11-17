@@ -305,7 +305,16 @@ export function FrameDump({ result, plain }: { result: CommandResponse; plain?: 
  * it? — and only occasionally with the follow-up of what exactly went over the
  * wire. So the ok/status rides on the heading and the hex stays folded away.
  */
-export function LastFrameSection({ result }: { result: CommandResponse | null }) {
+export function LastFrameSection({ result, unanswered }: {
+  result: CommandResponse | null
+  /**
+   * The frame went out and nothing came back -- for commands that take the
+   * DUT off the link (a BLE test tone, a save-and-reset), where that is the
+   * expected shape. Shown as a neutral "no reply" rather than "failed", which
+   * it is not.
+   */
+  unanswered?: boolean
+}) {
   const p = useAppPalette()
   // Collapsible from the start, folded, so the card is one heading tall before
   // the first Send and after it. It used to be a plain card with a two-line
@@ -318,7 +327,14 @@ export function LastFrameSection({ result }: { result: CommandResponse | null })
       collapsible
       defaultOpen={false}
       action={
-        result ? (
+        result && unanswered ? (
+          <Stack direction="row" alignItems="center" spacing={0.75}>
+            <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'text.disabled' }} />
+            <Typography sx={{ ...TEXT.hint, fontWeight: 600, color: 'text.secondary' }}>
+              no reply
+            </Typography>
+          </Stack>
+        ) : result ? (
           <Stack direction="row" alignItems="center" spacing={0.75}>
             <Box
               sx={{

@@ -15,7 +15,7 @@ import { createContext, useContext, useEffect, useMemo } from 'react'
  * publishes does not re-render whenever some other page does.
  */
 
-export type LiveKind = 'rf' | 'dc' | 'lte' | 'run'
+export type LiveKind = 'rf' | 'dc' | 'lte' | 'ble' | 'run'
 
 export interface LiveOutput {
   kind: LiveKind
@@ -55,7 +55,7 @@ export function useLiveOutputActions(): Actions {
 export function useLiveOutputs(): LiveOutputEntry[] {
   const entries = useContext(StateCtx)
   return useMemo(() => {
-    const order: LiveKind[] = ['rf', 'dc', 'lte', 'run']
+    const order: LiveKind[] = ['rf', 'dc', 'lte', 'ble', 'run']
     return Object.entries(entries)
       .map(([key, v]) => ({ ...v, key }))
       .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || a.key.localeCompare(b.key))

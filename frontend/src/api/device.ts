@@ -1,7 +1,8 @@
 import { http } from './client'
 import type {
   CommandResponse, LoraCwRequest, LoraModulatedRequest, LoraPowerRequest,
-  AppModesResponse, ChannelOptionsResponse, LteCwRequest, LteModulatedRequest,
+  AppModesResponse, BleToneRequest, BleToneResponse, BleTxPowerRead, BleTxPowerRequest,
+  BleTxPowerResponse, ChannelOptionsResponse, LteCwRequest, LteModulatedRequest,
   MeterInfoResponse, SaveResetResponse, SetAppModeResponse, SetChannelsResponse,
 } from '../types/models'
 
@@ -96,6 +97,32 @@ export const device = {
     http<CommandResponse>('/device/lte/modulated', {
       method: 'POST',
       body: JSON.stringify({ timeout: 5, start: true, ...req }),
+      signal: opts?.signal,
+    }),
+
+  /** Read the BLE tone power back. A plain read: the DUT stays on the link. */
+  bleTxPowerRead: (opts?: Cancel) =>
+    http<BleTxPowerRead>('/device/ble/tx-power', { signal: opts?.signal }),
+
+  /**
+   * BLE tone power: set, then save-and-reset so it takes. The DUT reboots and
+   * the backend lets go of the link; follow with `ble.relink`.
+   */
+  bleTxPower: (req: BleTxPowerRequest, opts?: Cancel) =>
+    http<BleTxPowerResponse>('/device/ble/tx-power', {
+      method: 'POST',
+      body: JSON.stringify({ timeout: 5, ...req }),
+      signal: opts?.signal,
+    }),
+
+  /**
+   * Start a BLE test tone. The DUT drops the link for `duration_s` and cannot
+   * be stopped early; relink once the duration has run out.
+   */
+  bleTone: (req: BleToneRequest, opts?: Cancel) =>
+    http<BleToneResponse>('/device/ble/tone', {
+      method: 'POST',
+      body: JSON.stringify({ timeout: 3, offset: 0, ...req }),
       signal: opts?.signal,
     }),
 }

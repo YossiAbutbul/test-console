@@ -24,6 +24,10 @@ from .lora import (
     OPCODE_LORA_CW_DEBUG, OPCODE_LORA_MODULATED, OPCODE_LORA_POWER,
     LoraCwParams, LoraModulatedParams, LoraPowerParams, Modem, PaMode,
 )
+from .ble import (
+    OPCODE_BLE_TX_POWER_GET, BleToneParams, BleTxPowerRead, decode_tx_power,
+    encode_tx_power_get, encode_tx_power_set,
+)
 from .lte import (
     MODEM_ON_TIMEOUT_S, OPCODE_LTE_CW, OPCODE_LTE_MODEM_OFF,
     OPCODE_LTE_MODEM_ON, OPCODE_LTE_MODULATED, LteBandwidth, LteCwParams,
@@ -363,3 +367,78 @@ class Device:
             acknowledged=True, ok=(status == 0), status=status,
             tx_hex=tx.hex(" "), rx_hex=rx.hex(" "),
         )
+
+    # --- BLE radio ---
+    #
+    # Both of these end with the DUT off the link -- see `ble.py`. The reply is
+    # therefore reported the way the other link-dropping writes report theirs:
+    # a missing one is "not acknowledged", not an error, and the caller
+    # reconnects to find out where the DUT is.
+
+    async def _write(self, tx: bytes, timeout: float) -> WriteOutcome:
+        await self._await_ready()
+        try:
+            reply = await self._t.send(tx, timeout=timeout)
+        except Exception as e:
+            return WriteOutcome(
+                acknowledged=False, ok=False, status=-1,
+                tx_hex=tx.hex(" "), rx_hex="", error=f"{type(e).__name__}: {e}",
+            )
+        status = reply.payload[0] if reply.payload else 0
+        rx = reply.opcode + len(reply.payload).to_bytes(2, "little") + reply.payload
+        return WriteOutcome(
+            acknowledged=True, ok=(status == 0), status=status,
+            tx_hex=tx.hex(" "), rx_hex=rx.hex(" "),
+        )
+
+    async def ble_tx_power_set(self, param: int, timeout: float = 5.0) -> WriteOutcome:
+        """Stage the tone power. Takes on the save-and-reset after it."""
+        return await self._write(encode_tx_power_set(param), timeout)
+
+    async def ble_tx_power_get(self, timeout: float = 5.0) -> BleTxPowerRead:
+        """Read the tone power back. A read: the DUT stays on the link.
+
+        Never raises for what the DUT answered -- a refusal or an undecodable
+        value comes back as `param=None` with the reason -- so a caller can
+        fall back to what it set rather than failing a run over a read.
+        """
+        await self._await_ready()
+        tx = encode_tx_power_get()
+        try:
+            reply = await self._t.send(tx, timeout=timeout)
+        except Exception as e:
+            return BleTxPowerRead(
+                ok=False, status=-1, param=None, tx_hex=tx.hex(" "), rx_hex="",
+                error=f"{type(e).__name__}: {e}",
+            )
+        rx = reply.opcode + len(reply.payload).to_bytes(2, "little") + reply.payload
+        status = reply.payload[0] if reply.payload else 0
+        data = reply.payload[1:]
+        out = BleTxPowerRead(
+            ok=False, status=status, param=None, tx_hex=tx.hex(" "),
+            rx_hex=rx.hex(" "), data_hex=data.hex(" ").upper(),
+        )
+        if reply.opcode != OPCODE_BLE_TX_POWER_GET:
+            out.error = f"unexpected reply opcode {reply.opcode.hex(' ')}"
+        elif status != 0:
+            out.error = f"refused (status {status})"
+        else:
+            try:
+                out.param = decode_tx_power(data)
+                out.ok = True
+            except ValueError as e:
+                out.error = str(e)
+        return out
+
+    async def ble_tone_start(
+        self, channel: int, duration_s: int, offset: int = 0, timeout: float = 3.0,
+    ) -> WriteOutcome:
+        """Start a test tone. The link goes with it, for `duration_s`.
+
+        A shorter timeout than the other commands: whether a reply makes it
+        out before the radio switches over is not known, and the tone is
+        already on air while we wait -- the time spent here comes out of the
+        point's measuring window.
+        """
+        tx = BleToneParams(channel=channel, duration_s=duration_s, offset=offset).encode()
+        return await self._write(tx, timeout)

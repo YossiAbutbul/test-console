@@ -39,3 +39,10 @@ class GattService(BaseModel):
     uuid: str
     description: Optional[str] = None
     characteristics: list[GattCharacteristic]
+
+
+class RelinkRequest(BaseModel):
+    # Long enough for a reset (a reboot plus the first advertisement) with
+    # room to spare; a tone's own duration is waited out by the caller before
+    # it asks. See RELINK_TIMEOUT_S in manager.py.
+    timeout: float = Field(default=30.0, ge=1.0, le=120.0)

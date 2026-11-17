@@ -13,6 +13,7 @@ from ..ble.models import (
     ConnectionStatus,
     ConnectRequest,
     GattService,
+    RelinkRequest,
     ScannedDevice,
     ScanRequest,
 )
@@ -80,6 +81,19 @@ async def connect(req: ConnectRequest) -> ConnectionStatus:
 async def disconnect() -> ConnectionStatus:
     with handle_driver_errors("ble disconnect"):
         return await manager.disconnect()
+
+
+@router.post("/relink", response_model=ConnectionStatus)
+async def relink(req: RelinkRequest | None = None) -> ConnectionStatus:
+    """Reconnect to the last DUT after it left the link on purpose.
+
+    For the end of a save-and-reset or a BLE test tone. A 504 when the DUT
+    has not come back within the timeout, a 409 when there is no DUT to go
+    back to (nothing was connected this session).
+    """
+    timeout = req.timeout if req else 30.0
+    with handle_driver_errors("ble relink"):
+        return await manager.relink(timeout=timeout)
 
 
 @router.get("/status", response_model=ConnectionStatus)

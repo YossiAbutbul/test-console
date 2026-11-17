@@ -3,6 +3,7 @@
     common.py   frame result type, range checks, shared StopTest opcode
     lora.py     LoRa / FSK test commands
     lte.py      LTE modem test commands
+    ble.py      BLE radio test commands (tone power, test tone)
     device.py   the async `Device` class that sends them
 
 Everything public is re-exported here, so callers keep importing from
@@ -11,6 +12,14 @@ Everything public is re-exported here, so callers keep importing from
 
 from .common import (
     OPCODE_STOP_TEST, POST_STOP_RECOVERY_S, CommandResult,
+)
+from .ble import (
+    DURATION_MAX_S as BLE_DURATION_MAX_S, DURATION_MIN_S as BLE_DURATION_MIN_S,
+    CHANNEL_MAX as BLE_CHANNEL_MAX, OPCODE_BLE_TONE_START, OPCODE_BLE_TX_POWER_GET,
+    OPCODE_BLE_TX_POWER_SET,
+    TX_POWER_PARAM_MAX as BLE_TX_POWER_PARAM_MAX,
+    TX_POWER_PARAM_MIN as BLE_TX_POWER_PARAM_MIN, BleToneParams, BleTxPowerRead,
+    channel_freq_hz as ble_channel_freq_hz,
 )
 from .device import Device
 from .lora import (
@@ -25,6 +34,17 @@ from .lte import (
 )
 
 __all__ = [
+    "BLE_CHANNEL_MAX",
+    "BLE_DURATION_MAX_S",
+    "BLE_DURATION_MIN_S",
+    "BLE_TX_POWER_PARAM_MAX",
+    "BLE_TX_POWER_PARAM_MIN",
+    "BleToneParams",
+    "BleTxPowerRead",
+    "OPCODE_BLE_TONE_START",
+    "OPCODE_BLE_TX_POWER_GET",
+    "OPCODE_BLE_TX_POWER_SET",
+    "ble_channel_freq_hz",
     "CommandResult",
     "Device",
     "LoraCwParams",

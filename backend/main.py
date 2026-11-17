@@ -2,7 +2,8 @@
 
 Owns three things and delegates everything else to the routers in `api/`:
 logging setup, the SPA fallback that serves the built React app, and the
-lifespan hook that drops the BLE link on shutdown.
+lifespan hook: instrument runtimes preloaded on startup, the BLE link and
+instruments released on shutdown.
 """
 
 # The DLL search path must be registered before any module that loads a vendor
@@ -27,6 +28,7 @@ from .api import (
 )
 from .api.instruments import close_all as instruments_close_all
 from .ble import manager as ble_manager
+from .hw.preload import preload
 from .motor import manager as motor_manager
 from .servo import manager as servo_manager
 from .sweep import runner as sweep_runner
@@ -125,6 +127,10 @@ async def _release_hardware() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # Before the first request: the instrument runtimes, loaded in order on
+    # one thread, so two connects arriving together cannot race to load them.
+    # See hw/preload.py for the VISA failure this prevents.
+    await asyncio.to_thread(preload)
     yield
     # Only runs on a *graceful* stop â€” Ctrl-C, SIGTERM, uvicorn's own reload.
     # A force-kill skips it entirely and leaves the devices in exactly the

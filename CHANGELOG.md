@@ -11,6 +11,27 @@ turns that heading into the version and date.
 ## [Unreleased]
 
 ### Added
+- BLE CW: a BLE section in the sidebar with a CW page, Manual and
+  Automation, laid out like LTE CW. The DUT's BLE radio is the one carrying
+  the link, so both of its test commands drop it, and the page sequences the
+  reconnects: a power change is set (`31 00`), save-and-reset, reconnect,
+  then read back (`30 00`) to confirm it took; a tone (`10 21`: channel,
+  offset, duration) is measured while on air, waited out (it cannot be
+  stopped -- the Stop key stays greyed and a status beside it counts the
+  tone down), then the DUT is reconnected. Send reads the power first and
+  resets only if it differs. Automation sweeps channel and power specs (in
+  channel numbers or MHz) with optional Min/Max dBm limits, grouped by
+  power so each power costs one reset, with a run-wide settle. The tone
+  length is auto by default: sized per point from how long the readings
+  actually take (typically ~3 s), so the run is not left waiting out a long
+  tone; a number fixes it. A reading that finishes after its tone has ended
+  is shown but not judged. Each row appears as soon as it is measured, ahead
+  of the reconnect, and the log times every reconnect. A DUT that does not
+  come back ends the run. Export, Import and Add to report as on the LTE
+  page. Power is the firmware param (6-31) throughout, never dBm; tone
+  duration is capped at 255 s until a frame shows whether its field is one
+  byte or two. New routes
+  `/device/ble/tx-power` (GET/POST), `/device/ble/tone` and `/ble/relink`.
 - Product reports (phase 1). A report collects the runs kept for one
   product model, from any number of units. "Add to report" beside Export on
   the CW and Modulated automation tabs (LoRa and LTE) and on Frequency
@@ -96,7 +117,27 @@ turns that heading into the version and date.
   them, and steps out of the way when they scroll under the toolbar or out
   of view.
 
+### Changed
+- Measure reads the power (sensor or analyzer) and the DC analyzer at the
+  same time rather than one after the other, so a point's reading is
+  shorter and its power and current come from the same moment.
+
 ### Fixed
+- Backend start: the DC analyzer (and any VISA instrument) no longer fails
+  to connect with `VI_ERROR_LIBRARY_NFOUND` until the backend is restarted
+  once or twice. VISA and the power sensor's .NET runtime were loaded on
+  their first connects, on two threads at once when the page connected both
+  together; they are now loaded at startup, in order, before the first
+  request.
+- Measurement reads (every TX page's Measure, and the automations) no
+  longer fail with "dc-analyzer is not responding to a previous command"
+  when they land on the DC control panel's once-a-second poll, or on
+  another page's read of the power sensor. They wait their turn, up to 4 s,
+  as the analyzer's own commands already did.
+- Measurement card: the read after a Send no longer goes missing when the
+  page redraws during the settle. Any redraw in those 400 ms cancelled the
+  pending read for good, leaving "not read yet" while the DUT transmitted;
+  only a newer Send now cancels it.
 - `publish-release.ps1` stopped before doing anything under Windows
   PowerShell 5.1: its quiet checks (`gh auth status`, the tag on origin,
   "does this release exist") write to stderr, which 5.1 turned into a fatal

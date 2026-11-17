@@ -1,6 +1,7 @@
 import { cwDebugModule } from './cwDebug/module'
 import { lteCwModule } from './lteCw/module'
 import { lteModulatedModule } from './lteModulated/module'
+import { bleCwModule } from './bleCw/module'
 import { powerModule } from './power/module'
 import { powerSweepModule } from './powerSweep/module'
 import { freqAccuracyModule } from './freqAccuracy/module'
@@ -27,6 +28,7 @@ export const testRegistry: TestModule[] = [
   lteModulatedModule,
   lteFreqAccuracyModule,
   lteLoadPullModule,
+  bleCwModule,
   powerSweepModule,
   loadPullModule,
   tromboneModule,

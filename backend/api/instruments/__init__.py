@@ -290,8 +290,8 @@ async def measure(
     sa_connected = state.spectrum is not None
     spectrum = source == "spectrum"
     read_ps = (sa_connected if spectrum else ps_connected) and power
-    read_dc = dc_connected and current
-    if not read_ps and not read_dc:
+    want_dc = dc_connected and current
+    if not read_ps and not want_dc:
         return MeasureResponse(
             power_sensor_connected=ps_connected,
             dc_analyzer_connected=dc_connected,
@@ -299,40 +299,52 @@ async def measure(
             power_source=source,
             t_ms=0,
         )
-    err: str | None = None
-    p_dbm: float | None = None
-    cur: float | None = None
-    volt: float | None = None
     # This route reports failures in the `error` field rather than as an HTTP
     # status, so it deliberately keeps its own catch instead of using
     # `handle_driver_errors` — a partial reading is still useful to the client.
     # Reads go through the per-instrument bus so a wedged sensor times out here
     # instead of consuming a shared worker thread and eventually stalling the
-    # whole API — see _bus.py.
-    try:
-        if read_ps and spectrum:
-            if freq_hz is None:
-                raise ValueError("the spectrum analyzer needs a frequency to centre on")
-            given = {"span_hz": span_hz, "rbw_hz": rbw_hz, "vbw_hz": vbw_hz, "detector": detector}
-            try:
-                settings = SpectrumSettings(**{k: v for k, v in given.items() if v is not None})
-            except ValidationError as e:
-                raise ValueError(f"spectrum settings: {e.errors()[0]['msg']}") from None
-            p_dbm = await bus("spectrum").call(_read_spectrum_dbm, freq_hz, settings, expected_dbm)
-        elif read_ps:
-            p_dbm = await bus("power-sensor").call(
+    # whole API — see _bus.py. They wait their turn (`call_when_free`): the
+    # control panels poll the same instruments, and a read that landed on a
+    # poll used to fail outright with "not responding to a previous command".
+
+    async def read_power() -> tuple[float | None, str | None]:
+        if not read_ps:
+            return None, None
+        try:
+            if spectrum:
+                if freq_hz is None:
+                    raise ValueError("the spectrum analyzer needs a frequency to centre on")
+                given = {"span_hz": span_hz, "rbw_hz": rbw_hz, "vbw_hz": vbw_hz, "detector": detector}
+                try:
+                    settings = SpectrumSettings(**{k: v for k, v in given.items() if v is not None})
+                except ValidationError as e:
+                    raise ValueError(f"spectrum settings: {e.errors()[0]['msg']}") from None
+                return await bus("spectrum").call_when_free(
+                    _read_spectrum_dbm, freq_hz, settings, expected_dbm,
+                ), None
+            return await bus("power-sensor").call_when_free(
                 _read_power_dbm, freq_hz, allow_no_signal,
-            )
-    except Exception as e:
-        err = f"{type(e).__name__}: {e}"
-    try:
-        if read_dc:
-            cur, volt, dc_err = await bus("dc-analyzer").call(_read_dc)
-            if dc_err:
-                err = f"{err}; {dc_err}" if err else dc_err
-    except Exception as e:
-        # Keep a power reading that already succeeded rather than dropping both.
-        err = f"{err}; {type(e).__name__}: {e}" if err else f"{type(e).__name__}: {e}"
+            ), None
+        except Exception as e:
+            return None, f"{type(e).__name__}: {e}"
+
+    async def read_dc() -> tuple[float | None, float | None, str | None]:
+        if not want_dc:
+            return None, None, None
+        try:
+            return await bus("dc-analyzer").call_when_free(_read_dc)
+        except Exception as e:
+            return None, None, f"{type(e).__name__}: {e}"
+
+    # Together, not one after the other. They are separate instruments on
+    # separate bus threads, so nothing is shared; read in turn, the current was
+    # taken a whole power read (a second or more) after the power, which on a
+    # transmission that ends on its own -- a BLE test tone -- could put the two
+    # readings either side of its end. Each keeps its own error, so a failed
+    # read still leaves the other's figure.
+    (p_dbm, p_err), (cur, volt, dc_err) = await asyncio.gather(read_power(), read_dc())
+    err = "; ".join(e for e in (p_err, dc_err) if e) or None
     return MeasureResponse(
         power_dbm=p_dbm,
         current_a=cur,

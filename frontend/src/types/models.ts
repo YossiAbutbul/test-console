@@ -270,3 +270,65 @@ export interface SaveResetResponse {
   rx_hex: string
   error?: string | null
 }
+
+/**
+ * One BLE radio test frame's outcome. Mirrors `BleWrite` in
+ * backend/api/device/ble.py.
+ *
+ * `acknowledged` and `ok` are different questions: both BLE test commands
+ * take the DUT off the link, so a reply can go missing because the DUT did
+ * what it was asked. `acknowledged: false` is doubtful, not failed -- the
+ * relink after it is how the page finds out.
+ */
+export interface BleWrite {
+  acknowledged: boolean
+  ok: boolean
+  status: number
+  tx_hex: string
+  rx_hex: string
+  error?: string | null
+}
+
+/** Set the tone power and save-and-reset so it takes. `param` is the
+ *  firmware's own unit (6-31), not dBm. */
+export interface BleTxPowerRequest {
+  param: number
+  timeout?: number
+}
+
+/** `reset` is absent when the set was refused -- nothing was reset. */
+export interface BleTxPowerResponse {
+  set: BleWrite
+  reset?: BleWrite | null
+  /** The backend let go of the link; the page relinks next. */
+  released: boolean
+}
+
+/** The tone power read back. `param` is null when it cannot be trusted --
+ *  no reply, a refusal, or a value that does not decode -- and `error` says
+ *  which. Mirrors `BleTxPowerReadResponse`. */
+export interface BleTxPowerRead {
+  ok: boolean
+  status: number
+  param: number | null
+  tx_hex: string
+  rx_hex: string
+  data_hex: string
+  error?: string | null
+}
+
+export interface BleToneRequest {
+  /** BLE RF channel 0-39, at 2402 + 2*channel MHz. */
+  channel: number
+  /** 1-255 s. The DUT is off the link, and cannot be stopped, for all of it. */
+  duration_s: number
+  /** Offset from the channel centre, raw firmware value. */
+  offset?: number
+  timeout?: number
+}
+
+export interface BleToneResponse extends BleWrite {
+  freq_hz: number
+  duration_s: number
+  released: boolean
+}

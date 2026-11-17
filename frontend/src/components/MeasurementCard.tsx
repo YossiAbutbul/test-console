@@ -148,14 +148,36 @@ export function MeasurementCard({
     measure.mutate()
   }, [anyConnected, connect, measure, wantPower, wantCurrent, powerId])
 
+  // The settle timer reads through these refs rather than closing over
+  // `fire`, and is cancelled only by a newer trigger or by unmount.
+  //
+  // It used to be the effect's cleanup, with `fire` in the effect's deps.
+  // `fire` is rebuilt on most renders -- it closes over the mutation's result
+  // object -- so any re-render of the card during the settle cleared the
+  // timer, and the `lastTrigger` guard then skipped the read for good: the
+  // strip stayed "not read yet" while the DUT was transmitting. The BLE CW
+  // page hit it on every Send, because its link status and the BLE connection
+  // both change during the settle; any page that re-renders then would too.
+  const fireRef = useRef(fire)
+  useEffect(() => { fireRef.current = fire }, [fire])
+  const settleTimer = useRef<number | null>(null)
+
   useEffect(() => {
     if (isStatic) return
     if (!anyConnected) return
     if (triggerId === undefined || triggerId === lastTrigger.current) return
     lastTrigger.current = triggerId
-    const id = window.setTimeout(fire, settleMs)
-    return () => window.clearTimeout(id)
-  }, [triggerId, anyConnected, settleMs, fire, isStatic])
+    // A newer Send supersedes a read still waiting on the previous one.
+    if (settleTimer.current != null) window.clearTimeout(settleTimer.current)
+    settleTimer.current = window.setTimeout(() => {
+      settleTimer.current = null
+      void fireRef.current()
+    }, settleMs)
+  }, [triggerId, anyConnected, settleMs, isStatic])
+
+  useEffect(() => () => {
+    if (settleTimer.current != null) window.clearTimeout(settleTimer.current)
+  }, [])
 
   const data = measure.data
   // Path loss is applied to the *raw* sensor reading this card fetches itself.

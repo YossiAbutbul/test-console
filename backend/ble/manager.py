@@ -30,6 +30,22 @@ RECONNECT_BACKOFF_S = 2.0
 # the reconnect attempts above, each a scan plus a connect.
 RELINK_WAIT_S = 45.0
 
+# A deliberate drop -- the DUT resetting, or keying its own radio for a BLE
+# test tone -- is waited out by `relink` rather than by the reconnect above,
+# which gives up after three tries and would spend them while the DUT is still
+# off air. Each attempt is a scan bounded by RELINK_ATTEMPT_S; the whole wait
+# by the caller's timeout.
+#
+# Mirrored by RELINK_TIMEOUT_S in frontend/src/tests/ble/radio.ts.
+RELINK_TIMEOUT_S = 30.0
+RELINK_ATTEMPT_S = 10.0
+RELINK_RETRY_S = 1.0
+
+# How long releasing a link the DUT is leaving may take. Windows can sit on a
+# disconnect to a peer that has already gone for the full supervision
+# timeout; the session is abandoned either way, so this only bounds the wait.
+RELEASE_TIMEOUT_S = 5.0
+
 
 class BLEManager:
     def __init__(self) -> None:
@@ -265,6 +281,67 @@ class BLEManager:
             except Exception as e:
                 log.warning("BLE reconnect attempt %d failed: %s", attempt, e)
         log.error("BLE reconnect gave up after %d attempts", RECONNECT_ATTEMPTS)
+
+    async def release(self) -> None:
+        """Let go of a link the DUT is about to drop on purpose.
+
+        Called straight after a command that takes the DUT off the link -- a
+        save-and-reset, a BLE test tone. Two reasons not to wait for the drop
+        to be noticed: until then the app reports "connected" for a link that
+        is gone, and a drop noticed by the disconnect callback queues the
+        automatic reconnect, which then spends its attempts on a DUT that is
+        deliberately away. Marked intentional so it does not; `relink` brings
+        the link back, and keeps the address to do it with.
+        """
+        try:
+            await asyncio.wait_for(self.disconnect(), RELEASE_TIMEOUT_S)
+        except Exception as e:
+            log.warning("BLE release did not complete cleanly: %s: %s", type(e).__name__, e)
+            # The session is abandoned either way; do not leave it reporting
+            # connected because the platform was slow to agree.
+            self._stop_heartbeat()
+            self._client = None
+            self._connected_device = None
+            self._transport = None
+            self._device = None
+
+    async def relink(self, timeout: float = RELINK_TIMEOUT_S) -> ConnectionStatus:
+        """Reconnect to the last DUT once it is back on the air.
+
+        For the end of a deliberate drop. Scans in short attempts until the DUT
+        advertises and a connection with a working transport comes up, or
+        `timeout` runs out. A connection without a transport is not a relink:
+        a DUT still booting can accept the link before its command service is
+        up, and handing that back would fail the next command instead.
+        """
+        address = self._last_address
+        if not address:
+            raise RuntimeError("No DUT to reconnect to; connect to one first")
+        if self._device is not None and self._client is not None and self._client.is_connected:
+            return self._status()
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        attempt = 0
+        last_error = "not found"
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"DUT {address} did not come back within {timeout:.0f} s "
+                    f"({attempt} attempt{'s' if attempt != 1 else ''}; last: {last_error})"
+                )
+            attempt += 1
+            try:
+                st = await self.connect(address, timeout=max(1.0, min(remaining, RELINK_ATTEMPT_S)))
+                if st.transport_ready:
+                    log.info("BLE relinked to %s after %d attempt(s)", address, attempt)
+                    return st
+                last_error = f"transport not ready: {st.transport_error}"
+                await self.release()
+            except Exception as e:
+                last_error = f"{type(e).__name__}: {e}"
+            await asyncio.sleep(min(RELINK_RETRY_S, max(0.0, deadline - loop.time())))
 
     async def disconnect(self) -> ConnectionStatus:
         async with self._lock:

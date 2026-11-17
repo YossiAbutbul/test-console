@@ -38,7 +38,20 @@ DEFAULT_TIMEOUT_S = 25.0
 
 
 class InstrumentBusy(RuntimeError):
-    """A previous call to this instrument has not returned yet."""
+    """A previous call to this instrument has not returned yet.
+
+    Either another caller's call that is simply still running -- a status
+    poll, a read from another page -- or one stuck past its timeout. The bus
+    cannot tell the two apart; `call_when_free` waits out the first kind.
+    """
+
+
+#: How long `call_when_free` waits for another call to finish. The control
+#: panels' polls hold an instrument for well under a second, and a test's read
+#: for a little more; 4 s outlasts both, and still fails in good time when the
+#: call it is waiting on is the stuck kind.
+FREE_WAIT_S = 4.0
+_FREE_POLL_S = 0.25
 
 
 class InstrumentBus:
@@ -49,9 +62,9 @@ class InstrumentBus:
         # max_workers=1 both serialises access (vendor layers are rarely
         # thread-safe) and caps the damage a wedged call can do to one thread.
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"instr-{name}")
-        # The last dispatched call. "Busy" means this one is still unfinished —
-        # which is only possible after a timeout, since a completed await
-        # guarantees the future is done.
+        # The last dispatched call. "Busy" means this one is still unfinished:
+        # another caller's call still running (a panel's poll), or one left
+        # running after its timeout.
         self._pending: asyncio.Future[Any] | None = None
 
     async def call(
@@ -62,8 +75,9 @@ class InstrumentBus:
     ) -> T:
         """Run `fn` on this instrument's thread.
 
-        Raises `InstrumentBusy` if a previous call is still stuck, or
-        `TimeoutError` if this one outlives `timeout`.
+        Raises `InstrumentBusy` if a previous call has not finished -- see
+        `call_when_free` to wait for it -- or `TimeoutError` if this one
+        outlives `timeout`.
         """
         # Read the future's own state rather than a flag cleared by a done
         # callback: those callbacks run on a later loop iteration, so back-to-back
@@ -88,6 +102,31 @@ class InstrumentBus:
         except asyncio.TimeoutError:
             log.warning("%s: no response after %.0fs; call left running", self._name, timeout)
             raise TimeoutError(f"{self._name} did not respond within {timeout:.0f}s") from None
+
+    async def call_when_free(
+        self,
+        fn: Callable[..., T],
+        *args: Any,
+        wait: float = FREE_WAIT_S,
+        timeout: float = DEFAULT_TIMEOUT_S,
+    ) -> T:
+        """`call`, waiting its turn behind another caller's call first.
+
+        For a read that must not fail because a status poll happened to be on
+        the instrument at the same moment: `/instruments/measure` failed with
+        "dc-analyzer is not responding to a previous command" whenever its read
+        landed on the DC control panel's once-a-second poll. Raises
+        `InstrumentBusy` if the instrument is still taken after `wait`.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + wait
+        while True:
+            try:
+                return await self.call(fn, *args, timeout=timeout)
+            except InstrumentBusy:
+                if loop.time() >= deadline:
+                    raise
+                await asyncio.sleep(_FREE_POLL_S)
 
     def call_sync(self, fn: Callable[..., T], *args: Any, timeout: float = DEFAULT_TIMEOUT_S) -> T:
         """`call` for code already off the event loop -- a sweep adapter read

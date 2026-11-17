@@ -52,4 +52,14 @@ export const ble = {
     }),
   disconnect: () => http<ConnectionStatus>('/ble/disconnect', { method: 'POST' }),
   status: () => http<ConnectionStatus>('/ble/status'),
+  /**
+   * Reconnect to the last DUT after it left the link on purpose (a reset, a
+   * BLE test tone). Scans until it is back or `timeout` (s) runs out -- 504.
+   */
+  relink: (timeout = 30, opts?: { signal?: AbortSignal }) =>
+    http<ConnectionStatus>('/ble/relink', {
+      method: 'POST',
+      body: JSON.stringify({ timeout }),
+      signal: opts?.signal,
+    }),
 }
