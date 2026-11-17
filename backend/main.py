@@ -96,8 +96,8 @@ async def _release_hardware() -> None:
     stays claimed. That is what makes a backend restart turn into a round of
     unplugging things.
 
-    Each step is independent â€” one device failing to release must not strand
-    the rest â€” and the whole thing is best effort, because the alternative to a
+    Each step is independent Ã¢â‚¬â€ one device failing to release must not strand
+    the rest Ã¢â‚¬â€ and the whole thing is best effort, because the alternative to a
     failed close is not a working close, it is no close at all.
     """
     # Thunks, not coroutines: built eagerly, a step that is never reached
@@ -132,7 +132,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # See hw/preload.py for the VISA failure this prevents.
     await asyncio.to_thread(preload)
     yield
-    # Only runs on a *graceful* stop â€” Ctrl-C, SIGTERM, uvicorn's own reload.
+    # Only runs on a *graceful* stop Ã¢â‚¬â€ Ctrl-C, SIGTERM, uvicorn's own reload.
     # A force-kill skips it entirely and leaves the devices in exactly the
     # state this exists to prevent, which is why the docs say to stop the
     # server rather than kill it.
@@ -141,7 +141,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 # Kept equal to the VERSION file by scripts/release.ps1 (and checked by
 # tests/test_version.py), so /docs names the release that is running.
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 app = FastAPI(title="Test Console Backend", version=APP_VERSION, lifespan=lifespan)
 
