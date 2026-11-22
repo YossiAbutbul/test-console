@@ -189,9 +189,15 @@ def test_the_same_kind_gets_its_usual_answer(idle) -> None:
     ("http://127.0.0.1:8000", "127.0.0.1:8000", True),          # bundled SPA / desktop
     ("http://localhost:8000", "127.0.0.1:8000", True),          # same server, other name
     ("http://localhost:5173", "localhost:8000", True),          # Vite dev proxy
-    ("http://localhost:5173", "localhost:5173", True),
+    ("http://localhost:5174", "localhost:8000", True),          # ...on a fallback port
+    ("http://[::1]:5173", "localhost:8000", True),
     ("https://evil.example", "127.0.0.1:8000", False),
-    ("http://localhost:3000", "127.0.0.1:8000", False),         # another local app
+    ("http://127.0.0.1.evil.example", "127.0.0.1:8000", False),
+    ("http://localhost.evil.example:8000", "127.0.0.1:8000", False),
+    # DNS rebinding: same-origin with the API under the attacker's name.
+    ("http://evil.example:8000", "evil.example:8000", False),
+    (None, "evil.example:8000", False),
+    (None, None, True),                                         # ASGI scope with no Host
     ("null", "127.0.0.1:8000", False),                          # sandboxed iframe, file://
 ])
 def test_origin_allowed(origin, host, ok) -> None:

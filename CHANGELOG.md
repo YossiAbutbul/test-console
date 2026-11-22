@@ -30,6 +30,10 @@ turns that heading into the version and date.
   own bus.
 - Power-sensor connect, disconnect and discover run on its bus, so a
   disconnect cannot close the sensor mid-read.
+- The origin check accepts any page served from this machine, so the Vite dev
+  server works on whatever port it gets (it was refused on 5174). It also
+  refuses requests addressed to the API under another host name (DNS
+  rebinding).
 
 ## [1.4.0] - 2026-11-22
 

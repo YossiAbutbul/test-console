@@ -10,9 +10,20 @@ answer.
 
 So the check is on the `Origin` header itself. Browsers send it on every
 cross-origin request and on same-origin POSTs; it is absent from curl, the
-tests, and same-origin GETs, all of which pass. Allowed: the origin the request
-is addressed to (the bundled SPA, the desktop window) and the Vite dev server,
-whose proxy forwards the page's own `Origin`.
+tests, and same-origin GETs, all of which pass.
+
+Allowed: any page served from this machine (localhost, 127.0.0.1, ::1, any
+port). That covers the bundled SPA, the desktop window and the Vite dev
+server, whose proxy forwards the page's own `Origin` -- on whatever port it
+got: pinning 5173 refused every call the day 5173 was taken and Vite moved to
+5174. Software already running on this machine is not the threat; a page from
+the internet is, and its `Origin` names its own site even when DNS rebinding
+points that name at 127.0.0.1.
+
+The `Host` must name this machine too. A rebound page is same-origin with the
+API (both `evil.example:8000`), so its GETs carry no `Origin` at all; the
+`Host` header is what still gives it away. The API only listens on loopback,
+so a legitimate request never arrives under another name.
 
 Pure ASGI rather than `BaseHTTPMiddleware`, so it also covers WebSockets and
 does not buffer the streaming routes (BLE scan stream, chat).
@@ -23,14 +34,8 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
-#: The Vite dev server (frontend/vite.config.ts `server.port`).
-DEV_ORIGINS = frozenset({
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-})
-
-#: Hosts that mean "this machine". Same-origin is judged on the port too.
-_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]", "::1"})
+#: Hosts that mean "this machine".
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 Scope = dict[str, Any]
 Receive = Callable[[], Awaitable[dict[str, Any]]]
@@ -46,25 +51,15 @@ def _header(scope: Scope, name: bytes) -> str | None:
 
 def origin_allowed(origin: str | None, host: str | None) -> bool:
     """Whether a request carrying `Origin: origin`, sent to `Host: host`, may run."""
+    # urlsplit drops the [] of [::1], so both compare against the bare name.
+    if host is not None and urlsplit(f"//{host}").hostname not in _LOCAL_HOSTS:
+        return False  # reached under another name: DNS rebinding
     if origin is None:
         return True  # not a browser's cross-origin request
-    if origin in DEV_ORIGINS:
-        return True
     parts = urlsplit(origin)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         return False  # "null" (sandboxed iframe, file://) and the like
-    if host is None:
-        return False
-    if parts.netloc == host:
-        return True  # same origin
-    # localhost and 127.0.0.1 name the same server; a page served on one may
-    # call the other, as long as the port is the API's own.
-    want = urlsplit(f"//{host}")
-    return (
-        parts.hostname in _LOCAL_HOSTS
-        and want.hostname in _LOCAL_HOSTS
-        and parts.port == want.port
-    )
+    return parts.hostname in _LOCAL_HOSTS
 
 
 class OriginGuard:
