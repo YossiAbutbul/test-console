@@ -10,6 +10,9 @@ turns that heading into the version and date.
 
 ## [Unreleased]
 
+### Changed
+- Sidebar: the Reports section comes before Components.
+
 ## [1.4.0] - 2026-11-22
 
 ### Added

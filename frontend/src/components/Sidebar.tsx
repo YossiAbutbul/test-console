@@ -73,6 +73,9 @@ function rootKey(group: string | undefined): string {
   return !group || group === 'Components' ? 'root' : `root:${group}`
 }
 
+/** The root sections, top to bottom; a group not named goes after them. */
+const ROOT_ORDER = ['Reports', 'Components']
+
 function useProtocolTree(): ProtocolTree {
   return useMemo(() => {
     // Rig-level pages sit below the protocols: they are not part of any
@@ -81,7 +84,16 @@ function useProtocolTree(): ProtocolTree {
     const rootMods = testRegistry.filter((m) => m.root)
     // One section per group (Components, Reports): a report is not a
     // component, and one section headed by its first group's name said so.
-    const rootEntry = byGroup(rootMods).map((g) => ({ protocol: null, groups: [g] }))
+    // Reports before Components: the operator goes to the report after every
+    // run, and to an instrument page far less often. Set here rather than by
+    // the registry's order, which is also the order the pages mount in.
+    const rank = (group: string) => {
+      const i = ROOT_ORDER.indexOf(group)
+      return i < 0 ? ROOT_ORDER.length : i
+    }
+    const rootEntry = byGroup(rootMods)
+      .sort((a, b) => rank(a.group) - rank(b.group))
+      .map((g) => ({ protocol: null, groups: [g] }))
     return [
       ...PROTOCOLS.map((protocol) => ({
         protocol,
