@@ -28,6 +28,9 @@ import { version as APP_VERSION } from '../../package.json'
 import { useDutLink } from '../context/dutLink'
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 import { selectOnFocus, useSelectOnFocusSetting } from '../lib/selectOnFocus'
+import { useTabBadges } from '../context/tabBadges'
+import { combine } from '../lib/tabBadges'
+import { TabBadge } from './TabBadge'
 
 // Re-exported for the call sites that reach for them alongside Sidebar; the
 // values themselves live with the rest of the layout tokens.
@@ -440,6 +443,7 @@ function StatusFoot() {
 
 export function Sidebar({ activeId, onSelect, open, floating, onClose }: SidebarProps) {
   const tree = useProtocolTree()
+  const badges = useTabBadges()
   const { sidebarW } = useShellLayout()
   const { mode } = useThemeMode()
   const s = getAppPalette(mode).sidebar
@@ -543,6 +547,9 @@ export function Sidebar({ activeId, onSelect, open, floating, onClose }: Sidebar
           const pkey = protocol ?? rootKey(groups[0]?.group)
           const protoExp = expandedProto[pkey] ?? true
           const mods = groups.flatMap((g) => g.mods)
+          // A folded section carries its pages' badges, so nothing new hides
+          // behind it.
+          const folded = protoExp ? null : combine(badges, mods.map((m) => m.id))
           const heading = isRoot ? (groups[0]?.group ?? 'Components') : protocol
           const headerProps = {
             role: 'button' as const,
@@ -565,6 +572,7 @@ export function Sidebar({ activeId, onSelect, open, floating, onClose }: Sidebar
                 alignItems="center"
                 {...headerProps}
                 sx={{
+                  position: 'relative',
                   px: 1, height: 26, borderRadius: '6px',
                   color: s.textDim,
                   cursor: 'pointer',
@@ -585,6 +593,7 @@ export function Sidebar({ activeId, onSelect, open, floating, onClose }: Sidebar
                 >
                   <ChevronRightIcon sx={{ fontSize: 16 }} />
                 </Box>
+                {folded && <TabBadge badge={folded} sx={{ top: 1, right: 22 }} />}
               </Stack>
               <Collapse in={protoExp} unmountOnExit>
                 {mods.map((m) => {
@@ -610,6 +619,7 @@ export function Sidebar({ activeId, onSelect, open, floating, onClose }: Sidebar
                           aria-current={sel ? 'page' : undefined}
                           onClick={() => onSelect(m.id)}
                           sx={{
+                            position: 'relative',
                             borderRadius: '6px',
                             px: 1, mx: 0, my: '1px',
                             height: 30,
@@ -629,6 +639,7 @@ export function Sidebar({ activeId, onSelect, open, floating, onClose }: Sidebar
                             primary={m.label}
                             primaryTypographyProps={{ fontSize: 13.5, fontWeight: sel ? 600 : 400, noWrap: true }}
                           />
+                          {badges[m.id] && <TabBadge badge={badges[m.id]} />}
                         </ListItemButton>
                       </Box>
                     </Tooltip>

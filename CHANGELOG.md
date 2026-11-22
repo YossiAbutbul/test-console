@@ -11,12 +11,37 @@ turns that heading into the version and date.
 ## [Unreleased]
 
 ### Added
+- Product reports show and export as Excel: one sheet per test type, one
+  table each. Runs of the same test type share a table, with the unit's MAC,
+  its nickname, the run number, date and the run's settings (Settle left out)
+  as columns in front of the results, so rows from different units or
+  settings sit side by side. A Summary sheet lists the product, units and
+  each run with its result. The page draws the sheets in a spreadsheet
+  (FortuneSheet) that works like Excel: Calibri, formula bar, sheet tabs,
+  toolbar, sort and filter, formulas; changes there are not saved. "Export
+  Excel" writes the same sheets to .xlsx.
+- "Add to report" remembers the DUT each test's results were measured on,
+  so a run added after the DUT is disconnected (or another unit connected)
+  still carries its MAC. The MAC can be corrected in the dialog.
+- "Remove results" on the report page: every run listed under its test
+  sheet, each removable from the report.
+- Sidebar tab badges: a circle at a tab's top right counts what happened on
+  that page while another was open (up to 99, then "99+"), coloured by the
+  worst of it: red for a FAIL or a failed run, amber for a run waiting on
+  the operator, finished with errors or stopped, green for a clean finish,
+  blue for something new (a run added to a report). Opening the tab clears
+  it; a folded sidebar section shows its pages' badges added up.
 - A short toast for each command sent to the DUT by hand, which before
   answered only in the log: Send and Stop on LoRa CW, Modulated and CW
   debug, LTE CW and Modulated, the LTE modem switch, and BLE CW. A command
   the DUT took shows what was sent and clears after 2.5 s; one it refused
   (with its status) or that failed stays until dismissed. Automation runs
   are unchanged and report through their own progress.
+
+### Changed
+- The Word report (document editor, Word export) is replaced by the Excel
+  view and export above. A report's stored layout is kept in its file but no
+  longer shown.
 
 ### Fixed
 - Load Pull: the "Set the attenuator" prompt could open under the Smith

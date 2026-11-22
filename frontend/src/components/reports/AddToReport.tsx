@@ -9,8 +9,15 @@
  *
  * Reports are per product model (backend/api/reports.py). The last one used
  * is preselected, so a day of runs on one product is one click and Add each.
+ *
+ * The unit is the one the results were measured on, not whichever is
+ * connected when Add is pressed: each test's results are fingerprinted, and
+ * the DUT connected while they came in is remembered against them (in local
+ * storage, so a reload keeps it). Disconnecting afterwards, or connecting
+ * another unit, leaves the run's MAC as it was. The MAC can still be typed or
+ * corrected in the dialog.
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { Box, Button, MenuItem, Stack, Typography } from '@mui/material'
 import PostAddIcon from '@mui/icons-material/PostAddRounded'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -19,10 +26,12 @@ import { LabeledField } from '../LabeledField'
 import { useConnection } from '../../context/ConnectionContext'
 import { useNicknames } from '../../context/NicknamesContext'
 import { useNotify } from '../../context/NotifyContext'
+import { usePageBadge } from '../../context/tabBadges'
 import { useLog } from '../../context/LogContext'
 import { usePersistedState } from '../../store/persistent'
 import { STORAGE_KEYS } from '../../store/keys'
-import { CONTROL_H, KeySpinner, MiniAction, ModalShell, MonoText, TEXT } from '../../ui'
+import { KeySpinner, MiniAction, ModalShell, TEXT } from '../../ui'
+import { fingerprint, nextRunDut, normMac, type RunDut } from './runDut'
 
 const NEW = '__new__'
 
@@ -42,42 +51,56 @@ function tally(d: ReportEntryDraft) {
 }
 
 export function AddToReport({ build, disabled }: {
-  /** The run as it stands; called when the dialog opens. */
+  /** The run as it stands. Copied when the dialog opens; also read on each
+   *  render to notice a new run coming in, so it must be free of effects. */
   build: () => ReportEntryDraft
   disabled?: boolean
 }) {
   const [draft, setDraft] = useState<ReportEntryDraft | null>(null)
+  const { status: ble } = useConnection()
+  const [duts, setDuts] = usePersistedState<Record<string, RunDut>>(STORAGE_KEYS.reportRunDut, {})
+
+  // The results as they stand, to notice a new run coming in.
+  const now = build()
+  const test = now.test
+  const fp = fingerprint(now)
+  const liveMac = ble?.connected ? ble.address ?? null : null
+  const liveName = ble?.connected ? ble.name ?? null : null
+  useEffect(() => {
+    setDuts((all) => {
+      const next = nextRunDut(all[test], fp, liveMac ? { mac: liveMac, name: liveName } : null)
+      if (next === all[test]) return all
+      const out = { ...all }
+      if (next) out[test] = next
+      else delete out[test]
+      return out
+    })
+  }, [test, fp, liveMac, liveName, setDuts])
+
+  const remembered = duts[test]?.fp === fp ? duts[test] : undefined
   return (
     <>
       <MiniAction startIcon={<PostAddIcon />} disabled={disabled} onClick={() => setDraft(build())}>
         Add to report
       </MiniAction>
-      {draft && <AddDialog draft={draft} onClose={() => setDraft(null)} />}
+      {draft && (
+        <AddDialog draft={draft} onClose={() => setDraft(null)}
+          measuredOn={remembered && remembered.fp === fingerprint(draft) ? remembered : null} />
+      )}
     </>
   )
 }
 
-/** A label over a value that is shown, not typed -- LabeledField's label, so
- *  the dialog's rows read as one form. */
-function ReadOnlyRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <Stack spacing={0.5}>
-      {/* A block around an inline label, as LabeledField has it: the block
-          sets the line box, so this label sits level with the field's. */}
-      <Box>
-        <Typography component="span" sx={{ ...TEXT.label, color: 'text.primary' }}>
-          {label}
-        </Typography>
-      </Box>
-      <Box sx={{ minHeight: CONTROL_H.md, display: 'flex', alignItems: 'center' }}>{children}</Box>
-    </Stack>
-  )
-}
-
-function AddDialog({ draft, onClose }: { draft: ReportEntryDraft; onClose: () => void }) {
+function AddDialog({ draft, onClose, measuredOn }: {
+  draft: ReportEntryDraft
+  onClose: () => void
+  /** The DUT these results were measured on, when it is known. */
+  measuredOn: RunDut | null
+}) {
   const qc = useQueryClient()
   const { success } = useNotify()
   const { log } = useLog()
+  const badge = usePageBadge()
   const { status: ble } = useConnection()
   const nick = useNicknames()
   const [activeId, setActiveId] = usePersistedState<string>(STORAGE_KEYS.activeReport, '')
@@ -93,8 +116,16 @@ function AddDialog({ draft, onClose }: { draft: ReportEntryDraft; onClose: () =>
   const target = picked ?? (products.some((p) => p.id === activeId) ? activeId : products[0]?.id ?? NEW)
   const creating = target === NEW
 
-  const mac = ble?.address ?? null
+  const liveMac = ble?.connected ? ble.address ?? null : null
+  // The unit that measured the run, else the one connected now; editable.
+  const [macText, setMacText] = useState(measuredOn?.mac ?? liveMac ?? '')
+  const mac = normMac(macText) || null
   const nickname = mac ? nick.get(mac) ?? null : null
+  const deviceName = mac && mac === measuredOn?.mac ? measuredOn.name
+    : mac && mac === normMac(liveMac) ? ble?.name ?? null : null
+  const source = !mac ? null
+    : mac === measuredOn?.mac ? 'measured on this unit'
+      : mac === normMac(liveMac) ? 'the DUT connected now' : 'typed'
   const t = tally(draft)
 
   const add = useMutation({
@@ -104,7 +135,7 @@ function AddDialog({ draft, onClose }: { draft: ReportEntryDraft; onClose: () =>
         ...draft,
         note: note.trim(),
         operator: operator.trim(),
-        dut: { mac, name: ble?.name ?? null, nickname },
+        dut: { mac, name: deviceName, nickname },
       })
       return { pid, name: creating ? newName.trim() : products.find((p) => p.id === pid)?.name ?? '' }
     },
@@ -113,6 +144,8 @@ function AddDialog({ draft, onClose }: { draft: ReportEntryDraft; onClose: () =>
       void qc.invalidateQueries({ queryKey: ['reports'] })
       void qc.invalidateQueries({ queryKey: ['report', pid] })
       success(`Added to "${name}"`)
+      // Something new on Product reports (its module id is 'reports').
+      badge('info', 'reports')
       log('Report', `${draft.title}: ${t.points} points added to "${name}"`)
       onClose()
     },
@@ -176,11 +209,10 @@ function AddDialog({ draft, onClose }: { draft: ReportEntryDraft; onClose: () =>
             <LabeledField label="Operator" value={operator} onChange={(e) => setOperator(e.target.value)} />
           </Box>
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <ReadOnlyRow label="Unit">
-              {mac
-                ? <MonoText>{nickname ? `${nickname} · ${mac}` : mac}</MonoText>
-                : <Typography sx={{ ...TEXT.hint, color: 'text.secondary' }}>No DUT connected</Typography>}
-            </ReadOnlyRow>
+            <LabeledField label="DUT MAC" value={macText} placeholder="e.g. 80E127FAA9F9"
+              hint={nickname ? `${nickname}${source ? ` · ${source}` : ''}` : source ?? 'no DUT known for this run'}
+              onChange={(e) => setMacText(e.target.value)}
+              slotProps={{ htmlInput: { style: { fontFamily: 'monospace' }, spellCheck: false } }} />
           </Box>
         </Stack>
 

@@ -46,6 +46,8 @@ export const STORAGE_KEYS = {
   // Product reports: the one runs are added to, and who is adding them.
   activeReport: 'active-report-v1',
   reportOperator: 'report-operator-v1',
+  // Per test: the DUT its current results were measured on (AddToReport).
+  reportRunDut: 'report-run-dut-v1',
   // Where the path loss guide was dragged to; null/absent = docked.
   pathLossGuidePos: 'path-loss-guide-pos-v1',
   powerSweepPage: 'power-sweep-page-snapshot-v1',

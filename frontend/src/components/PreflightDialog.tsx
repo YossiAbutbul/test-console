@@ -1,5 +1,6 @@
 import { Box, Button, LinearProgress, Stack, Typography } from '@mui/material'
 import type { InstrumentId } from '../context/InstrumentsContext'
+import { useNeedsUserBadge } from '../context/tabBadges'
 import type { ConnectFailure } from '../lib/instrumentError'
 import {
   CheckMark, HazardGlyph, ModalShell, TEXT, hazardRingSx, type CheckState,
@@ -76,6 +77,9 @@ export function PreflightDialog({
   // The keys only mean something once every attempt has settled with
   // something missing -- the moments the footer used to be empty.
   const keysOff = busy || allOk
+  // Waiting on a decision (run anyway, or open Instruments): badge the tab if
+  // the operator went elsewhere while the instruments were connecting.
+  useNeedsUserBadge(open && !keysOff)
 
   return (
     <ModalShell

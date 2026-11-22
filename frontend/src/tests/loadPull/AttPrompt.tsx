@@ -7,6 +7,7 @@ import { alpha } from '@mui/material/styles'
 import TuneIcon from '@mui/icons-material/TuneRounded'
 import { MONO, PRESS_SX, TEXT } from '../../ui'
 import { TOP_BAR_H } from '../../ui/tokens'
+import { useNeedsUserBadge } from '../../context/tabBadges'
 
 /** The attenuator's range -- ATT_MAX_LIMIT_DB on the Load Pull page. */
 const ATT_MAX_DB = 20
@@ -52,6 +53,9 @@ export function useAttPrompt() {
   const [pending, setPending] = useState<Pending | null>(null)
   const [text, setText] = useState('')
   const pendingRef = useRef<Pending | null>(null)
+  // The run is parked on this answer: badge the tab if the operator is
+  // looking at another page.
+  useNeedsUserBadge(pending != null)
 
   const ask = useCallback(
     (db: number, cycle: number, cycles: number, upcoming: number[] = []) => new Promise<AttAnswer>((resolve) => {

@@ -81,8 +81,11 @@ class Block(BaseModel):
     - params: a Parameter / Value table the operator fills in (`rows`)
     - units: the units the runs were measured on, one per line
     - chart: a run's results plotted (`entry_id`; columns `x` and `ys`;
-      `kind`; `text` its title). The page draws it; Word gets a Word chart of
-      the same numbers (chart_docx.py).
+      `kind`; `text` its title).
+
+    Blocks were the layout of the Word report, which the Excel workbook
+    (sheets.py) replaced. They are still read and written, so a report's file
+    keeps the layout it had, but nothing draws or exports them now.
 
     `labels` overrides the fixed words a block prints -- the cover's
     subtitle and field names, "Summary", "Settings", "Results", a run's

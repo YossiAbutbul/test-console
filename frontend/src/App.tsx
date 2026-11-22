@@ -21,6 +21,8 @@ import { useThemeMode } from './context/ThemeModeContext'
 import { getAppPalette } from './theme'
 import { testRegistry } from './tests/registry'
 import { Sidebar, TOP_BAR_H } from './components/Sidebar'
+import { TabBadgesProvider } from './context/TabBadgesContext'
+import { PageIdContext } from './context/tabBadges'
 import { SHELL_NARROW_W } from './ui/tokens'
 import {
   DutGateContext, PageActiveContext, SegmentedChoice, ToolbarSlotContext, useShellLayout,
@@ -194,7 +196,10 @@ const PageSlot = memo(function PageSlot({ mod, shown, active, gated }: {
           (see ui/gate.ts). Only the page on screen can be gated. */}
       <DutGateContext.Provider value={gated}>
         <PageActiveContext.Provider value={shown}>
-          {page}
+          {/* Its own id, so what it reports badges its tab (TabBadgesContext). */}
+          <PageIdContext.Provider value={mod.id}>
+            {page}
+          </PageIdContext.Provider>
         </PageActiveContext.Provider>
       </DutGateContext.Provider>
     </Box>
@@ -471,6 +476,7 @@ export default function App() {
 
   return (
     <DutLinkProvider>
+    <TabBadgesProvider activePage={activeId}>
     <ToolbarSlotContext.Provider value={toolbarSlots}>
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden', bgcolor: 'background.default' }}>
       <Sidebar
@@ -742,6 +748,7 @@ export default function App() {
       </Drawer>
     </Box>
     </ToolbarSlotContext.Provider>
+    </TabBadgesProvider>
     </DutLinkProvider>
   )
 }

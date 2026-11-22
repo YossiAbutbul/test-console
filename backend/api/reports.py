@@ -1,4 +1,4 @@
-"""Product reports: create a product, add a run to it, export it as Word.
+"""Product reports: create a product, add a run to it, export it as Excel.
 
 A report is the runs an operator chose to keep for one product model, from
 any number of units; each test page posts its own results table to it with
@@ -14,17 +14,17 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
-from ..reports.docx_export import build_docx
 from ..reports.models import (
     ApplyTemplate, BlocksIn, Entry, EntryIn, EntryOrder, Product, ProductIn, ProductListItem, ProductPatch,
     ReportStyle, Template, TemplateIn,
 )
 from ..reports import store as store_mod
+from ..reports.sheets import ReportSheets, build_sheets, build_xlsx
 from ..reports.store import BadImage, NotFound, image_path, save_image, store
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
-DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _get(pid: str) -> Product:
@@ -174,18 +174,23 @@ def _slug(name: str) -> str:
     return s[:60] or "product"
 
 
-@router.get("/{pid}/export.docx")
-async def export_docx(pid: str) -> Response:
+@router.get("/{pid}/sheets", response_model=ReportSheets)
+async def report_sheets(pid: str) -> ReportSheets:
+    """The report as the page draws it and the workbook holds it: one sheet
+    per test type (backend/reports/sheets.py)."""
+    return build_sheets(_get(pid))
+
+
+@router.get("/{pid}/export.xlsx")
+async def export_xlsx(pid: str) -> Response:
     prod = _get(pid)
     # Imported here, not at the top: backend.main imports this router.
     from ..main import APP_VERSION
-    st = store_mod.store.get_style()
-    data = build_docx(prod, APP_VERSION, lambda iid: image_path(store_mod.store, iid),
-                      logo=image_path(store_mod.store, st.logo_image_id) if st.logo_image_id else None)
+    data = build_xlsx(prod, APP_VERSION)
     ts = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    filename = f"{_slug(prod.name)}_report_{ts}.docx"
+    filename = f"{_slug(prod.name)}_report_{ts}.xlsx"
     return Response(
         content=data,
-        media_type=DOCX_MEDIA_TYPE,
+        media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

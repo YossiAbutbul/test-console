@@ -9,6 +9,10 @@
  *   stop       → log line + completion modal (warning)
  *   failure    → log line + completion modal (error)
  *
+ * Each end also badges the test's sidebar tab when the operator is on
+ * another page (TabBadgesContext): red for a FAIL or a failure, amber for
+ * errors or a stop, green for a clean finish.
+ *
  * Pages used to invent their own wording per test ("Sweep complete" vs
  * "Load Pull done"), and half of them reported nothing at all at start. This
  * is the single vocabulary.
@@ -16,6 +20,7 @@
 import { useMemo, useRef } from 'react'
 import { useLog, type LogSource } from '../../context/LogContext'
 import { useNotify } from '../../context/NotifyContext'
+import { usePageBadge } from '../../context/tabBadges'
 import { formatDuration, plural } from '../../lib/format'
 
 export interface RunSummary {
@@ -57,6 +62,7 @@ export function useRunReporter(
 ): RunReporter {
   const { log } = useLog()
   const notify = useNotify()
+  const badge = usePageBadge()
   // Wall time of the run in progress. A ref rather than state: nothing renders
   // from it until the run ends, and re-rendering every page on every start
   // would be a change for no visible reason.
@@ -106,6 +112,7 @@ export function useRunReporter(
         const measured = errors
           ? `${errors} of ${summary.completed} ${unit} could not be measured.`
           : `All ${count(summary.completed)} measured.`
+        badge(v && v.fail > 0 ? 'error' : errors ? 'attention' : 'success')
         const tally = v && v.total > 0
           ? ` ${v.pass} PASS · ${v.fail} FAIL${summary.completed > v.total ? ` · ${summary.completed - v.total} N/A` : ''}.`
           : ''
@@ -144,6 +151,7 @@ export function useRunReporter(
       stopped: (summary) => {
         const took = elapsed()
         log(source, `Stopped by user — ${progress(summary)}${suffix('after', took)}`, 'warn')
+        badge(summary.verdicts?.fail ? 'error' : 'attention')
         notify.complete({
           severity: 'warning',
           title: `${name} stopped`,
@@ -156,6 +164,7 @@ export function useRunReporter(
       failed: (message) => {
         const took = elapsed()
         log(source, `Failed — ${message}${suffix('after', took)}`, 'error')
+        badge('error')
         notify.complete({
           severity: 'error',
           title: `${name} failed`,
@@ -165,7 +174,7 @@ export function useRunReporter(
 
       note: (message, level) => log(source, message, level),
     }
-  }, [log, notify, name, source, unit])
+  }, [log, notify, badge, name, source, unit])
 }
 
 export interface ActionReporter {
@@ -202,6 +211,7 @@ export function useActionReporter(
   const quietSuccess = opts?.quietSuccess ?? false
   const { log } = useLog()
   const notify = useNotify()
+  const badge = usePageBadge()
 
   return useMemo<ActionReporter>(() => ({
     started: (detail) => {
@@ -214,6 +224,7 @@ export function useActionReporter(
     },
     succeeded: (detail) => {
       log(source, detail ? `${name} ok — ${detail}` : `${name} ok`)
+      badge('success')
       if (quietSuccess) {
         notify.success(detail ? `${name}: ${detail}` : `${name} ok`)
         return
@@ -226,7 +237,8 @@ export function useActionReporter(
     },
     failed: (message) => {
       log(source, `${name} failed: ${message}`, 'error')
+      badge('error')
       notify.complete({ severity: 'error', title: `${name} failed`, message })
     },
-  }), [log, notify, name, source, quietSuccess])
+  }), [log, notify, badge, name, source, quietSuccess])
 }

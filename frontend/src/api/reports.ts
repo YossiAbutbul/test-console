@@ -103,6 +103,29 @@ export interface ReportListItem {
   units: number
 }
 
+/** backend/reports/sheets.py: the report as one sheet per test type, the
+ *  same tables the page shows and the Excel export writes. */
+export interface ReportSheet {
+  /** The test slug this sheet holds. */
+  test: string
+  /** The tab's name, as in the workbook. */
+  name: string
+  /** The runs' own title ("LoRa CW automation"). */
+  title: string
+  entry_ids: string[]
+  columns: string[]
+  rows: ReportCell[][]
+}
+
+export interface ReportSheets {
+  product: string
+  notes: string
+  facts: Array<[string, string]>
+  summary_columns: string[]
+  summary_rows: ReportCell[][]
+  sheets: ReportSheet[]
+}
+
 /** "Fail" if any point failed, "Pass" if any was judged and none failed. */
 export function entryResult(s: ReportEntrySummary): 'Pass' | 'Fail' | null {
   return s.failed ? 'Fail' : s.passed ? 'Pass' : null
@@ -125,7 +148,8 @@ export const reportsApi = {
   removeEntry: (id: string, eid: string) =>
     http<ReportProduct>(`/reports/${id}/entries/${eid}`, { method: 'DELETE' }),
   reorder: (id: string, ids: string[]) => http<ReportProduct>(`/reports/${id}/entries/order`, json({ ids }, 'PUT')),
-  exportDocx: (id: string) => httpBlob(`/reports/${id}/export.docx`),
+  sheets: (id: string) => http<ReportSheets>(`/reports/${id}/sheets`),
+  exportXlsx: (id: string) => httpBlob(`/reports/${id}/export.xlsx`),
   setBlocks: (id: string, blocks: ReportBlock[]) =>
     http<ReportProduct>(`/reports/${id}/blocks`, json({ blocks }, 'PUT')),
   applyTemplate: (id: string, templateId: string) =>
