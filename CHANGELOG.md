@@ -10,6 +10,13 @@ turns that heading into the version and date.
 
 ## [Unreleased]
 
+### Fixed
+- Load Pull: the "Set the attenuator" prompt could open under the Smith
+  chart when a cycle ended with the chart open. The run waited on an answer
+  that could not be given, and neither dialog could be closed, so the only
+  way out was reloading the frontend and restarting the backend. The prompt
+  now always opens above every other dialog.
+
 ## [1.3.0] - 2026-11-17
 
 ### Added

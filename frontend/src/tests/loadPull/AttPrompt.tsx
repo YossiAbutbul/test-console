@@ -106,7 +106,12 @@ export function useAttPrompt() {
       // full-window scrim hid E-STOP and Stop behind it -- both of which
       // answer this prompt themselves (they cancel it). Focus is not held
       // inside, so the keyboard can reach them too.
-      sx={{ top: TOP_BAR_H }}
+      // Above every other dialog, not just the ones opened before it. The run
+      // waits on this answer, and once it opened under the Smith chart it
+      // could be neither answered nor got out from under: the only way out
+      // was reloading the frontend and restarting the backend. Popovers and
+      // menus share the modal layer, so this sits above those too.
+      sx={{ top: TOP_BAR_H, zIndex: (t) => t.zIndex.modal + 1 }}
       disableEnforceFocus
       slotProps={{ backdrop: { sx: { top: TOP_BAR_H } } }}
     >
