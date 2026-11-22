@@ -20,10 +20,12 @@ async function parseError(res: Response): Promise<ApiError> {
 }
 
 export async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-    ...init,
-  })
+  // Headers go after `...init`: spread before it, a caller's own `headers`
+  // replaced the merged set wholesale instead of adding to it. JSON is the
+  // default type only when there is a body to describe; a caller's type wins.
+  const headers = new Headers(init?.headers)
+  if (init?.body != null && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  const res = await fetch(path, { ...init, headers })
   if (!res.ok) throw await parseError(res)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T

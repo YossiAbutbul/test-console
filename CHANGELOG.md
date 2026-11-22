@@ -17,6 +17,13 @@ turns that heading into the version and date.
   is in flight, since they key the same DUT and share the analyzer.
 - The API refuses requests from web pages on other sites (403). CORS no longer
   allows `*`; the bundled app and the Vite dev server are unaffected.
+- Faster start-up: the Reports page (FortuneSheet), the Spectrum page and the
+  results graphs (recharts) load on demand. The start-up bundle is 1.2 MB,
+  down from 4.4 MB (gzip 369 kB, down from 1,067 kB).
+- Background polls (instrument status, chat status) pause while the window
+  is hidden and refresh as soon as it shows again.
+- The Trombone page polls the motor every 2 s at rest, and every 500 ms only
+  while it moves or a command or jog is under way.
 
 ### Fixed
 - Mode Sweep reads the power sensor and DC analyzer on their instrument bus,
@@ -34,6 +41,8 @@ turns that heading into the version and date.
   server works on whatever port it gets (it was refused on 5174). It also
   refuses requests addressed to the API under another host name (DNS
   rebinding).
+- `http()` keeps its JSON `Content-Type` when a caller adds headers, and sends
+  none on a request without a body.
 
 ## [1.4.0] - 2026-11-22
 

@@ -1,4 +1,4 @@
-import { memo, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { Suspense, memo, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { alpha } from '@mui/material/styles'
 import {
@@ -198,7 +198,10 @@ const PageSlot = memo(function PageSlot({ mod, shown, active, gated }: {
         <PageActiveContext.Provider value={shown}>
           {/* Its own id, so what it reports badges its tab (TabBadgesContext). */}
           <PageIdContext.Provider value={mod.id}>
-            {page}
+            {/* For the pages loaded on demand (lib/lazyNamed). Their chunk is
+                fetched when the idle queue mounts them, so it is usually in
+                before anyone opens the page; until then the slot is empty. */}
+            <Suspense fallback={null}>{page}</Suspense>
           </PageIdContext.Provider>
         </PageActiveContext.Provider>
       </DutGateContext.Provider>

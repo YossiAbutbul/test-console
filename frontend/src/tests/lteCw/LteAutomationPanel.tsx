@@ -36,7 +36,7 @@ import { scrollBehavior, FollowLatest, useFollowBottom, CONTROL_H, GRID_GAP, Min
   VerdictTally, type VerdictFilter,
 } from '../../ui'
 import { CSV_HEADER, parseLteCwCsv, toCsvBody } from './csv'
-import { ResultsGraphModal, type GraphableRow } from '../power/ResultsGraphModal'
+import { ResultsGraphModal, type GraphableRow } from '../power/LazyResultsGraphModal'
 import { lteChannelPoint } from '../power/graphSeries'
 import { runSequence } from '../engine/runSequence'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'

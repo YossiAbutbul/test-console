@@ -38,7 +38,7 @@ import { scrollBehavior, FollowLatest, useFollowBottom, CONTROL_H, GRID_GAP, Min
   FAIL_ROW_SX, HeadCell, NUM_CELL_SX, VerdictMark, deltaText,
   VerdictTally, type VerdictFilter,
 } from '../../ui'
-import { ResultsGraphModal, type GraphableRow } from '../power/ResultsGraphModal'
+import { ResultsGraphModal, type GraphableRow } from '../power/LazyResultsGraphModal'
 import { runSequence } from '../engine/runSequence'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'

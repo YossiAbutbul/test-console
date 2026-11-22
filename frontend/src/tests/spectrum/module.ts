@@ -1,7 +1,10 @@
 import { createElement } from 'react'
 import WaterfallChartIcon from '@mui/icons-material/WaterfallChartRounded'
 import type { TestModule } from '../types'
-import { SpectrumPage } from './SpectrumPage'
+import { lazyNamed } from '../../lib/lazyNamed'
+
+// Lazy: it is the one page that draws recharts inline; see lib/lazyNamed.
+const SpectrumPage = lazyNamed(() => import('./SpectrumPage'), 'SpectrumPage')
 
 export const spectrumModule: TestModule = {
   id: 'spectrum',

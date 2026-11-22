@@ -3,6 +3,7 @@ import { instrumentsApi, type DiscoverCandidate, type InstrumentKind } from '../
 import { signalGeneratorApi, DEFAULT_BAUD } from '../api/signalGenerator'
 import { servo } from '../api/servo'
 import { motor } from '../api/motor'
+import { pollWhileVisible } from '../lib/pollWhileVisible'
 import {
   ConnectTimeout, describeConnectError, type ConnectFailure,
 } from '../lib/instrumentError'
@@ -281,8 +282,9 @@ export function InstrumentsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refreshStatus()
-    const id = window.setInterval(() => { void refreshStatus() }, 5000)
-    return () => window.clearInterval(id)
+    // Paused while the window is hidden: three requests every 5 s, all day,
+    // for an indicator nobody is looking at.
+    return pollWhileVisible(() => { void refreshStatus() }, 5000)
   }, [refreshStatus])
 
   const setOpen = useCallback((b: boolean) => {

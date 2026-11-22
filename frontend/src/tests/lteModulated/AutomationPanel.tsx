@@ -40,7 +40,7 @@ import {
   bandwidthLabel, rbForBandwidth,
 } from './signal'
 import { CSV_HEADER, parseLteModulatedCsv, toCsvBody } from './csv'
-import { ResultsGraphModal, type GraphableRow } from '../power/ResultsGraphModal'
+import { ResultsGraphModal, type GraphableRow } from '../power/LazyResultsGraphModal'
 import { lteChannelPoint } from '../power/graphSeries'
 import { runSequence } from '../engine/runSequence'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'

@@ -34,7 +34,7 @@ import { scrollBehavior, FollowLatest, useFollowBottom, CONTROL_H, GRID_GAP, Min
   VerdictTally, type VerdictFilter,
 } from '../../ui'
 import { CSV_HEADER, PA_MODE_LABEL, parsePowerCsv, toCsvBody } from './csv'
-import { ResultsGraphModal, type GraphableRow } from './ResultsGraphModal'
+import { ResultsGraphModal, type GraphableRow } from './LazyResultsGraphModal'
 import { runSequence } from '../engine/runSequence'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import { useRunReporter } from '../engine/useRunReporter'

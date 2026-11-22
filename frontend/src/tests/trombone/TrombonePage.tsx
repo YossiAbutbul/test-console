@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Box, Button, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForwardRounded'
@@ -26,7 +26,9 @@ import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
 
 /** Faster than the servo page: the position readout is the only feedback
- *  during a move, so it has to track the motor. */
+ *  during a move, so it has to track the motor. Only while it moves (or a
+ *  command or jog is under way): at rest it polled twice a second all day,
+ *  on the motor's interface, for a number that was not changing. */
 const POLL_MS = 500
 
 /**
@@ -65,13 +67,17 @@ export function TrombonePage({ group, active }: TestPageProps) {
   const targetPulses = targetValid ? mmToPulses(targetNum) : 0
   const [deviceIndex, setDeviceIndex] = useState<number>(0)
 
+  // Read by the poll interval below; set from `inMotion` once that is known.
+  const motionRef = useRef(false)
   const statusQ = useQuery({
     queryKey: ['motor', 'status'],
     queryFn: motor.status,
     // Only while the page is on screen: every page stays mounted, and hidden
     // ones polling kept the instrument's bus busy and re-rendered pages no
     // one was looking at. Showing the page polls again at once.
-    refetchInterval: (q) => (!active ? false : q.state.data?.connected ? POLL_MS : IDLE_POLL_MS),
+    refetchInterval: (q) => (
+      !active ? false : q.state.data?.moving || motionRef.current ? POLL_MS : IDLE_POLL_MS
+    ),
     refetchOnWindowFocus: false,
   })
 
@@ -148,6 +154,17 @@ export function TrombonePage({ group, active }: TestPageProps) {
   // move is in flight, so a jog never races another command on the bus.
   const [jogSpeed, setJogSpeed] = useState<number>(800)
   const jog = useHoldJog({ enabled: connected && !busy, speed: jogSpeed, onStopped: refresh })
+
+  // A command or a held jog switches the poll to POLL_MS at once: waiting for
+  // a status that says `moving` left the readout up to IDLE_POLL_MS behind
+  // the motor at the start of every move. The refresh makes the query
+  // re-read its interval; the motor's own `moving` keeps it fast from there.
+  const inMotion = busy || jog.dir !== 0
+  useEffect(() => {
+    motionRef.current = inMotion
+    if (inMotion) void refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh is a fresh closure each render
+  }, [inMotion])
 
   const statusText = !connected ? 'Disconnected' : moving ? 'Moving' : 'Idle'
   const mmNum = (n: number | null) => (n == null ? DASH : pulsesToMm(n).toFixed(2))

@@ -7,6 +7,7 @@ import {
   type ChatContextBlock, type ChatQuota, type ChatStatus,
 } from '../api/chat'
 import { ApiError } from '../api/client'
+import { pollWhileVisible } from '../lib/pollWhileVisible'
 
 /**
  * State for the assistant panel.
@@ -191,8 +192,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // Faster while a window is closed, so the countdown the panel shows is
     // roughly true and the send button comes back when it actually can.
     const period = off ? OFF_POLL_MS : cooling ? COOLDOWN_POLL_MS : STATUS_POLL_MS
-    const timer = setInterval(read, period)
-    return () => { alive = false; clearInterval(timer) }
+    const stop = pollWhileVisible(read, period)
+    return () => { alive = false; stop() }
   }, [cooling, off])
 
   const publish = useCallback(() => {
