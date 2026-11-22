@@ -10,6 +10,8 @@ turns that heading into the version and date.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-22
+
 ### Added
 - Product reports show and export as Excel: one sheet per test type, one
   table each. Runs of the same test type share a table, with the unit's MAC,
@@ -667,7 +669,8 @@ The first versioned release.
 - DESIGN.md, the user manual and the testing guide describe this release.
   Manual screenshots still show the previous design.
 
-[Unreleased]: https://github.com/YossiAbutbul/test-console/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/YossiAbutbul/test-console/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/YossiAbutbul/test-console/releases/tag/v1.4.0
 [1.3.0]: https://github.com/YossiAbutbul/test-console/releases/tag/v1.3.0
 [1.2.0]: https://github.com/YossiAbutbul/test-console/releases/tag/v1.2.0
 [1.1.0]: https://github.com/YossiAbutbul/test-console/releases/tag/v1.1.0
