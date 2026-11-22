@@ -1,8 +1,6 @@
 """Mini-Circuits USB power sensor routes."""
 from __future__ import annotations
 
-import asyncio
-
 from fastapi import APIRouter, HTTPException
 
 from ..errors import DriverUnavailable, handle_driver_errors
@@ -12,6 +10,7 @@ from ._common import (
     DiscoverCandidate,
     DiscoverResponse,
 )
+from ._bus import bus
 from ._state import state
 
 router = APIRouter(prefix="/instruments", tags=["instruments"])
@@ -137,7 +136,9 @@ def _disconnect() -> None:
 @router.get("/discover/power-sensor", response_model=DiscoverResponse)
 async def discover() -> DiscoverResponse:
     with handle_driver_errors("power sensor discover"):
-        details = await asyncio.to_thread(_list_with_idn)
+        # Probing opens and closes sensors, so it waits its turn on the bus
+        # like every other sensor call. A probe per sensor is slow; allow it.
+        details = await bus("power-sensor").call_when_free(_list_with_idn, timeout=60.0)
     return DiscoverResponse(
         candidates=[d.resource for d in details],
         details=details,
@@ -147,12 +148,14 @@ async def discover() -> DiscoverResponse:
 @router.post("/power-sensor/connect", response_model=ConnectResponse)
 async def connect(req: ConnectRequest) -> ConnectResponse:
     with handle_driver_errors("power sensor connect"):
-        idn = await asyncio.to_thread(_connect, req.address)
+        # On the bus: `/instruments/measure` and a sweep read this session there.
+        idn = await bus("power-sensor").call_when_free(_connect, req.address)
     return ConnectResponse(connected=True, idn=idn)
 
 
 @router.post("/power-sensor/disconnect", response_model=ConnectResponse)
 async def disconnect() -> ConnectResponse:
     with handle_driver_errors("power sensor disconnect"):
-        await asyncio.to_thread(_disconnect)
+        # Closed from another thread, the handle went away mid-read.
+        await bus("power-sensor").call_when_free(_disconnect)
     return ConnectResponse(connected=False, idn=None)

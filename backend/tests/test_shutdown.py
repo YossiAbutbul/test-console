@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from backend import main
 from backend.api.instruments import close_all
+from backend.api.instruments._bus import bus
 from backend.api.instruments._state import state
 
 
@@ -118,10 +119,13 @@ class TestCloseAll:
     async def test_a_wedged_close_is_bounded(self) -> None:
         """One instrument that never returns must not hold up the rest."""
 
+        import threading
+
+        release = threading.Event()
+
         class Wedged:
             def close(self) -> None:
-                import time
-                time.sleep(30)
+                release.wait(30)
 
         state.spectrum = Wedged()
         try:
@@ -133,3 +137,89 @@ class TestCloseAll:
             assert state.spectrum is None
         finally:
             state.spectrum = None
+            # The close now runs on the spectrum bus's one thread: free it, or
+            # every later test on that bus sees it busy.
+            release.set()
+            bus("spectrum").call_sync(lambda: None)
+
+    @sync
+    async def test_closes_the_signal_generator(self) -> None:
+        """It was missing from the list, so its COM port outlived the process."""
+        closed: list[bool] = []
+
+        class Port:
+            def close(self) -> None:
+                closed.append(True)
+
+        state.signal_generator = Port()
+        state.signal_generator_port = "COM7"
+        try:
+            await close_all()
+            assert closed == [True]
+            assert state.signal_generator is None
+            assert state.signal_generator_port is None
+        finally:
+            state.signal_generator = None
+            state.signal_generator_port = None
+
+    @sync
+    async def test_close_runs_on_the_instrument_bus(self) -> None:
+        """Closed from another thread, a session went away under a poll's read."""
+        import threading
+
+        seen: list[str] = []
+
+        class Session:
+            def close(self) -> None:
+                seen.append(threading.current_thread().name)
+
+        state.dc_analyzer = Session()
+        try:
+            await close_all()
+            assert seen and seen[0].startswith("instr-dc-analyzer")
+        finally:
+            state.dc_analyzer = None
+
+
+class TestFreqAccuracyShutdown:
+    @sync
+    async def test_shutdown_is_a_step(self) -> None:
+        """A run killed mid-point left the DUT keyed."""
+        from backend.api import freq_accuracy
+
+        called: list[str] = []
+        original = main.freq_accuracy.shutdown
+
+        async def fake() -> None:
+            called.append("fa")
+
+        main.freq_accuracy.shutdown = fake  # type: ignore[assignment]
+        try:
+            await main._release_hardware()
+        finally:
+            main.freq_accuracy.shutdown = original  # type: ignore[assignment]
+        assert called == ["fa"]
+        assert freq_accuracy.shutdown is original
+
+    @sync
+    async def test_cancels_and_waits_for_a_running_task(self) -> None:
+        from backend.api import freq_accuracy as fa
+
+        keyed_down: list[bool] = []
+
+        async def run() -> None:
+            try:
+                while not fa._run.cancel.is_set():
+                    await asyncio.sleep(0.01)
+            finally:
+                keyed_down.append(True)
+
+        fa._run.cancel.clear()
+        fa._run.task = asyncio.create_task(run())
+        try:
+            await fa.shutdown()
+            assert keyed_down == [True]
+            assert not fa.running()
+        finally:
+            fa._run.task = None
+            fa._run.cancel.clear()

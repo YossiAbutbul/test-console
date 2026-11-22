@@ -20,12 +20,17 @@ class MiniCircuitsPowerMeter(PowerMeter):
         averaging_enabled: Optional[bool] = True,
         use_immediate: bool = False,
         session: object | None = None,
+        call=None,
     ) -> None:
         """`session` borrows an already-open PowerSensor instead of opening one.
 
         Re-opening a USB power sensor that another part of the process already
         holds invalidates the live handle, so a sweep must reuse the session
         from `/instruments` when one exists rather than opening a second.
+
+        `call` runs each sensor operation. A borrowed session is also the one
+        `/instruments/measure` reads, so the sweep passes the power-sensor
+        bus's `call_sync`: two callers on one USB session desync it.
         """
         self._serial = serial
         self._sensor = session
@@ -33,6 +38,7 @@ class MiniCircuitsPowerMeter(PowerMeter):
         self._average_count = average_count
         self._averaging_enabled = averaging_enabled
         self._use_immediate = use_immediate
+        self._call = call or (lambda fn, *a: fn(*a))
 
     def connect(self) -> None:
         if self._sensor is not None:
@@ -71,28 +77,39 @@ class MiniCircuitsPowerMeter(PowerMeter):
                 self._sensor = None
 
     def set_frequency_hz(self, freq_hz: int) -> None:
-        if self._sensor is None:
+        sensor = self._sensor
+        if sensor is None:
             raise MeasurementError("not connected")
-        self._sensor.frequency_mhz = freq_hz / 1e6
+
+        def set_freq() -> None:
+            sensor.frequency_mhz = freq_hz / 1e6
+
+        self._call(set_freq)
 
     def read_dbm(self) -> float:
-        if self._sensor is None:
+        sensor = self._sensor
+        if sensor is None:
             raise MeasurementError("not connected")
         reader = (
-            self._sensor.read_immediate_power
+            sensor.read_immediate_power
             if self._use_immediate
-            else self._sensor.read_power
+            else sensor.read_power
         )
-        # Retry briefly on sentinel; accept if DUT genuinely silent.
-        import time as _t
-        last = -999.0
-        for _ in range(5):
-            v = float(reader("dBm"))
-            last = v
-            if v > -100.0:
-                return v
-            _t.sleep(0.1)
-        return last
+
+        def read() -> float:
+            # Retry briefly on sentinel; accept if DUT genuinely silent.
+            # One bus call for the whole retry, so no other read lands between.
+            import time as _t
+            last = -999.0
+            for _ in range(5):
+                v = float(reader("dBm"))
+                last = v
+                if v > -100.0:
+                    return v
+                _t.sleep(0.1)
+            return last
+
+        return self._call(read)
 
 
 class KeysightDCPowerAnalyzer(CurrentMeter):
@@ -106,12 +123,16 @@ class KeysightDCPowerAnalyzer(CurrentMeter):
         resource: Optional[str] = None,
         channel: int = 1,
         session: object | None = None,
+        call=None,
     ) -> None:
-        """`session` borrows an already-open analyzer — see MiniCircuitsPowerMeter."""
+        """`session` borrows an already-open analyzer, and `call` routes its
+        reads onto the DC analyzer's bus -- see MiniCircuitsPowerMeter. The DC
+        page polls the same session once a second."""
         self._resource = resource
         self._channel = channel
         self._analyzer = session
         self._owned = session is None
+        self._call = call or (lambda fn, *a: fn(*a))
 
     def connect(self) -> None:
         if self._analyzer is not None:
@@ -139,12 +160,12 @@ class KeysightDCPowerAnalyzer(CurrentMeter):
     def read_current_a(self) -> float:
         if self._analyzer is None:
             raise MeasurementError("not connected")
-        return float(self._analyzer.measure_current(self._channel))
+        return float(self._call(self._analyzer.measure_current, self._channel))
 
     def read_voltage_v(self) -> float:
         if self._analyzer is None:
             raise MeasurementError("not connected")
-        return float(self._analyzer.measure_voltage(self._channel))
+        return float(self._call(self._analyzer.measure_voltage, self._channel))
 
 
 class SpectrumPowerMeter(PowerMeter):

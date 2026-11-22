@@ -16,7 +16,6 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from uvicorn.logging import AccessFormatter, DefaultFormatter
@@ -26,9 +25,11 @@ from .api import (
     ble_router, chat_router, device_router, freq_accuracy_router, instruments_router,
     load_pull_router, motor_router, reports_router, servo_router, test_router,
 )
+from .api import freq_accuracy
 from .api.instruments import close_all as instruments_close_all
 from .ble import manager as ble_manager
 from .hw.preload import preload
+from .origin_guard import OriginGuard
 from .motor import manager as motor_manager
 from .servo import manager as servo_manager
 from .sweep import runner as sweep_runner
@@ -96,8 +97,8 @@ async def _release_hardware() -> None:
     stays claimed. That is what makes a backend restart turn into a round of
     unplugging things.
 
-    Each step is independent Ã¢â‚¬â€ one device failing to release must not strand
-    the rest Ã¢â‚¬â€ and the whole thing is best effort, because the alternative to a
+    Each step is independent — one device failing to release must not strand
+    the rest — and the whole thing is best effort, because the alternative to a
     failed close is not a working close, it is no close at all.
     """
     # Thunks, not coroutines: built eagerly, a step that is never reached
@@ -111,6 +112,8 @@ async def _release_hardware() -> None:
         ("sweep", sweep_runner.shutdown),
         # Same reason, for a Load Pull run now that it is driven from here.
         ("load pull", load_pull_runner.shutdown),
+        # And Frequency Accuracy, which keys the DUT on every point.
+        ("frequency accuracy", freq_accuracy.shutdown),
         ("BLE", ble_manager.disconnect),
         ("instruments", instruments_close_all),
         ("servo", lambda: asyncio.to_thread(servo_manager.disconnect)),
@@ -132,7 +135,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # See hw/preload.py for the VISA failure this prevents.
     await asyncio.to_thread(preload)
     yield
-    # Only runs on a *graceful* stop Ã¢â‚¬â€ Ctrl-C, SIGTERM, uvicorn's own reload.
+    # Only runs on a *graceful* stop — Ctrl-C, SIGTERM, uvicorn's own reload.
     # A force-kill skips it entirely and leaves the devices in exactly the
     # state this exists to prevent, which is why the docs say to stop the
     # server rather than kill it.
@@ -145,14 +148,10 @@ APP_VERSION = "1.4.0"
 
 app = FastAPI(title="Test Console Backend", version=APP_VERSION, lifespan=lifespan)
 
-# The API is bound to localhost and consumed by the bundled SPA (and by the
-# Vite dev server on another port), so origin checks add nothing here.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# No CORS: the bundled SPA is same-origin, and the Vite dev server proxies
+# every route, so nothing legitimate is cross-origin. Allowing `*` let any page
+# open in the operator's browser drive the rig; see origin_guard.py.
+app.add_middleware(OriginGuard)
 
 app.include_router(ble_router)
 app.include_router(chat_router)

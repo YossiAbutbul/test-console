@@ -30,6 +30,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
 from ..ble import manager
+from .runs import refuse_if_running
 from ..device import (
     MAX_TX_POWER_DBM, MODEM_ON_TIMEOUT_S, TX_POWER_SCALE, LteTstrfCmd, PaMode,
 )
@@ -163,8 +164,33 @@ class _Cancelled(Exception):
     pass
 
 
-def _running() -> bool:
+def running() -> bool:
     return _run.task is not None and not _run.task.done()
+
+
+#: As the sweep and Load Pull runners: long enough for the stage in flight to
+#: finish and the DUT to be keyed down, short of stalling the exit.
+_SHUTDOWN_GRACE_S = 15.0
+
+
+async def shutdown() -> None:
+    """Stop a running run before the process releases the hardware under it.
+
+    Left out of shutdown, a run killed mid-point left the DUT keyed: the
+    process exited before the point's `_key_off` ran. Cancel asks it to stop
+    after the stage in flight; a run that does not, is cancelled outright,
+    which still runs each point's `finally` and so still keys the DUT down.
+    """
+    task = _run.task
+    if task is None or task.done():
+        return
+    log.warning("Backend shutting down mid frequency accuracy run")
+    _run.cancel.set()
+    try:
+        await asyncio.wait_for(asyncio.shield(task), _SHUTDOWN_GRACE_S)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Frequency accuracy did not stop within %.0fs: %s", _SHUTDOWN_GRACE_S, e)
+        task.cancel()
 
 
 def _phase(what: str) -> str:
@@ -324,8 +350,7 @@ async def _execute(req: StartRequest) -> None:
 
 @router.post("/start", response_model=StatusOut)
 async def start(req: StartRequest) -> StatusOut:
-    if _running():
-        raise HTTPException(409, "A frequency accuracy run is already in progress")
+    refuse_if_running("Frequency Accuracy")
     if manager.device is None:
         raise HTTPException(409, "Device not ready (not connected or transport unavailable)")
     if state.spectrum is None:

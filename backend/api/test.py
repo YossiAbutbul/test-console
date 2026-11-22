@@ -29,6 +29,7 @@ from ..workbook import export_filename
 from .errors import handle_driver_errors
 from .instruments._bus import bus
 from .instruments._state import state
+from .runs import refuse_if_running
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +70,10 @@ def _build_power_meter(req: StartRequest) -> PowerMeter:
     # the same physical sensor invalidates the live handle, which is exactly
     # what happens when the pre-run check connects it and then the sweep starts.
     if state.power_sensor is not None:
-        return MiniCircuitsPowerMeter(session=state.power_sensor)
+        # ...and read it on its bus: `/instruments/measure` uses that handle too.
+        return MiniCircuitsPowerMeter(
+            session=state.power_sensor, call=bus("power-sensor").call_sync
+        )
     return MiniCircuitsPowerMeter(serial=req.power_sensor_serial)
 
 
@@ -78,6 +82,8 @@ def _build_current_meter(req: StartRequest) -> CurrentMeter:
         return KeysightDCPowerAnalyzer(
             session=state.dc_analyzer,
             channel=state.dc_analyzer_channel,
+            # The DC page polls this session once a second.
+            call=bus("dc-analyzer").call_sync,
         )
     return KeysightDCPowerAnalyzer(
         resource=req.dc_analyzer_resource or DEFAULT_DC_RESOURCE,
@@ -203,6 +209,8 @@ async def start(req: StartRequest) -> RunStatus:
     device = manager.device
     if device is None:
         raise HTTPException(status_code=409, detail="Device not ready. Connect first.")
+    # Before opening any instrument: another page's run may hold them.
+    refuse_if_running("Mode Sweep")
 
     pm: PowerMeter | None = None
     cm: CurrentMeter | None = None

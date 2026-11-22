@@ -122,21 +122,25 @@ def connect(device_index: int) -> int:
 
 
 def disconnect() -> None:
-    m = state.motor
-    state.motor = None
-    if m is None:
-        return
-    try:
-        m.enable(False)
-    except Exception:
-        pass
-    for fn in ("close", "disconnect"):
-        if hasattr(m, fn):
-            try:
-                getattr(m, fn)()
-            except Exception:
-                pass
+    # Halt a running jog watcher first, and close under the I/O lock: a jog or
+    # move thread mid-call on the DLL must not have the handle closed under it.
+    _jog_stop_evt.set()
+    with _io_lock:
+        m = state.motor
+        state.motor = None
+        if m is None:
             return
+        try:
+            m.enable(False)
+        except Exception:
+            pass
+        for fn in ("close", "disconnect"):
+            if hasattr(m, fn):
+                try:
+                    getattr(m, fn)()
+                except Exception:
+                    pass
+                return
 
 
 def _require():
@@ -185,9 +189,16 @@ def move(position: int, absolute: bool = True) -> None:
     target is outside it. With no limits set, the move is ungated.
     """
     m = _require()
-    cur = read_position() or 0
-    target = position if absolute else cur + position
     lo, hi = state.soft_min, state.soft_max
+    if absolute:
+        target = position
+    else:
+        cur = read_position()
+        if cur is None and (lo is not None or hi is not None):
+            # Treating an unreadable position as 0 checked the step against a
+            # made-up origin, so a relative move could run past a soft limit.
+            raise RuntimeError("motor position unreadable; refusing a relative move")
+        target = (cur or 0) + position
     if (lo is not None and target < lo) or (hi is not None and target > hi):
         raise ValueError(
             f"target {target} outside soft limits [{lo}, {hi}]"
@@ -245,7 +256,11 @@ def jog_start(positive: bool, speed: Optional[int] = None) -> None:
 
     lo, hi = state.soft_min, state.soft_max
     # Refuse to start if a limit is set and we're already at/past it.
-    pos = read_position() or 0
+    pos = read_position()
+    if pos is None and (lo is not None or hi is not None):
+        # Same as move(): an unreadable position is not position 0.
+        raise RuntimeError("motor position unreadable; refusing to jog")
+    pos = pos or 0
     if positive and hi is not None and pos >= hi:
         raise ValueError(f"already at max soft limit ({hi})")
     if not positive and lo is not None and pos <= lo:

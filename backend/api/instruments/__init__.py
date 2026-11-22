@@ -368,12 +368,15 @@ router.include_router(_aggregate)
 #: instrument from eating the whole graceful-shutdown window.
 CLOSE_TIMEOUT_S = 1.0
 
-#: (state attribute, log label) for every session the process can hold.
+#: (state attribute, log label) for every session the process can hold. The
+#: bus is the attribute with dashes. The signal generator was missing, so its
+#: COM port stayed claimed across a restart.
 _SESSIONS = (
     ("power_sensor", "power sensor"),
     ("dc_analyzer", "DC analyzer"),
     ("spectrum", "spectrum analyzer"),
     ("network_analyzer", "network analyzer"),
+    ("signal_generator", "signal generator"),
 )
 
 
@@ -400,7 +403,11 @@ async def close_all() -> None:
         if inst is None:
             return
         try:
-            await asyncio.wait_for(asyncio.to_thread(_close, inst), CLOSE_TIMEOUT_S)
+            # On the instrument's own bus, behind any call still on it: closed
+            # from another thread, the session went away under a poll's read.
+            await bus(attr.replace("_", "-")).call_when_free(
+                _close, inst, wait=CLOSE_TIMEOUT_S, timeout=CLOSE_TIMEOUT_S,
+            )
             log.info("closed %s", label)
         except Exception as e:
             # Nothing to recover here: the process is going away either way, and
@@ -410,8 +417,9 @@ async def close_all() -> None:
         finally:
             setattr(state, attr, None)
             setattr(state, f"{attr}_idn", None)
-            if hasattr(state, f"{attr}_resource"):
-                setattr(state, f"{attr}_resource", None)
+            for extra in ("resource", "port"):
+                if hasattr(state, f"{attr}_{extra}"):
+                    setattr(state, f"{attr}_{extra}", None)
 
     await asyncio.gather(*(shut(a, lbl) for a, lbl in _SESSIONS))
 

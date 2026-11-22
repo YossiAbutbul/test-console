@@ -12,6 +12,24 @@ turns that heading into the version and date.
 
 ### Changed
 - Sidebar: the Reports section comes before Components.
+- Only one backend-driven run at a time: Mode Sweep, Load Pull and Frequency
+  Accuracy each refuse to start (409, naming the run to stop) while another
+  is in flight, since they key the same DUT and share the analyzer.
+- The API refuses requests from web pages on other sites (403). CORS no longer
+  allows `*`; the bundled app and the Vite dev server are unaffected.
+
+### Fixed
+- Mode Sweep reads the power sensor and DC analyzer on their instrument bus,
+  so they no longer collide with `/instruments/measure` or the DC page's poll
+  on the same session.
+- A relative trombone move or a jog is refused when the motor position cannot
+  be read, instead of checking the soft limits against position 0. Motor
+  disconnect waits for any move in progress on the motor's interface.
+- Shutdown now stops a running Frequency Accuracy run (keying the DUT down)
+  and closes the signal generator's COM port. Every instrument closes on its
+  own bus.
+- Power-sensor connect, disconnect and discover run on its bus, so a
+  disconnect cannot close the sensor mid-read.
 
 ## [1.4.0] - 2026-11-22
 

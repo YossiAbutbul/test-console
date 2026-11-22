@@ -30,6 +30,7 @@ from ..workbook import export_filename
 from .errors import handle_driver_errors
 from .instruments import measure as instruments_measure
 from .instruments._state import state
+from .runs import refuse_if_running
 from .instruments.network_analyzer import (
     FreqRequest, MeasureRequest, measure as vna_measure, set_freq as vna_set_freq,
 )
@@ -284,6 +285,7 @@ class PromptAnswer(BaseModel):
 async def start_run(config: LoadPullRunConfig) -> LoadPullStatus:
     if manager.device is None:
         raise HTTPException(status_code=409, detail="DUT not connected. Connect first.")
+    refuse_if_running("Load Pull")
     # A second start while one runs is refused as 409; see handle_driver_errors.
     with handle_driver_errors("load pull start"):
         return await runner.start(config, LiveRig())
