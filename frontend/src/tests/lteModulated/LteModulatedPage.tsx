@@ -11,6 +11,7 @@ import { MeasurementCard } from '../../components/MeasurementCard'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
+import { useDutToast } from '../../context/dutToast'
 import { uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch, channelIssues, shortChannelIssue } from '../../lib/earfcn'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
@@ -83,6 +84,7 @@ function man(): NonNullable<typeof lteModulatedPageSnapshot.manual> {
 
 export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
   const { log } = useLog()
+  const dutToast = useDutToast()
   /**
    * Whether channel inputs are read as EARFCNs or as MHz, and which bands a
    * MHz value is allowed to mean. Both are rig-wide rather than per-page — see
@@ -300,6 +302,7 @@ export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
       if (!r) return
       setLast(r.started)
       log('DUT', `LTE modulated start: ok=${r.started.ok} status=${r.started.status}`)
+      dutToast.answered(`LTE modulated sent · EARFCN ${r.params.earfcn} · ${r.params.tx_power_dbm} dBm`, r.started)
       if (!r.started.ok) return
       // Remembered so the next Send knows to abort, and so Stop aborts what is
       // actually running even if the form has been edited since.
@@ -309,7 +312,10 @@ export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
     // No power-down here. The modem may well be up with the command having
     // failed; it stays up so the operator can fix the parameters and retry
     // without waiting for another boot.
-    onError: (e: Error) => log('DUT', `LTE modulated failed: ${e.message}`, 'error'),
+    onError: (e: Error) => {
+      log('DUT', `LTE modulated failed: ${e.message}`, 'error')
+      dutToast.failed('LTE modulated', e)
+    },
   })
 
   const stop = useMutation({
@@ -320,8 +326,12 @@ export function LteModulatedPage({ protocol, group, active }: TestPageProps) {
       setLast(r)
       modem.setRunning(null)
       log('DUT', `LTE modulated abort: ok=${r.ok} status=${r.status}`)
+      dutToast.answered('LTE modulated stopped', r)
     },
-    onError: (e: Error) => log('DUT', `LTE stop failed: ${e.message}`, 'error'),
+    onError: (e: Error) => {
+      log('DUT', `LTE stop failed: ${e.message}`, 'error')
+      dutToast.failed('LTE stop', e)
+    },
   })
 
   const busy = send.isPending || stop.isPending || modem.busy

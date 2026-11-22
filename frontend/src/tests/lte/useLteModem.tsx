@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useMutation } from '@tanstack/react-query'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
+import { useDutToast } from '../../context/dutToast'
 import { useLiveOutputActions } from '../../context/liveOutput'
 import type { CommandResponse } from '../../types/models'
 import { ModemBootDialog } from './ModemBootDialog'
@@ -76,7 +77,7 @@ export interface LteModem {
    * its whole length (Load Pull) and hands it back off. Throws if the frame
    * fails to go out; the belief moves to off either way, as for `toggle`.
    */
-  powerOff: () => Promise<void>
+  powerOff: () => Promise<CommandResponse>
   getRunning: () => LiveTest | null
   setRunning: (t: LiveTest | null) => void
   /** "Turning on modem" — rendered by the page, covers the ~10 s boot. */
@@ -95,6 +96,7 @@ interface Options {
 
 export function useLteModem({ onFrame, pageId }: Options = {}): LteModem {
   const { log } = useLog()
+  const dutToast = useDutToast()
   const { publish } = useLiveOutputActions()
 
   // Mirrored into a ref because an automation run spans many renders and reads
@@ -216,11 +218,21 @@ export function useLteModem({ onFrame, pageId }: Options = {}): LteModem {
     // may well need.
     setOn(false)
     setLive(null)
+    return r
   }, [log, onFrame, setOn, setLive])
 
+  // Toasts on the operator's own toggle only. startModem and powerOff also run
+  // inside a Send and at a run's start, where the Send or the run reports.
   const toggleM = useMutation({
-    mutationFn: async (next: boolean) => (next ? startModem() : powerOff()),
-    onError: (e: Error) => log('DUT', `LTE modem toggle failed: ${e.message}`, 'error'),
+    mutationFn: async (next: boolean) => (next ? startModem().then(() => null) : powerOff()),
+    onSuccess: (r, next) => {
+      if (next) dutToast.sent('LTE modem on')
+      else dutToast.answered('LTE modem off', r)
+    },
+    onError: (e: Error, next) => {
+      log('DUT', `LTE modem toggle failed: ${e.message}`, 'error')
+      dutToast.failed(next ? 'LTE modem on' : 'LTE modem off', e)
+    },
   })
 
   const toggleMutate = toggleM.mutate

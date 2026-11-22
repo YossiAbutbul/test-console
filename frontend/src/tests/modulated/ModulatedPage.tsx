@@ -10,6 +10,7 @@ import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
+import { useDutToast } from '../../context/dutToast'
 import type { InstrumentId } from '../../context/InstrumentsContext'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import {
@@ -43,6 +44,7 @@ const DR_MAX = 12
 
 export function ModulatedPage({ protocol, group, active }: TestPageProps) {
   const { log } = useLog()
+  const dutToast = useDutToast()
   const hasBackend = protocol === 'LoRa'
   const [modem, setModem] = useState<ModemName>('LoRa')
   const [freqMhz, setFreqMhz] = useState(902.3)
@@ -113,9 +115,13 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
       if (!r) return
       setLast(r)
       log('DUT', `Modulated sent: ok=${r.ok} status=${r.status}`)
+      dutToast.answered(`${protocol} modulated sent · ${freqMhz} MHz · ${power} dBm · ${modem}`, r)
       if (r.ok) setMeasureTrigger((n) => n + 1)
     },
-    onError: (e: Error) => log('DUT', `Modulated failed: ${e.message}`, 'error'),
+    onError: (e: Error) => {
+      log('DUT', `Modulated failed: ${e.message}`, 'error')
+      dutToast.failed(`${protocol} modulated`, e)
+    },
   })
 
   const stop = useMutation({
@@ -127,8 +133,12 @@ export function ModulatedPage({ protocol, group, active }: TestPageProps) {
       if (!r) return
       setLast(r)
       log('DUT', `Stop sent: ok=${r.ok} status=${r.status}`)
+      dutToast.answered('Stop sent', r)
     },
-    onError: (e: Error) => log('DUT', `Stop failed: ${e.message}`, 'error'),
+    onError: (e: Error) => {
+      log('DUT', `Stop failed: ${e.message}`, 'error')
+      dutToast.failed('Stop', e)
+    },
   })
 
   const busy = send.isPending || stop.isPending

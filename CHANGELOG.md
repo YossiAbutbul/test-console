@@ -10,6 +10,14 @@ turns that heading into the version and date.
 
 ## [Unreleased]
 
+### Added
+- A short toast for each command sent to the DUT by hand, which before
+  answered only in the log: Send and Stop on LoRa CW, Modulated and CW
+  debug, LTE CW and Modulated, the LTE modem switch, and BLE CW. A command
+  the DUT took shows what was sent and clears after 2.5 s; one it refused
+  (with its status) or that failed stays until dismissed. Automation runs
+  are unchanged and report through their own progress.
+
 ### Fixed
 - Load Pull: the "Set the attenuator" prompt could open under the Smith
   chart when a cycle ended with the chart open. The run waited on an answer

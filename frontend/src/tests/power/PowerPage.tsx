@@ -10,6 +10,7 @@ import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
+import { useDutToast } from '../../context/dutToast'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import {
   FieldGrid, LastFrameSection, MeasureOptions, PageBody, RunControls, Section,
@@ -29,6 +30,7 @@ const DEFAULT_MEASURE: MeasureSelection = { power: true, current: true }
 
 export function PowerPage({ protocol, group, active }: TestPageProps) {
   const { log } = useLog()
+  const dutToast = useDutToast()
   const hasBackend = protocol === 'LoRa'
   const [freqMhz, setFreqMhz] = useState(902.3)
   const [power, setPower] = useState(14)
@@ -100,9 +102,13 @@ export function PowerPage({ protocol, group, active }: TestPageProps) {
       if (!r) return
       setLast(r)
       log('DUT', `Power sent: ok=${r.ok} status=${r.status}`)
+      dutToast.answered(`${protocol} CW sent · ${freqMhz} MHz · ${power} dBm`, r)
       if (r.ok && willMeasure) setMeasureTrigger((n) => n + 1)
     },
-    onError: (e: Error) => log('DUT', `Power failed: ${e.message}`, 'error'),
+    onError: (e: Error) => {
+      log('DUT', `Power failed: ${e.message}`, 'error')
+      dutToast.failed(`${protocol} CW`, e)
+    },
   })
 
   const stop = useMutation({
@@ -114,8 +120,12 @@ export function PowerPage({ protocol, group, active }: TestPageProps) {
       if (!r) return
       setLast(r)
       log('DUT', `Stop sent: ok=${r.ok} status=${r.status}`)
+      dutToast.answered('Stop sent', r)
     },
-    onError: (e: Error) => log('DUT', `Stop failed: ${e.message}`, 'error'),
+    onError: (e: Error) => {
+      log('DUT', `Stop failed: ${e.message}`, 'error')
+      dutToast.failed('Stop', e)
+    },
   })
 
   const busy = send.isPending || stop.isPending

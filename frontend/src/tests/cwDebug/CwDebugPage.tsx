@@ -13,6 +13,7 @@ import { MeasurementCard } from '../../components/MeasurementCard'
 import { useMutation } from '@tanstack/react-query'
 import { device } from '../../api/device'
 import { useLog } from '../../context/LogContext'
+import { useDutToast } from '../../context/dutToast'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
 import type { CommandResponse } from '../../types/models'
 import type { TestPageProps } from '../types'
@@ -28,6 +29,7 @@ const DEFAULT_MEASURE: MeasureSelection = { power: true, current: true }
 
 export function CwDebugPage({ protocol, group }: TestPageProps) {
   const { log } = useLog()
+  const dutToast = useDutToast()
   const hasBackend = protocol === 'LoRa'
   const [freqMhz, setFreqMhz] = useState(902.3)
   const [power, setPower] = useState(14)
@@ -79,9 +81,13 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
       if (!r) return
       setLast(r)
       log('DUT', `CW sent: ok=${r.ok} status=${r.status}`)
+      dutToast.answered(`CW debug sent · ${freqMhz} MHz · ${power} dBm`, r)
       if (r.ok && willMeasure) setMeasureTrigger((n) => n + 1)
     },
-    onError: (e: Error) => log('DUT', `CW failed: ${e.message}`, 'error'),
+    onError: (e: Error) => {
+      log('DUT', `CW failed: ${e.message}`, 'error')
+      dutToast.failed('CW debug', e)
+    },
   })
 
   const stop = useMutation({
@@ -93,8 +99,12 @@ export function CwDebugPage({ protocol, group }: TestPageProps) {
       if (!r) return
       setLast(r)
       log('DUT', `Stop sent: ok=${r.ok} status=${r.status}`)
+      dutToast.answered('Stop sent', r)
     },
-    onError: (e: Error) => log('DUT', `Stop failed: ${e.message}`, 'error'),
+    onError: (e: Error) => {
+      log('DUT', `Stop failed: ${e.message}`, 'error')
+      dutToast.failed('Stop', e)
+    },
   })
 
   const busy = send.isPending || stop.isPending

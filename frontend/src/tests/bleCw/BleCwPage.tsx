@@ -10,6 +10,7 @@ import { LabeledField } from '../../components/LabeledField'
 import { MeasurementCard } from '../../components/MeasurementCard'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { useLog } from '../../context/LogContext'
+import { useDutToast } from '../../context/dutToast'
 import { sleep } from '../../lib/async'
 import { DEFAULT_SETTLE_MS } from '../../lib/settle'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
@@ -78,6 +79,7 @@ function man(): NonNullable<typeof bleCwPageSnapshot.manual> {
 
 export function BleCwPage({ protocol, group, active }: TestPageProps) {
   const { log } = useLog()
+  const dutToast = useDutToast()
 
   const [unit, setUnit] = useState<BleChannelUnit>(() => bleCwPageSnapshot.unit ?? 'channel')
   useEffect(() => { bleCwPageSnapshot.unit = unit; persistBleCwPage() }, [unit])
@@ -177,6 +179,10 @@ export function BleCwPage({ protocol, group, active }: TestPageProps) {
       // reconnect, and a Send at the same power should not pay for one.
       await link.ensurePower(asNum(power))
       await link.tone({ channel: ch, duration_s: asNum(seconds), offset: asNum(offset) })
+      // On landing rather than at the end: the tone, the reading and the
+      // relink take the whole duration, and the operator wants to know the
+      // DUT took the command now. A refused tone throws instead.
+      dutToast.sent(`BLE CW sent · ch ${ch} · ${channelMhz(ch)} MHz · ${asNum(seconds)} s`)
       if (willMeasure) {
         // The card waits its settle and reads; the reconnect waits for that
         // reading (or for the tone to end, if it fails), so the strip is not
@@ -190,7 +196,10 @@ export function BleCwPage({ protocol, group, active }: TestPageProps) {
       // into a DUT that cannot hear it.
       await link.finishTone()
     },
-    onError: (e: Error) => log('DUT', `BLE CW failed: ${e.message}`, 'error'),
+    onError: (e: Error) => {
+      log('DUT', `BLE CW failed: ${e.message}`, 'error')
+      dutToast.failed('BLE CW', e)
+    },
   })
 
   /**
