@@ -144,7 +144,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 # Kept equal to the VERSION file by scripts/release.ps1 (and checked by
 # tests/test_version.py), so /docs names the release that is running.
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 
 app = FastAPI(title="Test Console Backend", version=APP_VERSION, lifespan=lifespan)
 
