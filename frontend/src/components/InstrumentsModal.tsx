@@ -18,6 +18,7 @@ import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
 import { CONTROL_H, KeySpinner, MONO, ModalShell, TEXT } from '../ui'
 import { FailureNote } from './FailureNote'
+import { NumberField } from '../ui/NumberField'
 
 interface CategoryGroup {
   label: string
@@ -364,9 +365,8 @@ const InstrumentRow = memo(function InstrumentRow({ id, inst, required, focused,
             />
           </Box>
           {showChannel && (
-            <TextField
+            <NumberField
               size="small"
-              type="number"
               value={inst.channel ?? 1}
               onChange={(e) => setChannel(id, Number(e.target.value))}
               // aria-label rather than a visible `label`: a floating MUI label

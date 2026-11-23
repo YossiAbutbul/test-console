@@ -20,6 +20,7 @@ import {
 import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
 import { selectOnFocus } from '../../lib/selectOnFocus'
+import { NumberField } from '../../ui/NumberField'
 
 /** Slower than the trombone: the servo only reports its last commanded angle,
  *  so there is nothing to track mid-move. */
@@ -273,9 +274,8 @@ export function SwitchPage({ group, active }: TestPageProps) {
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
               {nudgeKey(-10, '−10', '−10°', 'minus ten degrees')}
               {nudgeKey(-1, '−1', '−1°', 'minus one degree', RemoveIcon)}
-              <TextField
+              <NumberField
                 size="small"
-                type="number"
                 value={angle}
                 onChange={(e) => {
                   const n = Number(e.target.value)

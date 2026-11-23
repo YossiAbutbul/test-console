@@ -10,7 +10,7 @@
  */
 import { memo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import {
-  Box, Divider, IconButton, Stack, Table, TableBody, TableHead, TableRow, TextField,
+  Box, Divider, IconButton, Stack, Table, TableBody, TableHead, TableRow,
   Tooltip, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/AddRounded'
@@ -33,6 +33,7 @@ import {
 import { RunTiming } from '../../ui/RunTiming'
 import type { JudgedRow } from './useAutomationRun'
 import { LONG_SETTLE_MS, PANEL_HEIGHT, PANEL_MIN_HEIGHT } from './automationLayout'
+import { NumberField } from '../../ui/NumberField'
 
 /** Column heading, in the same shape as `LabeledField`: name, then a quieter
  *  unit or range beside it. */
@@ -84,9 +85,8 @@ export function SettleField({ value, onChange, disabled }: {
 }) {
   return (
     <HeaderField label="Settle" unit="ms">
-      <TextField
+      <NumberField
         size="small"
-        type="number"
         value={value}
         onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
         // Clamped once the operator leaves the field, not while typing: a

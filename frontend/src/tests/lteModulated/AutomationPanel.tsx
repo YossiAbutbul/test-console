@@ -45,6 +45,7 @@ import {
 } from '../../store/lteModulatedPageStore'
 import type { ChannelUnit } from '../lte/channel'
 import { selectOnFocus } from '../../lib/selectOnFocus'
+import { NumberField } from '../../ui/NumberField'
 
 export type { AutomationControls } from '../engine/useAutomationRun'
 
@@ -740,8 +741,8 @@ export function AutomationPanel({
                 ))}
               </TextField>
 
-              <TextField
-                size="small" type="number" sx={CELL_SX}
+              <NumberField
+                size="small" sx={CELL_SX}
                 value={r.mcs}
                 disabled={running}
                 error={badMcs}
@@ -758,8 +759,8 @@ export function AutomationPanel({
                 }}
               />
 
-              <TextField
-                size="small" type="number" sx={CELL_SX}
+              <NumberField
+                size="small" sx={CELL_SX}
                 value={r.rbCount}
                 disabled={running}
                 error={badRb}

@@ -41,6 +41,7 @@ import {
   type ModulatedSweepRow,
 } from '../../store/modulatedPageStore'
 import { selectOnFocus } from '../../lib/selectOnFocus'
+import { NumberField } from '../../ui/NumberField'
 
 export type { AutomationControls } from '../engine/useAutomationRun'
 
@@ -505,8 +506,8 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
                 ))}
               </TextField>
 
-              <TextField
-                size="small" type="number" sx={CELL_SX}
+              <NumberField
+                size="small" sx={CELL_SX}
                 value={r.datarate}
                 disabled={running}
                 error={badDr}

@@ -78,6 +78,7 @@ import { SetupDiagramModal } from './SetupDiagramModal'
 // Shared with the Trombone page so both agree on what a mm is.
 import { JOG_SPEEDS, PULSES_PER_MM } from '../../lib/trombone'
 import { selectOnFocus } from '../../lib/selectOnFocus'
+import { NumberField } from '../../ui/NumberField'
 
 /** Every stage of a point touches one of these. */
 /** Beside the one that reads power, which the page's power source names. */
@@ -1404,9 +1405,8 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
               </Box>
 
               <DriveLabel>Delta X</DriveLabel>
-              <TextField
+              <NumberField
                 size="small"
-                type="number"
                 value={deltaXmm}
                 onChange={(e) => setDeltaXmm(Math.max(0, Number(e.target.value) || 0))}
                 onFocus={selectOnFocus}

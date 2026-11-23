@@ -21,6 +21,7 @@ import { useThemeMode } from '../context/ThemeModeContext'
 import { getAppPalette } from '../theme'
 import { CONTROL_H, MONO } from '../ui'
 import { selectOnFocus } from '../lib/selectOnFocus'
+import { NumberField } from '../ui/NumberField'
 
 function actionSx(
   c: { bg: string; bgHover: string; fg: string },
@@ -130,8 +131,7 @@ export function DutControls({ compact = false, stacked = false }: { compact?: bo
         <Tooltip title="" placement="bottom">
         <Box sx={compact ? { flex: '0 0 68px' } : { flex: '0 1 110px', minWidth: 96 }}>
           {fieldLabel('Duration (sec)')}
-          <TextField
-            type="number"
+          <NumberField
             size="small"
             InputProps={compact
               ? { endAdornment: <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>s</Typography> }
@@ -435,8 +435,7 @@ export function PathLossField({
               </Tooltip>
             )
             : fieldLabel(label)}
-          <TextField
-            type="number"
+          <NumberField
             size="small"
             value={pathLossDb}
             onChange={(e) => setPathLossDb(Number(e.target.value) || 0)}

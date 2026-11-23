@@ -1,6 +1,7 @@
 import { Box, Stack, TextField, Typography, type TextFieldProps } from '@mui/material'
 import { type FocusEvent, type ReactNode } from 'react'
 import { selectOnFocus } from '../lib/selectOnFocus'
+import { useNumberDraft } from '../ui/numberDraft'
 
 
 interface Props extends Omit<TextFieldProps, 'label' | 'variant'> {
@@ -14,7 +15,13 @@ interface Props extends Omit<TextFieldProps, 'label' | 'variant'> {
   action?: ReactNode
 }
 
-export function LabeledField({ label, hint, width, action, sx, onFocus, ...rest }: Props) {
+export function LabeledField({ label, hint, width, action, sx, onFocus, value, onChange, onBlur, ...rest }: Props) {
+  // A numeric field can be emptied while typing instead of snapping to 0;
+  // string-valued fields pass through (see useNumberDraft).
+  const draft = useNumberDraft(rest.type === 'number' ? value : undefined, onChange, onBlur)
+  const valueProps = rest.type === 'number'
+    ? { value: draft.value, onChange: draft.onChange, onBlur: draft.onBlur }
+    : { value, onChange, onBlur }
   const focusHandler = (e: FocusEvent<HTMLInputElement>) => {
     selectOnFocus(e)
     onFocus?.(e)
@@ -46,11 +53,11 @@ export function LabeledField({ label, hint, width, action, sx, onFocus, ...rest 
       </Box>
       {action ? (
         <Stack direction="row" spacing={1} alignItems="center">
-          <TextField size="small" variant="outlined" sx={{ flexGrow: 1, minWidth: 0, ...sx }} onFocus={focusHandler} {...rest} />
+          <TextField size="small" variant="outlined" sx={{ flexGrow: 1, minWidth: 0, ...sx }} onFocus={focusHandler} {...rest} {...valueProps} />
           {action}
         </Stack>
       ) : (
-        <TextField size="small" variant="outlined" sx={sx} onFocus={focusHandler} {...rest} />
+        <TextField size="small" variant="outlined" sx={sx} onFocus={focusHandler} {...rest} {...valueProps} />
       )}
     </Stack>
   )

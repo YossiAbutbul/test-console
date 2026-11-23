@@ -1,4 +1,5 @@
 import { spectrumModelLine } from '../../lib/spectrumModel'
+import { decimateMinMax } from '../../lib/decimate'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Autocomplete, Box, Button, ButtonBase, MenuItem, Select, Stack, Table, TableBody, TableCell,
@@ -36,6 +37,10 @@ import { persistSpectrumPage, spectrumPageSnapshot } from '../../store/spectrumP
  * and display, so this is a load dial on the analyzer, not just a frame rate:
  * 1 s is comfortable, 0.3 s is visibly heavier on its own screen.
  */
+/** Points the trace is drawn with at most. Two per pixel column of a wide
+ *  plot: past that the extra vertices cost render time and show nothing. */
+const CHART_MAX_POINTS = 2000
+
 const PERIODS = [0.3, 0.5, 1, 2, 5]
 const DEFAULT_PERIOD_S = 1
 
@@ -474,7 +479,8 @@ export function SpectrumPage({ group, active }: TestPageProps) {
     const x1 = trace.zero_span ? sweepMs : (trace.stop_hz ?? 0) / 1e6
     const step = n > 1 ? (x1 - x0) / (n - 1) : 0
     return {
-      data: trace.values.map((y, i) => ({ x: x0 + i * step, y })),
+      // Thinned for drawing only, peaks and notches kept (see decimateMinMax).
+      data: decimateMinMax(trace.values.map((y, i) => ({ x: x0 + i * step, y })), CHART_MAX_POINTS, (p) => p.y),
       domain: [x0, x1] as [number, number],
       markers: trace.markers
         .filter((m) => m.x != null && m.y != null)

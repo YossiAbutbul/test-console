@@ -29,6 +29,7 @@ export {
   ACTION_W, CARD_SX, CARD_PAD, CONTROL_H, TOP_BAR_H, FIELD_MAX_W, GRID_GAP, MONO,
   PANEL_SX, PAGE_W, RESULTS_H, TEXT, TILE_PAD, type TileAccent,
 } from './tokens'
+export { NumberField } from './NumberField'
 export { useShellLayout, type ShellLayout } from './useShellLayout'
 export { InstrumentBar, type InstrumentBarStatus } from './InstrumentBar'
 export { RunTiming } from './RunTiming'

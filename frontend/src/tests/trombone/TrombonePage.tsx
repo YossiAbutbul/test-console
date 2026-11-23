@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box, Button, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Stack, Tooltip, Typography } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForwardRounded'
 import FirstPageIcon from '@mui/icons-material/FirstPageRounded'
@@ -24,6 +24,7 @@ import {
 } from '../../ui'
 import { useActionReporter } from '../engine/useRunReporter'
 import type { TestPageProps } from '../types'
+import { NumberField } from '../../ui/NumberField'
 
 /** Faster than the servo page: the position readout is the only feedback
  *  during a move, so it has to track the motor. Only while it moves (or a
@@ -223,9 +224,8 @@ export function TrombonePage({ group, active }: TestPageProps) {
               {/* Set like LabeledField's label, so this dialog reads like the
                   forms on the pages. */}
               <Typography sx={{ ...TEXT.label, color: 'text.primary', mb: 0.5 }}>Device index</Typography>
-              <TextField
+              <NumberField
                 size="small"
-                type="number"
                 value={deviceIndex}
                 disabled={connected}
                 onChange={(e) => setDeviceIndex(Math.max(0, Math.min(15, Number(e.target.value) || 0)))}

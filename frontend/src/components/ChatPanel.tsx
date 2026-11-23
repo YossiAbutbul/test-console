@@ -267,9 +267,12 @@ function Turn({ role, content, error, ts }: { role: string; content: string; err
         </Typography>
         <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.25, pr: 2.5 }}>{ts}</Typography>
         <Tooltip title={copied ? 'Copied' : 'Copy'}>
+          {/* Named apart from the tooltip: a screen reader reaches the button
+              without hovering, and the icon alone says nothing. */}
           <IconButton
             className="turn-copy"
             size="small"
+            aria-label={copied ? 'Copied' : 'Copy message'}
             onClick={copy}
             sx={{
               position: 'absolute',
@@ -280,6 +283,9 @@ function Turn({ role, content, error, ts }: { role: string; content: string; err
               transition: 'opacity 0.12s',
               bgcolor: bubbleBg,
               '&:hover': { bgcolor: bubbleBg },
+              // Hidden until the bubble is hovered; tabbing to it has to show
+              // it too, or keyboard focus lands on an invisible button.
+              '&:focus-visible': { opacity: 1 },
             }}
           >
             {copied
@@ -363,14 +369,14 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         <Stack direction="row" spacing={0.5}>
           <Tooltip title={`Attach results (${ACCEPT})`}>
             <span>
-              <IconButton size="small" onClick={() => fileRef.current?.click()}>
+              <IconButton size="small" aria-label="Attach results" onClick={() => fileRef.current?.click()}>
                 <AttachFileIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </span>
           </Tooltip>
           <Tooltip title="Clear conversation">
             <span>
-              <IconButton size="small" onClick={clear} disabled={turns.length === 0}>
+              <IconButton size="small" aria-label="Clear conversation" onClick={clear} disabled={turns.length === 0}>
                 <DeleteOutlineIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </span>
@@ -459,7 +465,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, opacity: 0.7 }}>
             RESULTS TO ATTACH
           </Typography>
-          <IconButton size="small" onClick={() => setPageMenu(null)}>
+          <IconButton size="small" aria-label="Close" onClick={() => setPageMenu(null)}>
             <CloseIcon sx={{ fontSize: 15 }} />
           </IconButton>
         </Stack>
@@ -542,7 +548,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           // already caps the growth; MUI handles the scrolling past it.
           slotProps={{ input: { sx: { fontSize: 13 } } }}
         />
-        <IconButton size="small" onClick={send} disabled={busy || coolingS > 0 || !draft.trim()}>
+        <IconButton size="small" aria-label="Send" onClick={send} disabled={busy || coolingS > 0 || !draft.trim()}>
           <SendIcon sx={{ fontSize: 18 }} />
         </IconButton>
       </Stack>

@@ -31,6 +31,7 @@ import { selectOnFocus, useSelectOnFocusSetting } from '../lib/selectOnFocus'
 import { useTabBadges } from '../context/tabBadges'
 import { combine } from '../lib/tabBadges'
 import { TabBadge } from './TabBadge'
+import { NumberField } from '../ui/NumberField'
 
 // Re-exported for the call sites that reach for them alongside Sidebar; the
 // values themselves live with the rest of the layout tokens.
@@ -290,9 +291,8 @@ function ScanTimeSetting() {
       <Typography sx={{ fontSize: 12, fontWeight: 600, color: s.textDim, mb: 0.5 }}>
         DUT scan time
       </Typography>
-      <TextField
+      <NumberField
         size="small"
-        type="number"
         value={duration}
         disabled={isConnected || scanning}
         onChange={(e) => setDuration(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}

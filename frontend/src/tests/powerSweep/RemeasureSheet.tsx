@@ -1,11 +1,12 @@
 import { useMemo, useRef, useState } from 'react'
-import { Box, Button, Popover, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Popover, Stack, Tooltip, Typography } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import { useAppPalette } from '../../context/ThemeModeContext'
 import { MONO, PRESS_SX, SegmentedChoice, TEXT } from '../../ui'
 import { formatDuration } from '../../lib/async'
 import type { ResultRow } from '../../types/models'
 import { configsInTabs, tabCounts, type SweepConfigPoint } from './remeasure'
+import { NumberField } from '../../ui/NumberField'
 
 const PA_OPTIONS = [
   { value: '0' as const, label: 'Off' },
@@ -72,8 +73,8 @@ export function RemeasureSheet({
   const field = (label: string, value: number, set: (v: number) => void) => (
     <Stack direction="row" alignItems="center" spacing={0.75}>
       <Typography sx={{ ...TEXT.label, color: 'text.secondary' }}>{label}</Typography>
-      <TextField
-        size="small" type="number" value={value}
+      <NumberField
+        size="small" value={value}
         onChange={(e) => {
           const v = Math.round(Number(e.target.value))
           if (Number.isFinite(v)) set(v)

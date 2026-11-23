@@ -52,6 +52,14 @@ turns that heading into the version and date.
   rebinding).
 - `http()` keeps its JSON `Content-Type` when a caller adds headers, and sends
   none on a request without a body.
+- Number fields can be emptied while typing a new value; clearing one no
+  longer puts a 0 (or 1) in the box. Leaving a field empty restores its last
+  value. Shared as `ui/NumberField`, and built into `LabeledField`.
+- The Spectrum chart draws a long trace thinned to 2,000 points, keeping each
+  stretch's highest and lowest value so no spur or notch drops out. Markers
+  and readouts still use the full trace.
+- The chat panel's icon buttons (attach, clear, close, copy, send) have
+  screen-reader labels, and a message's Copy button shows when tabbed to.
 
 ## [1.4.0] - 2026-11-22
 
