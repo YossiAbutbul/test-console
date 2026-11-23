@@ -10,6 +10,10 @@ turns that heading into the version and date.
 
 ## [Unreleased]
 
+### Changed
+- The frontend build no longer warns about chunk size: the limit is 3 MB
+  (from 500 kB), just above the Reports page, which loads on demand.
+
 ## [1.5.0] - 2026-11-23
 
 ### Changed
