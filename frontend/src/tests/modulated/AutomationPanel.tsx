@@ -2,50 +2,38 @@ import { PowerSourceFields } from '../../components/PowerSourceFields'
 import {
   measureSpectrumOf, powerInstrument, powerSourceOf, powerSourceValid, type PowerSourceState,
 } from '../../lib/powerSource'
-import { memo, useCallback, useEffect, useRef, useMemo, useState } from 'react'
-import {
-  Box, Divider, IconButton, MenuItem, Stack, Table, TableBody, TableCell,
-  TableHead, TableRow, TextField, Tooltip, Typography,
-} from '@mui/material'
-import AddIcon from '@mui/icons-material/AddRounded'
-import DeleteIcon from '@mui/icons-material/DeleteRounded'
-import DownloadIcon from '@mui/icons-material/DownloadRounded'
-import UploadIcon from '@mui/icons-material/UploadRounded'
-import DeleteSweepIcon from '@mui/icons-material/DeleteSweepRounded'
-import ShowChartIcon from '@mui/icons-material/ShowChartRounded'
-import WarningAmberIcon from '@mui/icons-material/WarningAmberRounded'
-import { useMutation } from '@tanstack/react-query'
+import { useState } from 'react'
+import { Box, MenuItem, Stack, TableCell, TableRow, TextField } from '@mui/material'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
 import { device } from '../../api/device'
 import { instrumentsApi } from '../../api/instruments'
 import { usePathLoss } from '../../context/PathLossContext'
 import { useConnection } from '../../context/ConnectionContext'
-import { formatDuration, sleep } from '../../lib/async'
+import { sleep } from '../../lib/async'
 import { downloadCsv as saveCsv, exportName } from '../../lib/download'
-import { useNotify } from '../../context/NotifyContext'
 import { fmt } from '../../lib/format'
 import { parseRangeSpec } from '../../lib/numericList'
+import { parseLimit, verdictWithinMargin } from '../../lib/verdict'
+import { DEFAULT_SETTLE_MS, clampSettleMs } from '../../lib/settle'
+import {
+  GRID_GAP, Section, FAIL_ROW_SX, HeadCell, NUM_CELL_SX, VerdictMark, deltaText,
+} from '../../ui'
 import { CSV_HEADER, parseModulatedCsv, toCsvBody } from './csv'
 import {
   BW_OPTIONS, MODEM_FSK, MODEM_LABEL, MODEM_LORA, SF_DEFAULT, SF_MAX, SF_MIN,
   drRange,
 } from './signal'
-import { parseLimit, tallyVerdicts, verdictWithinMargin } from '../../lib/verdict'
-import {
-  DEFAULT_SETTLE_MS as SHARED_DEFAULT_SETTLE_MS, MIN_SETTLE_MS, clampSettleMs,
-} from '../../lib/settle'
-import { scrollBehavior, FollowLatest, useFollowBottom, CONTROL_H, GRID_GAP, MiniAction, Section, TEXT,
-  FAIL_ROW_SX, HeadCell, NUM_CELL_SX, VerdictMark, deltaText,
-  VerdictTally, type VerdictFilter,
-} from '../../ui'
 import { ResultsGraphModal, type GraphableRow } from '../power/LazyResultsGraphModal'
-import { runSequence } from '../engine/runSequence'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
-import { useRunReporter } from '../engine/useRunReporter'
-import { TopProgress } from '../../components/TopProgress'
-import { usePublishLiveOutput } from '../../context/liveOutput'
-import { RunTiming } from '../../ui/RunTiming'
+import { useAutomationRun, type AutomationControls, type PointContext } from '../engine/useAutomationRun'
+import {
+  ColHead, ResultsCard, SettleEstimate, SettleField, SweepCard, SweepRowShell,
+} from '../engine/AutomationKit'
+import {
+  BODY_ROW_SX, CELL_SX, STEP_OVERHEAD_TIMEOUT_MS, useAddRowFocus,
+} from '../engine/automationLayout'
 import type { InstrumentId } from '../../context/InstrumentsContext'
+import { useSnapshotState } from '../../store/useSnapshotState'
 import {
   modulatedPageSnapshot,
   persistModulatedPage,
@@ -53,7 +41,8 @@ import {
   type ModulatedSweepRow,
 } from '../../store/modulatedPageStore'
 import { selectOnFocus } from '../../lib/selectOnFocus'
-import { AddToReport } from '../../components/reports/AddToReport'
+
+export type { AutomationControls } from '../engine/useAutomationRun'
 
 type ResultRow = ModulatedResultRow
 type SweepRow = ModulatedSweepRow
@@ -62,29 +51,10 @@ type SweepRow = ModulatedSweepRow
 /** Beside the one that reads power, which the panel's power source names. */
 const REQUIRED_INSTRUMENTS: InstrumentId[] = ['dc-analyzer']
 
-/** Budget for the command + measurement either side of the settle delay. */
-const STEP_OVERHEAD_TIMEOUT_MS = 30_000
-
-const DEFAULT_SETTLE_MS = SHARED_DEFAULT_SETTLE_MS
-
-/** A settle above this is almost always a typo (500 → 50000). */
-const LONG_SETTLE_MS = 10_000
-
 const DEFAULT_POWER = '14'
-/**
- * The sweep card grows with its rows up to `PANEL_HEIGHT`, then scrolls
- * inside. A fixed 250 left ~90 px of empty card under a one-row sweep that
- * Results wanted. The floor holds two rows, so adding or removing the
- * second row does not move the footer or the Results card under it.
- */
-const PANEL_HEIGHT = 250
-const PANEL_MIN_HEIGHT = 200
 
 /**
  * Sweep table columns.
- *
- * One grid template shared by the header and every row, so the two cannot
- * drift apart the way per-cell fixed widths do.
  *
  * The range-spec columns flex and the pickers stay fixed, so the table fills
  * the panel without the five inputs becoming equal-width — a picker stretched
@@ -94,11 +64,20 @@ const PANEL_MIN_HEIGHT = 200
 // 868 the delete key and the points readout ran off the card. Spec floors 104,
 // pickers trimmed to their longest label, tolerance a fixed 80 like the other
 // sweep pages. MIN_TABLE_W is the sum of the floors and the eight 8 px gaps.
-// Tolerance is 104 px: its heading, "Tolerance ± dB", has to fit whole --
-// at 80 it was cut to "Tolerance ±…".
 const COLS = '20px minmax(104px, 1fr) minmax(104px, 1fr) 88px 112px 92px'
   + ' 104px 64px 32px'
 const MIN_TABLE_W = 784
+
+/**
+ * Results table columns: shares of a table at least 740 px wide. Each
+ * column's floor is its heading or its widest value, so a heading such as
+ * "Measured [dBm]" is never cut; narrower than that, the table scrolls
+ * sideways instead.
+ */
+const RESULT_MIN_W = 740
+const RESULT_COLS = [
+  40, '11.35%', '10.27%', '8.11%', '9.19%', '5.41%', '15.14%', '8.11%', '9.19%', '10.81%', '8.11%',
+]
 
 const DEFAULT_ROW: SweepRow = {
   freq: '',
@@ -154,73 +133,77 @@ interface PlanPoint {
   marginDb: number | null
 }
 
-/** Column heading, in the same shape as `LabeledField`: name, then a quieter
- *  unit or range beside it. */
-function ColHead({ label, hint }: { label: string; hint?: string }) {
-  return (
-    <Typography
-      component="span"
-      sx={{
-        fontSize: 13, fontWeight: 500, color: 'text.primary',
-        // Truncate rather than run into the next column. A hint that outgrew
-        // its column used to sit on top of the heading beside it.
-        display: 'block', whiteSpace: 'nowrap', overflow: 'hidden',
-        textOverflow: 'ellipsis',
-      }}
-    >
-      {label}
-      {hint && (
-        <Box
-          component="span"
-          sx={{ ml: 0.5, fontSize: 12, fontWeight: 400, color: 'text.secondary' }}
-        >
-          {hint}
-        </Box>
-      )}
-    </Typography>
-  )
+/** Points one row expands to. An empty power falls back to the default. */
+function rowPoints(r: SweepRow): PlanPoint[] {
+  const freqs = parseRangeSpec(r.freq).filter((f) => f > 0)
+  if (freqs.length === 0 || !drValid(r) || !marginValid(r)) return []
+  const powers = parseRangeSpec(r.power, Number(DEFAULT_POWER))
+  const out: PlanPoint[] = []
+  for (const f of freqs) {
+    for (const p of powers) {
+      out.push({
+        freq: f,
+        pow: p,
+        modem: r.modem,
+        bandwidth: effectiveBw(r),
+        datarate: r.datarate,
+        marginDb: parseLimit(r.marginDb),
+      })
+    }
+  }
+  return out
 }
 
-/** One line box for every body cell. The word cells (Verdict, Status) are in
- *  the proportional face and the numbers in MONO, and with each cell keeping
- *  its own font's line height the two sat 1-2 px apart along a row. */
-const BODY_ROW_SX = { '& > td': { verticalAlign: 'middle', lineHeight: '20px' } } as const
-
-const ResultTableRow = memo(function ResultTableRow({ r, i }: { r: ResultRow; i: number }) {
-  return (
-    <TableRow sx={[BODY_ROW_SX, r.verdict === 'fail' && FAIL_ROW_SX]}>
-      <TableCell sx={NUM_CELL_SX}>{i + 1}</TableCell>
-      <TableCell sx={NUM_CELL_SX}>{r.freq_mhz.toFixed(3)}</TableCell>
-      <TableCell sx={NUM_CELL_SX}>{r.set_power_dbm}</TableCell>
-      <TableCell>{MODEM_LABEL[r.modem] ?? r.modem}</TableCell>
-      <TableCell sx={{ fontSize: 12 }}>
-        {r.modem === MODEM_FSK ? '—' : (BW_OPTIONS[r.bandwidth]?.label ?? r.bandwidth)}
-      </TableCell>
-      <TableCell sx={NUM_CELL_SX}>{r.datarate}</TableCell>
-      <TableCell sx={NUM_CELL_SX}>{fmt(r.measured_dbm, 2)}</TableCell>
-      {/* Measured minus set: how far the point missed, which the eye
-          otherwise has to work out from two columns apart. */}
-      <TableCell sx={{ ...NUM_CELL_SX, color: r.verdict === 'fail' ? 'error.main' : undefined }}>
-        {deltaText(r.measured_dbm, r.set_power_dbm)}
-      </TableCell>
-      <TableCell sx={NUM_CELL_SX}>
-        {fmt(r.current_a == null ? null : r.current_a * 1000, 1)}
-      </TableCell>
-      <TableCell>
-        <VerdictMark verdict={r.verdict} />
-      </TableCell>
-      <TableCell sx={{ fontSize: 12 }}>
-        {r.error
-          ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
-          : r.ok
-            // Neutral: green is PASS's colour, and "ok" only means
-            // the point was measured.
-            ? <Box component="span" sx={{ color: 'text.secondary' }}>ok</Box>
-            : '—'}
-      </TableCell>
-    </TableRow>
-  )
+const blankRow = (item: PlanPoint): ResultRow => ({
+  freq_mhz: item.freq,
+  set_power_dbm: item.pow,
+  modem: item.modem,
+  bandwidth: item.bandwidth,
+  datarate: item.datarate,
+  measured_dbm: null,
+  measured_dbm_raw: null,
+  current_a: null,
+  voltage_v: null,
+  margin_db: item.marginDb,
+  verdict: null,
+  ok: false,
+  status: null,
+  error: null,
 })
+
+const renderResultRow = (r: ResultRow, i: number) => (
+  <TableRow sx={[BODY_ROW_SX, r.verdict === 'fail' && FAIL_ROW_SX]}>
+    <TableCell sx={NUM_CELL_SX}>{i + 1}</TableCell>
+    <TableCell sx={NUM_CELL_SX}>{r.freq_mhz.toFixed(3)}</TableCell>
+    <TableCell sx={NUM_CELL_SX}>{r.set_power_dbm}</TableCell>
+    <TableCell>{MODEM_LABEL[r.modem] ?? r.modem}</TableCell>
+    <TableCell sx={{ fontSize: 12 }}>
+      {r.modem === MODEM_FSK ? '—' : (BW_OPTIONS[r.bandwidth]?.label ?? r.bandwidth)}
+    </TableCell>
+    <TableCell sx={NUM_CELL_SX}>{r.datarate}</TableCell>
+    <TableCell sx={NUM_CELL_SX}>{fmt(r.measured_dbm, 2)}</TableCell>
+    {/* Measured minus set: how far the point missed, which the eye
+        otherwise has to work out from two columns apart. */}
+    <TableCell sx={{ ...NUM_CELL_SX, color: r.verdict === 'fail' ? 'error.main' : undefined }}>
+      {deltaText(r.measured_dbm, r.set_power_dbm)}
+    </TableCell>
+    <TableCell sx={NUM_CELL_SX}>
+      {fmt(r.current_a == null ? null : r.current_a * 1000, 1)}
+    </TableCell>
+    <TableCell>
+      <VerdictMark verdict={r.verdict} />
+    </TableCell>
+    <TableCell sx={{ fontSize: 12 }}>
+      {r.error
+        ? <Box component="span" sx={{ color: 'error.main' }}>{r.error}</Box>
+        : r.ok
+          // Neutral: green is PASS's colour, and "ok" only means
+          // the point was measured.
+          ? <Box component="span" sx={{ color: 'text.secondary' }}>ok</Box>
+          : '—'}
+    </TableCell>
+  </TableRow>
+)
 
 /** Graph row, with the signal configuration as the series. Without it two
  *  waveforms at the same freq and power overwrite each other on the graph. */
@@ -246,26 +229,17 @@ function snap(): NonNullable<typeof modulatedPageSnapshot.automation> {
   return modulatedPageSnapshot.automation
 }
 
-/**
- * What the page header needs to drive the run.
- *
- * The run lives here, but its buttons belong in the header next to the manual
- * tab's Send/Stop, so switching tabs does not move the primary action.
- */
-export interface AutomationControls {
-  running: boolean
-  canRun: boolean
-  /** "3/40", for the label while running. */
-  progress: string
-  onRun: () => void
-  onStop: () => void
-  /** Size of the plan and its time estimate, for the Settings check on the
-   *  page's course. */
-  totalPoints: number
-  plannedMs: number
-  /** Frequencies the plan measures at, for the Path loss check. */
-  freqsMhz: number[]
-}
+// The range-spec syntax under the table. Built once for both the footer
+// line and its tooltip, which shows it whole when the line is cut short.
+const SYNTAX_HINT = (
+  <>
+    Freq / Power: "915" · "900-930" · "900-930:5" · "902.3,915,927.5"
+    <Box component="span" sx={{ ml: 1.5 }}>
+      Tolerance: within ± dB of the set power · blank for no verdict
+    </Box>
+  </>
+)
+const SYNTAX_LINE = 'Freq / Power: "915" · "900-930" · "900-930:5" · "902.3,915" · Tolerance blank = no verdict'
 
 interface AutomationPanelProps {
   protocol: string
@@ -274,20 +248,21 @@ interface AutomationPanelProps {
 }
 
 export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelProps) {
-  const { lossAt, defaultDb } = usePathLoss()
+  const { lossAt } = usePathLoss()
   const { status: bleStatus } = useConnection()
-  const reporter = useRunReporter('Modulated automation', 'Automation')
   // Every point reads power and current; without these the run completes with
   // a table of blanks.
   // What reads power for the sweep: the sensor, or the spectrum analyzer at
   // this panel's own settings (lib/powerSource.ts).
-  const [powerSrc, setPowerSrc] = useState<PowerSourceState>(() => powerSourceOf(snap().powerSource))
+  const [powerSrc, setPowerSrc] = useSnapshotState<PowerSourceState>(
+    () => powerSourceOf(snap().powerSource),
+    (v) => { snap().powerSource = v; persistModulatedPage() },
+  )
   const sourceOk = powerSourceValid(powerSrc)
   const preflight = useInstrumentPreflight([powerInstrument(powerSrc), ...REQUIRED_INSTRUMENTS])
-  const notify = useNotify()
   const hasBackend = protocol === 'LoRa'
 
-  const [rows, setRows] = useState<SweepRow[]>(() => {
+  const [rows, setRows] = useSnapshotState<SweepRow[]>(() => {
     const stored = snap().rows
     if (stored?.length) return stored.map(normaliseRow)
     return [
@@ -295,73 +270,23 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
       { ...DEFAULT_ROW, freq: '915.0' },
       { ...DEFAULT_ROW, freq: '927.5' },
     ]
-  })
-  const power = Number(DEFAULT_POWER)  // fallback if a row's power is left empty
+  }, (v) => { snap().rows = v; persistModulatedPage() })
   // Clamped on read: a snapshot saved before the floor existed can hold a
   // value below it, and restoring one would reintroduce the bad readings.
-  const [settleMs, setSettleMs] = useState<number>(
+  const [settleMs, setSettleMs] = useSnapshotState<number>(
     () => clampSettleMs(snap().settleMs ?? DEFAULT_SETTLE_MS),
+    (v) => { snap().settleMs = v; persistModulatedPage() },
   )
-  const [results, setResults] = useState<ResultRow[]>(() => snap().results ?? [])
-  // Mirrored so the end-of-run summary can count verdicts without waiting for
-  // a re-render to publish the last point.
-  const resultsRef = useRef<ResultRow[]>(results)
-
-  useEffect(() => { snap().rows = rows; persistModulatedPage() }, [rows])
-  useEffect(() => { snap().settleMs = settleMs; persistModulatedPage() }, [settleMs])
-  useEffect(() => { snap().powerSource = powerSrc; persistModulatedPage() }, [powerSrc])
-  useEffect(() => { snap().results = results; persistModulatedPage() }, [results])
-
-  const [running, setRunning] = useState(false)
-  const [progressIdx, setProgressIdx] = useState(0)
   const [focusKey, setFocusKey] = useState<string | null>(null)
-  // Replaced per run. Stop aborts it, which cancels the in-flight request and
-  // wakes the settle delay immediately.
-  const abortRef = useRef(new AbortController())
-  const bodyRef = useRef<HTMLDivElement | null>(null)
-  const freqRefs = useRef<Array<HTMLInputElement | null>>([])
-  // A ref, not state: the effect below only needs to know which row to focus
-  // once, and holding it in state would mean clearing it from inside that
-  // effect for nothing.
-  const pendingFocusRef = useRef<number | null>(null)
-  const resultsScrollRef = useRef<HTMLDivElement | null>(null)
-  // Frequencies this run had no calibration for. Collected rather than warned
-  // per point: a 40-point sweep over one uncalibrated band would otherwise
-  // write the same line forty times.
-  const uncalibrated = useRef<Set<number>>(new Set())
   const [graphOpen, setGraphOpen] = useState(false)
-  const fileInput = useRef<HTMLInputElement | null>(null)
-
-  /**
-   * Load a results CSV this panel exported.
-   *
-   * Replaces the table outright rather than appending: the file is a record of
-   * one run, and merging it into another run's points would produce a table
-   * that never existed.
-   */
-  const importFile = async (f: File) => {
-    try {
-      const imported = parseModulatedCsv(await f.text())
-      resultsRef.current = imported
-      setResults(imported)
-      const t = tallyVerdicts(imported)
-      const summary = `${imported.length} point${imported.length === 1 ? '' : 's'}`
-        + (t.total > 0 ? ` · ${t.pass}/${t.total} within limits` : '')
-      reporter.note(`Imported ${summary} from ${f.name}`)
-      notify.success(`Imported ${summary}`)
-    } catch (e) {
-      const message = (e as Error).message
-      reporter.note(`Import failed: ${message}`, 'error')
-      notify.error(message, { title: 'Import failed' })
-    }
-  }
+  const addFocus = useAddRowFocus(rows.length)
 
   const addRow = () => {
     // Index the new row will land at. Recorded before the update rather than
     // inside it, so the updater stays free of side effects. The new row copies
     // the last one's signal settings: adding a frequency to an existing sweep
     // is far more common than starting a different kind of measurement.
-    pendingFocusRef.current = rows.length
+    addFocus.request(rows.length)
     const last = rows[rows.length - 1] ?? DEFAULT_ROW
     setRows((arr) => [...arr, { ...last, freq: '' }])
   }
@@ -369,72 +294,14 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
   const updateRow = (i: number, patch: Partial<SweepRow>) =>
     setRows((arr) => arr.map((x, j) => (j === i ? { ...x, ...patch } : x)))
 
-  /** Points one row expands to. */
-  const rowPoints = (r: SweepRow): PlanPoint[] => {
-    const freqs = parseRangeSpec(r.freq).filter((f) => f > 0)
-    if (freqs.length === 0 || !drValid(r) || !marginValid(r)) return []
-    const powers = parseRangeSpec(r.power, power)
-    const out: PlanPoint[] = []
-    for (const f of freqs) {
-      for (const p of powers) {
-        out.push({
-          freq: f,
-          pow: p,
-          modem: r.modem,
-          bandwidth: effectiveBw(r),
-          datarate: r.datarate,
-          marginDb: parseLimit(r.marginDb),
-        })
-      }
-    }
-    return out
-  }
-
   const plan: PlanPoint[] = rows.flatMap(rowPoints)
-  const totalPoints = plan.length
-  // Joined into a key so the list keeps its identity between renders; the
-  // controls effect below would otherwise re-publish on every one.
-  const planFreqKey = [...new Set(plan.map((p) => p.freq))].join(',')
-  const planFreqs = useMemo(
-    () => (planFreqKey ? planFreqKey.split(',').map(Number) : []),
-    [planFreqKey],
-  )
   // Settle dominates; the command + measure round trips add roughly 300 ms.
-  const estimatedRunMs = totalPoints * (settleMs + 300)
-  // runSequence reports the 1-based point in hand, so the points already
-  // finished are one fewer.
-  const completedPoints = Math.max(0, progressIdx - 1)
-  const plannedRunMs = estimatedRunMs
-  // A "Run" pill in the top bar, so a sweep left running on this page is
-  // visible from every other one. The id is this page's registry id.
-  usePublishLiveOutput('run:modulated', running ? {
-    kind: 'run',
-    label: 'Run',
-    detail: `LoRa Modulated ${progressIdx}/${totalPoints}`,
-    pageId: 'modulated',
-  } : null)
+  const estimatedRunMs = plan.length * (settleMs + 300)
   // A row with a bad datarate contributes no points, so it would otherwise
   // vanish from the plan silently rather than blocking the run.
   const anyInvalid = rows.some(
     (r) => r.freq.trim() !== '' && (!drValid(r) || !marginValid(r)),
   )
-
-  const blankRow = (item: PlanPoint): ResultRow => ({
-    freq_mhz: item.freq,
-    set_power_dbm: item.pow,
-    modem: item.modem,
-    bandwidth: item.bandwidth,
-    datarate: item.datarate,
-    measured_dbm: null,
-    measured_dbm_raw: null,
-    current_a: null,
-    voltage_v: null,
-    margin_db: item.marginDb,
-    verdict: null,
-    ok: false,
-    status: null,
-    error: null,
-  })
 
   /**
    * One point: TX on at this signal → settle → read power/CC → TX off.
@@ -443,9 +310,8 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
    * into the next one, so each reading starts from the same state and the PA
    * is never keyed between points. Never throws — failures land in the row.
    */
-  const measurePoint = async (item: PlanPoint): Promise<ResultRow> => {
+  const measurePoint = async (item: PlanPoint, { signal, noteUncalibrated }: PointContext<ResultRow>) => {
     const fHz = Math.round(item.freq * 1_000_000)
-    const { signal } = abortRef.current
     const row = blankRow(item)
     if (signal.aborted) return row
     try {
@@ -472,16 +338,16 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
           signal, spectrum: measureSpectrumOf(powerSrc), expectedDbm: item.pow - lossAt(item.freq).db,
         })
         row.measured_dbm_raw = m.power_dbm
-        // Looked up per point: a run sweeps frequencies, so a single figure
-        // would be right for at most one of them.
+        // Looked up per point: an automation run sweeps frequencies, so a
+        // single figure would be right for at most one of them.
         const pl = lossAt(item.freq)
         row.measured_dbm = m.power_dbm == null ? null : m.power_dbm + pl.db
-        if (!pl.calibrated) uncalibrated.current.add(item.freq)
+        if (!pl.calibrated) noteUncalibrated(item.freq)
         row.current_a = m.current_a
         row.voltage_v = m.voltage_v
-        // Judged on the corrected power against what was *asked for*, not
-        // the raw sensor reading: the latter is short by the loss of the cable
-        // run and would fail a perfectly good part.
+        // Judged on the corrected power against what was *asked for*, not the
+        // raw sensor reading: the latter is short by the loss of the cable run
+        // and would fail a perfectly good part.
         row.verdict = verdictWithinMargin(row.measured_dbm, item.pow, item.marginDb)
         if (m.error) row.error = m.error
       }
@@ -496,425 +362,197 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
     return row
   }
 
-  const runM = useMutation({
-    mutationFn: async () => {
-      if (!hasBackend) {
-        reporter.note('no backend for this protocol', 'warn')
-        return
-      }
-      if (!(await preflight.run())) {
-        reporter.note('cancelled — instruments not ready', 'warn')
-        return
-      }
-      const abort = new AbortController()
-      abortRef.current = abort
-      setRunning(true)
-      setResults([])
-      resultsRef.current = []
-      setProgressIdx(0)
-      uncalibrated.current.clear()
-      try {
-        await runSequence<PlanPoint, ResultRow>({
-          items: plan,
-          abort,
-          measure: measurePoint,
-          markRowError: (item, _i, message) => ({ ...blankRow(item), error: message }),
-          after: async () => { try { await device.stop() } catch { /* ignore */ } },
-          rowHasError: (r) => !!r.error,
-          judge: tallyVerdicts,
-          onRows: (rows) => { resultsRef.current = rows; setResults(rows) },
-          onProgress: setProgressIdx,
-          // The settle delay is operator-set and can be long; the guard has to
-          // sit above it or it would fire on every point.
-          stepTimeoutMs: settleMs + STEP_OVERHEAD_TIMEOUT_MS,
-          reporter,
-        })
-      } finally {
-        setRunning(false)
-        // Reported apart from the run's own error count: a point that measured
-        // cleanly and missed its limits is a result, not a fault, and folding
-        // the two together would hide whichever mattered.
-        const judged = tallyVerdicts(resultsRef.current)
-        if (judged.total > 0) {
-          reporter.note(
-            `${judged.pass}/${judged.total} points within limits`,
-            judged.fail > 0 ? 'warn' : 'info',
-          )
-        }
-        if (uncalibrated.current.size > 0) {
-          const list = [...uncalibrated.current].sort((a, b) => a - b).join(', ')
-          reporter.note(
-            `path loss not calibrated at ${list} MHz — those points used the `
-            + `default ${defaultDb} dB and their measured power is only as `
-            + 'good as that figure.',
-            'warn',
-          )
-        }
+  const run = useAutomationRun<PlanPoint, ResultRow>({
+    reporterName: 'Modulated automation',
+    // The id is this page's registry id.
+    live: { id: 'run:modulated', detail: 'LoRa Modulated', pageId: 'modulated' },
+    loadResults: () => snap().results ?? [],
+    saveResults: (v) => { snap().results = v; persistModulatedPage() },
+    plan,
+    freqMhz: (p) => p.freq,
+    plannedMs: estimatedRunMs,
+    ready: !anyInvalid && sourceOk,
+    preflight,
+    blankRow,
+    measure: measurePoint,
+    stepTimeoutMs: settleMs + STEP_OVERHEAD_TIMEOUT_MS,
+    refuse: () => (hasBackend ? null : 'no backend for this protocol'),
+    after: async () => { try { await device.stop() } catch { /* ignore */ } },
+    // Independently tell the DUT to stop transmitting — the abort only ends
+    // our side of the conversation.
+    onStop: (reporter) => {
+      if (hasBackend) {
+        void device.stop().catch((e: Error) => reporter.note(`stop failed: ${e.message}`, 'error'))
       }
     },
-    onError: (e: Error) => reporter.failed(e.message),
+    parseCsv: parseModulatedCsv,
+    onControlsChange,
   })
-
-  const onStop = useCallback(() => {
-    // Aborting cancels the in-flight request and wakes the settle delay, so the
-    // loop notices immediately rather than at the end of the point.
-    abortRef.current.abort()
-    // Independently tell the DUT to stop transmitting — the abort only ends our
-    // side of the conversation.
-    if (hasBackend) {
-      void device.stop().catch((e: Error) => reporter.note(`stop failed: ${e.message}`, 'error'))
-    }
-  }, [hasBackend, reporter])
-
-  const runMutate = runM.mutate
-  const onRun = useCallback(() => { runMutate() }, [runMutate])
-
-  // Publish the run state upward so the header can render the buttons. Only
-  // primitives and stable callbacks are in the dependency list, so this settles
-  // after one pass rather than looping on a fresh object each render.
-  useEffect(() => {
-    onControlsChange?.({
-      running,
-      canRun: totalPoints > 0 && !anyInvalid && sourceOk,
-      progress: `${progressIdx}/${totalPoints}`,
-      onRun,
-      onStop,
-      totalPoints,
-      plannedMs: plannedRunMs,
-      freqsMhz: planFreqs,
-    })
-  }, [
-    running, totalPoints, anyInvalid, sourceOk, progressIdx, onRun, onStop, onControlsChange,
-    plannedRunMs, planFreqs,
-  ])
-
-  // Runs when a row is added or removed; only acts when Add asked it to.
-  useEffect(() => {
-    const idx = pendingFocusRef.current
-    if (idx == null) return
-    pendingFocusRef.current = null
-    freqRefs.current[idx]?.focus()
-    const body = bodyRef.current
-    if (body) body.scrollTo({ top: body.scrollHeight, behavior: scrollBehavior() })
-  }, [rows.length])
-
-  // Follow the newest row, unless the operator has scrolled up to read one.
-  const follow = useFollowBottom(resultsScrollRef, results.length)
-
-  const cellSx = { '& .MuiInputBase-root': { height: CONTROL_H.md } }
-
-  // The range-spec syntax under the table. Built once for both the footer
-  // line and its tooltip, which shows it whole when the line is cut short.
-  const syntaxHint = (
-    <>
-      Freq / Power: "915" · "900-930" · "900-930:5" · "902.3,915,927.5"
-      <Box component="span" sx={{ ml: 1.5 }}>
-        Tolerance: within ± dB of the set power · blank for no verdict
-      </Box>
-    </>
-  )
-  // The line itself, cut down so it fits a 1440 window with the inspector
-  // open; the tooltip above still carries every form.
-  const syntaxLine = 'Freq / Power: "915" · "900-930" · "900-930:5" · "902.3,915" · Tolerance blank = no verdict'
-
-  // The results table's verdict filter (the tally's keys). A filter whose
-  // rows are all gone -- Clear, a new run -- falls back to everything rather
-  // than leaving an empty table with a key still lit.
-  const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all')
-  const verdictCounts = tallyVerdicts(results)
-  const shownVerdict: VerdictFilter = verdictFilter !== 'all' && verdictCounts[verdictFilter as 'pass' | 'fail'] === 0
-    ? 'all'
-    : verdictFilter
+  const { results, running } = run
 
   return (
     <Stack spacing={`${GRID_GAP}px`} sx={{ flexGrow: 1, minHeight: 0 }}>
-      <Box
-        sx={{
-          maxHeight: PANEL_HEIGHT, minHeight: PANEL_MIN_HEIGHT,
-          display: 'flex', flexDirection: 'column', flexShrink: 0,
-        }}
+      <SweepCard
+        running={running}
+        totalPoints={run.totalPoints}
+        completedPoints={run.completedPoints}
+        plannedRunMs={estimatedRunMs}
+        controls={<SettleField value={settleMs} onChange={setSettleMs} disabled={running} />}
+        onAdd={addRow}
+        cols={COLS}
+        minTableW={MIN_TABLE_W}
+        heads={<>
+          <ColHead label="Freq" hint="MHz" />
+          <ColHead label="Power" hint="dBm" />
+          <ColHead label="Modem" />
+          <ColHead label="Bandwidth" />
+          {/* No range in the heading: the field is a spreading factor
+              on a LoRa row and a bit rate on an FSK one, so any single
+              range here would be wrong for half the table. Each row
+              carries its own unit instead. */}
+          <ColHead label="Datarate" />
+          <ColHead label="Tolerance" hint="± dB" />
+        </>}
+        bodyRef={addFocus.bodyRef}
+        syntaxHint={SYNTAX_HINT}
+        syntaxLine={SYNTAX_LINE}
+        estimate={run.totalPoints > 0 && <SettleEstimate ms={estimatedRunMs} settleMs={settleMs} />}
       >
-        {/* Same bar the Mode Sweep pins under the top bar. Fixed, so it takes
-            no room here, and it disappears with the tab or page it is on. */}
-        <TopProgress
-          pct={totalPoints > 0 ? (completedPoints / totalPoints) * 100 : 0}
-          hidden={!running}
-        />
-        <Section
-          title="Sweep"
-          panel
-          grow
-          action={
-            <Stack direction="row" alignItems="center" spacing={1.25}>
-              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                {totalPoints} point{totalPoints === 1 ? '' : 's'}
-              </Typography>
-              {/* Settle is the one thing here that is genuinely run-wide: it is
-                  about instrument timing, not about the signal, so it stays out
-                  of the table. */}
-              <Stack direction="row" alignItems="center" spacing={0.75}>
-                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Settle</Typography>
-                <TextField
-                  size="small"
-                  type="number"
-                  value={settleMs}
-                  onChange={(e) => setSettleMs(Math.max(0, Number(e.target.value) || 0))}
-                  onBlur={() => setSettleMs((v) => clampSettleMs(v))}
-                  disabled={running}
-                  inputProps={{ min: MIN_SETTLE_MS, step: 50 }}
-                  // The heading's one control height, shared with the segmented
-                  // choice and the text actions beside it; the theme's
-                  // small input is 32.
-                  sx={{ width: 84, '& .MuiInputBase-root': { height: CONTROL_H.sm } }}
-                />
-                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>ms</Typography>
-              </Stack>
-              <MiniAction startIcon={<AddIcon />} onClick={addRow} disabled={running}>
-                Add
-              </MiniAction>
-            </Stack>
-          }
-        >
-          <Box ref={bodyRef} sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', overflowX: 'auto' }}>
-            <Box sx={{ minWidth: MIN_TABLE_W }}>
-              <Box
-                sx={{
-                  display: 'grid', gridTemplateColumns: COLS, gap: 1,
-                  alignItems: 'end', mb: 0.75,
+        {rows.map((r, i) => {
+          const freqs = parseRangeSpec(r.freq).filter((f) => f > 0)
+          const badFreq = r.freq.trim() !== '' && freqs.length === 0
+          const powers = parseRangeSpec(r.power, Number(DEFAULT_POWER))
+          const badPower = r.power.trim() !== '' && powers.length === 0
+          const badMargin = !marginValid(r)
+          const isFsk = r.modem === MODEM_FSK
+          const dr = drRange(r.modem)
+          const badDr = !drValid(r)
+          return (
+            <SweepRowShell
+              key={i} index={i} cols={COLS} points={rowPoints(r).length}
+              onRemove={() => removeRow(i)} disabled={running}
+            >
+              <TextField
+                size="small" sx={CELL_SX}
+                value={r.freq}
+                onChange={(e) => updateRow(i, { freq: e.target.value })}
+                inputRef={addFocus.inputRef(i)}
+                placeholder="915 or 900-930"
+                disabled={running}
+                error={badFreq}
+                onFocus={(e) => { selectOnFocus(e); setFocusKey(`${i}-freq`) }}
+                onBlur={() => setFocusKey((k) => (k === `${i}-freq` ? null : k))}
+                InputProps={{
+                  endAdornment: (
+                    <ValidationAdornment
+                      show={shouldShowValidation(r.freq, !badFreq, focusKey === `${i}-freq`)}
+                      message={r.freq.trim() === '' ? 'Enter a value' : 'Invalid. Try 915 or 900-930'}
+                    />
+                  ),
                 }}
-              >
-                <Box />
-                <ColHead label="Freq" hint="MHz" />
-                <ColHead label="Power" hint="dBm" />
-                <ColHead label="Modem" />
-                <ColHead label="Bandwidth" />
-                {/* No range in the heading: the field is a spreading factor
-                    on a LoRa row and a bit rate on an FSK one, so any single
-                    range here would be wrong for half the table. Each row
-                    carries its own unit instead. */}
-                <ColHead label="Datarate" />
-                <ColHead label="Tolerance" hint="± dB" />
-                <Box />
-                <Box />
-              </Box>
-
-              <Stack spacing={0.75}>
-                {rows.map((r, i) => {
-                  const freqs = parseRangeSpec(r.freq).filter((f) => f > 0)
-                  const badFreq = r.freq.trim() !== '' && freqs.length === 0
-                  const powers = parseRangeSpec(r.power, power)
-                  const badPower = r.power.trim() !== '' && powers.length === 0
-                  const isFsk = r.modem === MODEM_FSK
-                  const dr = drRange(r.modem)
-                  const badDr = !drValid(r)
-                  const badMargin = !marginValid(r)
-                  const steps = rowPoints(r).length
-                  return (
-                    <Box
-                      key={i}
-                      sx={{
-                        display: 'grid', gridTemplateColumns: COLS, gap: 1,
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Typography sx={{ fontSize: 12, color: 'text.secondary', textAlign: 'right' }}>
-                        {i + 1}.
-                      </Typography>
-
-                      <TextField
-                        size="small" sx={cellSx}
-                        value={r.freq}
-                        onChange={(e) => updateRow(i, { freq: e.target.value })}
-                        inputRef={(el: HTMLInputElement | null) => { freqRefs.current[i] = el }}
-                        placeholder="915 or 900-930"
-                        disabled={running}
-                        error={badFreq}
-                        onFocus={(e) => { selectOnFocus(e); setFocusKey(`${i}-freq`) }}
-                        onBlur={() => setFocusKey((k) => (k === `${i}-freq` ? null : k))}
-                        InputProps={{
-                          endAdornment: (
-                            <ValidationAdornment
-                              show={shouldShowValidation(r.freq, !badFreq, focusKey === `${i}-freq`)}
-                              message={r.freq.trim() === '' ? 'Enter a value' : 'Invalid. Try 915 or 900-930'}
-                            />
-                          ),
-                        }}
-                      />
-
-                      <TextField
-                        size="small" sx={cellSx}
-                        placeholder="14 or 10-20"
-                        value={r.power}
-                        onChange={(e) => updateRow(i, { power: e.target.value })}
-                        onFocus={(e) => { selectOnFocus(e); setFocusKey(`${i}-power`) }}
-                        onBlur={() => setFocusKey((k) => (k === `${i}-power` ? null : k))}
-                        disabled={running}
-                        error={badPower}
-                        InputProps={{
-                          endAdornment: (
-                            <ValidationAdornment
-                              show={shouldShowValidation(r.power, !badPower, focusKey === `${i}-power`)}
-                              message="Invalid. Try 14 or 10-20"
-                            />
-                          ),
-                        }}
-                      />
-
-                      <TextField
-                        size="small" select sx={cellSx}
-                        value={r.modem}
-                        disabled={running}
-                        onChange={(e) => {
-                          // Carry the datarate to something legal for the modem
-                          // being switched to: an SF of 7 means nothing as a bit
-                          // rate, and 50000 is not a spreading factor.
-                          const next = Number(e.target.value)
-                          const stillValid = drValid({ ...r, modem: next })
-                          updateRow(i, {
-                            modem: next,
-                            datarate: stillValid
-                              ? r.datarate
-                              : (next === MODEM_FSK ? 50_000 : SF_DEFAULT),
-                          })
-                        }}
-                      >
-                        <MenuItem value={MODEM_LORA}>LoRa</MenuItem>
-                        <MenuItem value={MODEM_FSK}>FSK</MenuItem>
-                      </TextField>
-
-                      <TextField
-                        size="small" select sx={cellSx}
-                        value={effectiveBw(r)}
-                        // FSK has no bandwidth of its own — the DUT wants 0.
-                        disabled={running || isFsk}
-                        onChange={(e) => updateRow(i, { bandwidth: Number(e.target.value) })}
-                      >
-                        {BW_OPTIONS.map((bw) => (
-                          <MenuItem key={bw.code} value={bw.code}>{bw.label}</MenuItem>
-                        ))}
-                      </TextField>
-
-                      <TextField
-                        size="small" type="number" sx={cellSx}
-                        value={r.datarate}
-                        disabled={running}
-                        error={badDr}
-                        onChange={(e) => updateRow(i, { datarate: Math.round(Number(e.target.value) || 0) })}
-                        inputProps={{ min: dr.min, max: dr.max, step: 1 }}
-                        InputProps={{
-                          // No unit inside the field. What this number means —
-                          // spreading factor or bit rate — is already settled
-                          // by the Modem cell two columns to the left, and the
-                          // field's own message names the range when it is
-                          // wrong. A prefix here was just crowding the value.
-                          endAdornment: (
-                            <ValidationAdornment
-                              show={badDr}
-                              message={isFsk ? `Bit rate, ${dr.min}-${dr.max}` : `SF ${SF_MIN}-${SF_MAX}`}
-                            />
-                          ),
-                        }}
-                      />
-
-                      {/* No "±" in front of the field: the column heading
-                          already says "± dB", and printing it again on every
-                          row read as a second, different sign. */}
-                      <TextField
-                        size="small" type="number"
-                        sx={{ ...cellSx, minWidth: 0 }}
-                        value={r.marginDb}
-                        placeholder="—"
-                        disabled={running}
-                        error={badMargin}
-                        onChange={(e) => updateRow(i, { marginDb: e.target.value })}
-                        onFocus={selectOnFocus}
-                        inputProps={{ min: 0, step: 0.5 }}
-                        InputProps={{
-                          endAdornment: (
-                            <ValidationAdornment
-                              show={badMargin}
-                              message="A tolerance in dB, 0 or more, or blank for no verdict"
-                            />
-                          ),
-                        }}
-                      />
-
-                      {/* "points", the heading's word for the same count. */}
-                      <Typography sx={{ fontSize: 12, color: 'text.secondary', whiteSpace: 'nowrap' }}>
-                        {steps} point{steps === 1 ? '' : 's'}
-                      </Typography>
-
-                      {/* Pinned to the right edge, on the card's own fill, so
-                          when a narrow panel scrolls the row sideways the key
-                          that removes it stays in reach. */}
-                      <Box sx={{ display: 'flex', position: 'sticky', right: 0, zIndex: 1, bgcolor: 'background.paper' }}>
-                        <Tooltip title="Remove row">
-                          <span>
-                            <IconButton
-                              size="small"
-                              aria-label={`Remove row ${i + 1}`}
-                              onClick={() => removeRow(i)}
-                              disabled={running}
-                            >
-                              <DeleteIcon sx={{ fontSize: 18 }} />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      </Box>
-                    </Box>
-                  )
-                })}
-              </Stack>
-            </Box>
-          </Box>
-
-          <Stack
-            direction="row"
-            justifyContent="space-between"
-            spacing={2}
-            sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}
-          >
-            {/* Shrinks and ellipsizes rather than pushing the estimate out of the
-                panel: both used to be nowrap in a fixed-height box, and the
-                estimate was the one that got clipped. The full text is on hover. */}
-            <Tooltip title={syntaxHint} placement="top-start">
-              <Typography
-                sx={{
-                  fontSize: 12, color: 'text.secondary', whiteSpace: 'nowrap',
-                  minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
-                }}
-              >
-                {syntaxLine}
-              </Typography>
-            </Tooltip>
-            {/* A long settle looks identical to a hung run, so state the cost up
-                front rather than letting the operator guess. */}
-            {running ? (
-              <RunTiming
-                running={running}
-                completed={completedPoints}
-                total={totalPoints}
-                plannedTotalMs={plannedRunMs}
-                sx={{ flexShrink: 0 }}
               />
-            ) : totalPoints > 0 && (
-              <Typography
-                sx={{
-                  ...TEXT.micro,
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                  color: settleMs >= LONG_SETTLE_MS ? 'warning.main' : 'text.secondary',
+
+              <TextField
+                size="small" sx={CELL_SX}
+                placeholder="14 or 10-20"
+                value={r.power}
+                onChange={(e) => updateRow(i, { power: e.target.value })}
+                onFocus={(e) => { selectOnFocus(e); setFocusKey(`${i}-power`) }}
+                onBlur={() => setFocusKey((k) => (k === `${i}-power` ? null : k))}
+                disabled={running}
+                error={badPower}
+                InputProps={{
+                  endAdornment: (
+                    <ValidationAdornment
+                      show={shouldShowValidation(r.power, !badPower, focusKey === `${i}-power`)}
+                      message="Invalid. Try 14 or 10-20"
+                    />
+                  ),
+                }}
+              />
+
+              <TextField
+                size="small" select sx={CELL_SX}
+                value={r.modem}
+                disabled={running}
+                onChange={(e) => {
+                  // Carry the datarate to something legal for the modem
+                  // being switched to: an SF of 7 means nothing as a bit
+                  // rate, and 50000 is not a spreading factor.
+                  const next = Number(e.target.value)
+                  const stillValid = drValid({ ...r, modem: next })
+                  updateRow(i, {
+                    modem: next,
+                    datarate: stillValid
+                      ? r.datarate
+                      : (next === MODEM_FSK ? 50_000 : SF_DEFAULT),
+                  })
                 }}
               >
-                {settleMs >= LONG_SETTLE_MS && (
-                  <WarningAmberIcon sx={{ fontSize: 14, verticalAlign: '-2px', mr: 0.5 }} />
-                )}
-                ≈ {formatDuration(estimatedRunMs)}
-              </Typography>
-            )}
-          </Stack>
-        </Section>
-      </Box>
+                <MenuItem value={MODEM_LORA}>LoRa</MenuItem>
+                <MenuItem value={MODEM_FSK}>FSK</MenuItem>
+              </TextField>
+
+              <TextField
+                size="small" select sx={CELL_SX}
+                value={effectiveBw(r)}
+                // FSK has no bandwidth of its own — the DUT wants 0.
+                disabled={running || isFsk}
+                onChange={(e) => updateRow(i, { bandwidth: Number(e.target.value) })}
+              >
+                {BW_OPTIONS.map((bw) => (
+                  <MenuItem key={bw.code} value={bw.code}>{bw.label}</MenuItem>
+                ))}
+              </TextField>
+
+              <TextField
+                size="small" type="number" sx={CELL_SX}
+                value={r.datarate}
+                disabled={running}
+                error={badDr}
+                onChange={(e) => updateRow(i, { datarate: Math.round(Number(e.target.value) || 0) })}
+                inputProps={{ min: dr.min, max: dr.max, step: 1 }}
+                InputProps={{
+                  // No unit inside the field. What this number means —
+                  // spreading factor or bit rate — is already settled
+                  // by the Modem cell two columns to the left, and the
+                  // field's own message names the range when it is
+                  // wrong. A prefix here was just crowding the value.
+                  endAdornment: (
+                    <ValidationAdornment
+                      show={badDr}
+                      message={isFsk ? `Bit rate, ${dr.min}-${dr.max}` : `SF ${SF_MIN}-${SF_MAX}`}
+                    />
+                  ),
+                }}
+              />
+
+              {/* No "±" in front of the field: the column heading
+                  already says "± dB", and printing it again on every
+                  row read as a second, different sign. */}
+              <TextField
+                size="small" type="number"
+                sx={{ ...CELL_SX, minWidth: 0 }}
+                value={r.marginDb}
+                placeholder="—"
+                disabled={running}
+                error={badMargin}
+                onChange={(e) => updateRow(i, { marginDb: e.target.value })}
+                onFocus={selectOnFocus}
+                inputProps={{ min: 0, step: 0.5 }}
+                InputProps={{
+                  endAdornment: (
+                    <ValidationAdornment
+                      show={badMargin}
+                      message="A tolerance in dB, 0 or more, or blank for no verdict"
+                    />
+                  ),
+                }}
+              />
+            </SweepRowShell>
+          )
+        })}
+      </SweepCard>
 
       {/* What reads power for the sweep, as the manual tab's Measure
           section has it. Between the plan and its results: it decides
@@ -923,136 +561,36 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
         <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={running} />
       </Section>
 
-      <Section
-        title="Results"
-        panel
-        grow
-        action={
-          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
-            <MiniAction
-              startIcon={<ShowChartIcon />}
-              onClick={() => setGraphOpen(true)}
-              disabled={results.length === 0}
-            >
-              Graph
-            </MiniAction>
-            <MiniAction
-              startIcon={<DownloadIcon />}
-              onClick={() => downloadCsv(results, bleStatus?.address ?? null)}
-              disabled={results.length === 0}
-            >
-              Export
-            </MiniAction>
-            {/* The table as Export writes it, into a product's report. */}
-            <AddToReport
-              disabled={results.length === 0 || running}
-              build={() => ({
-                test: 'lora-modulated-automation', title: 'LoRa modulated automation',
-                settings: [['Settle', `${settleMs} ms`]],
-                columns: [...CSV_HEADER], rows: toCsvBody(results),
-              })}
-            />
-            <MiniAction
-              startIcon={<UploadIcon />}
-              onClick={() => fileInput.current?.click()}
-              disabled={running}
-            >
-              Import
-            </MiniAction>
-            {/* Clear last and apart: it is the one action here that throws
-                results away, and it used to sit between Import and Graph. */}
-            <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.5 }} />
-            <MiniAction
-              tone="destructive"
-              startIcon={<DeleteSweepIcon />}
-              onClick={() => { resultsRef.current = []; setResults([]) }}
-              disabled={results.length === 0 || running}
-            >
-              Clear
-            </MiniAction>
-          </Stack>
-        }
-      >
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".csv"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0]
-            // Reset first: re-picking the same file fires no change event
-            // otherwise, so a second import would look ignored.
-            e.target.value = ''
-            if (f) void importFile(f)
-          }}
-        />
-
-        {/* Shown with zeros before the first result too, so the first row of
-            a run lands in a table that is already where it will stay. */}
-        {(() => {
-          const t = tallyVerdicts(results)
-          return (
-            <VerdictTally
-              pass={t.pass}
-              fail={t.fail}
-              na={results.length - t.total}
-              measured={results.length}
-              planned={running ? totalPoints : undefined}
-              filter={shownVerdict}
-              onFilter={setVerdictFilter}
-            />
-          )
-        })()}
-
-        {/* No "no data yet" line: the table itself, header and an empty
-            body, so the panel looks the same before the first row as after. */}
-        {(
-          <Box ref={resultsScrollRef} sx={{ flexGrow: 1, minHeight: 0, overflowY: 'scroll', overflowX: 'auto' }}>
-            <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%', minWidth: 740 }}>
-              <colgroup>
-                {/* Shares of a table at least 740 px wide: each column's floor is
-                    its heading or its widest value, so a heading such as
-                    "Measured [dBm]" is never cut. Narrower than that, the table
-                    scrolls sideways instead. */}
-                <col style={{ width: 40 }} />
-                <col style={{ width: '11.35%' }} />
-                <col style={{ width: '10.27%' }} />
-                <col style={{ width: '8.11%' }} />
-                <col style={{ width: '9.19%' }} />
-                <col style={{ width: '5.41%' }} />
-                <col style={{ width: '15.14%' }} />
-                <col style={{ width: '8.11%' }} />
-                <col style={{ width: '9.19%' }} />
-                <col style={{ width: '10.81%' }} />
-                <col style={{ width: '8.11%' }} />
-              </colgroup>
-              <TableHead>
-                <TableRow>
-                  <HeadCell label="#" numeric />
-                  <HeadCell label="Freq" unit="MHz" numeric />
-                  <HeadCell label="Set" unit="dBm" numeric />
-                  <HeadCell label="Modem" />
-                  <HeadCell label="BW" />
-                  <HeadCell label="DR" numeric />
-                  <HeadCell label="Measured" unit="dBm" numeric />
-                  <HeadCell label="Δ" unit="dB" numeric />
-                  <HeadCell label="CC" unit="mA" numeric />
-                  <HeadCell label="Verdict" />
-                  <HeadCell label="Status" />
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {/* Filtered by the tally's keys; each row keeps its own
-                    index, so "#7" is still the seventh point. */}
-                {results.map((r, i) => (shownVerdict === 'all' || r.verdict === shownVerdict) && (
-                  <ResultTableRow key={i} r={r} i={i} />
-                ))}
-              </TableBody>
-            </Table>
-            <FollowLatest follow={follow} />
-          </Box>
-        )}
-      </Section>
+      <ResultsCard
+        results={results}
+        running={running}
+        totalPoints={run.totalPoints}
+        onGraph={() => setGraphOpen(true)}
+        onExport={() => downloadCsv(results, bleStatus?.address ?? null)}
+        report={() => ({
+          test: 'lora-modulated-automation', title: 'LoRa modulated automation',
+          settings: [['Settle', `${settleMs} ms`]],
+          columns: [...CSV_HEADER], rows: toCsvBody(results),
+        })}
+        onImport={(f) => void run.importFile(f)}
+        onClear={() => run.replaceResults([])}
+        minWidth={RESULT_MIN_W}
+        colWidths={RESULT_COLS}
+        heads={<>
+          <HeadCell label="#" numeric />
+          <HeadCell label="Freq" unit="MHz" numeric />
+          <HeadCell label="Set" unit="dBm" numeric />
+          <HeadCell label="Modem" />
+          <HeadCell label="BW" />
+          <HeadCell label="DR" numeric />
+          <HeadCell label="Measured" unit="dBm" numeric />
+          <HeadCell label="Δ" unit="dB" numeric />
+          <HeadCell label="CC" unit="mA" numeric />
+          <HeadCell label="Verdict" />
+          <HeadCell label="Status" />
+        </>}
+        renderRow={renderResultRow}
+      />
 
       <ResultsGraphModal
         open={graphOpen}

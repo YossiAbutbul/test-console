@@ -1,0 +1,13 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`LoRa modulated automation panel > sends each row signal, measures, stops, and judges 1`] = `
+[
+  "/device/lora-modulated {"timeout":5,"bandwidth":1,"freq_hz":915000000,"power_dbm":14,"modem":1,"datarate":9}",
+  "measure freq_hz=915000000",
+  "/device/stop {"timeout":5}",
+  "/device/lora-modulated {"timeout":5,"bandwidth":0,"freq_hz":868000000,"power_dbm":10,"modem":0,"datarate":50000}",
+  "measure freq_hz=868000000",
+  "/device/stop {"timeout":5}",
+  "/device/stop {"timeout":5}",
+]
+`;

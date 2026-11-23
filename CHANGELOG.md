@@ -24,6 +24,15 @@ turns that heading into the version and date.
   is hidden and refresh as soon as it shows again.
 - The Trombone page polls the motor every 2 s at rest, and every 500 ms only
   while it moves or a command or jog is under way.
+- The five sweep panels (LoRa CW / modulated, LTE CW / modulated, BLE CW)
+  share one run hook (`tests/engine/useAutomationRun`) and one layout kit
+  (`tests/engine/AutomationKit`): 5,317 lines become 3,217 in the panels plus
+  775 shared, about 1,300 fewer in all, and a fix now lands once. Each
+  has a component test that pins what a run sends the DUT and the
+  instruments. No behaviour change.
+- Load Pull: `SmithChartModal` (2,069 → 788 lines) and `LoadPullPage`
+  (1,929 → 1,576) are split into smaller files; page fields persist through
+  a shared `useSnapshotState` hook. No behaviour change.
 
 ### Fixed
 - Mode Sweep reads the power sensor and DC analyzer on their instrument bus,

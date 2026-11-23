@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`BLE CW automation panel > sets power per change, tones, measures and relinks each point 1`] = `
+[
+  "setPower 31",
+  "tone {"channel":0,"duration_s":5,"offset":0}",
+  "finishTone",
+  "tone {"channel":39,"duration_s":2,"offset":0}",
+  "finishTone",
+  "ensurePower 20",
+  "tone {"channel":19,"duration_s":2,"offset":0}",
+  "finishTone",
+  "finishTone",
+]
+`;

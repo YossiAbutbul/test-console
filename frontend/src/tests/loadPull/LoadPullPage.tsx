@@ -2,9 +2,9 @@ import { PowerSourceFields } from '../../components/PowerSourceFields'
 import {
   powerInstrument, powerSourceOf, powerSourceValid, spectrumSettingsOf, type PowerSourceState,
 } from '../../lib/powerSource'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Autocomplete, Box, Button, Divider, MenuItem, Stack, TextField,
+  Autocomplete, Box, Button, Divider, Stack, TextField,
   Tooltip, Typography,
 } from '@mui/material'
 import FirstPageIcon from '@mui/icons-material/FirstPageRounded'
@@ -21,7 +21,6 @@ import { alpha } from '@mui/material/styles'
 import { PageHeader } from '../../components/PageHeader'
 import { BenchCourse } from '../../components/BenchCourse'
 import type { CourseStep } from '../../components/courseSteps'
-import { LabeledField } from '../../components/LabeledField'
 import { motor } from '../../api/motor'
 import { servo } from '../../api/servo'
 import { device } from '../../api/device'
@@ -42,7 +41,7 @@ import { saveBlob } from '../../lib/download'
 import { fmt, num } from '../../lib/format'
 import { vswr } from './smith'
 import {
-  ACTION_W, CONTROL_H, EmergencyStop, FieldGrid, MONO, PageBody,
+  ACTION_W, CONTROL_H, EmergencyStop, MONO, PageBody,
   RunControls, Section, StatusChip, TEXT, TwoCol,
   HazardGlyph, hazardRingSx,
   GRID_GAP, JogPad, CheckMark, KeySpinner, MiniAction, SegmentedChoice, type CheckState,
@@ -56,9 +55,13 @@ import {
 import { STORAGE_KEYS } from '../../store/keys'
 import { BandsModal } from '../lte/BandsModal'
 import { ModemBootDialog } from '../lte/ModemBootDialog'
-import { convertChannelSpec, useLteBands, useLteChannelUnit, type ChannelUnit } from '../lte/channel'
+import { useLteBands, useLteChannelUnit } from '../lte/channel'
 import { channelIssues, describeChannelIssues, uplinkFromEarfcn, uplinkFromMhz } from '../../lib/earfcn'
 import { SmithChartModal } from './SmithChartModal'
+import { TestPointSection } from './TestPointSection'
+import { ATT_MAX_LIMIT_DB, legacyAttSpec, parseAttSpec } from './attSpec'
+import { REMEASURE_KEY, VNA_HALF_SPAN_FRAC, useLoadPullRun, type RunTimes } from './useLoadPullRun'
+import { useSnapshotState } from '../../store/useSnapshotState'
 import { RemeasureDialog } from './RemeasureDialog'
 import { LoadPullResultsTable } from './ResultsTable'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
@@ -67,10 +70,9 @@ import type { InstrumentId } from '../../context/InstrumentsContext'
 import { findRange, isComplete, planTrombone, rangeAt, type FreqRange } from './tromboneRanges'
 import { TromboneRangesModal } from './TromboneRangesModal'
 import { useTromboneJog } from './useTromboneJog'
-import { loadPullApi, type LoadPullRunStatus } from '../../api/loadPull'
+import { loadPullApi } from '../../api/loadPull'
 import { useChatSource } from '../../context/ChatContext'
 import { mA } from '../../lib/chatRows'
-import { useAttPrompt } from './AttPrompt'
 import { parseLoadPullCsv } from './importCsv'
 import { SetupDiagramModal } from './SetupDiagramModal'
 // Shared with the Trombone page so both agree on what a mm is.
@@ -106,22 +108,6 @@ const STORAGE_BUDGET_CHARS = 4_000_000
 /** One saved row, generously: 284 characters measured, ~340 with an error. */
 const ROW_CHARS = 350
 
-/**
- * The VNA span around each frequency, as a fraction of it either side, sent
- * with the run (vna_half_span_frac on the backend):
- * 1000 MHz is read on a 995-1005 MHz sweep.
- *
- * The run used to read on whatever span the analyzer was left on, often its
- * full range, where the marker snaps to the nearest of a few hundred points --
- * 900.21 MHz answering for 902.3 on a 201-point 3 GHz sweep. Zoomed, the same
- * points sit tens of kHz apart.
- */
-const VNA_HALF_SPAN_FRAC = 0.005
-
-/** Plan-key prefix of a one-point remeasure run, which the page keeps out of
- *  the table and the run reports. */
-const REMEASURE_KEY = 'remeasure:'
-
 /** The span and marker the run reads `freqMhz` on, in Hz, rounded as the
  *  backend rounds them (`_hz`, then `round(hz * vna_half_span_frac)`). */
 function vnaSpanHz(freqMhz: number) {
@@ -149,62 +135,10 @@ interface PlanPoint {
   attDb: number | null
 }
 
-/** The attenuator's range. It is set by hand in whole dB. */
-const ATT_MAX_LIMIT_DB = 20
-
-/** The attenuator settings a spec names, in the order typed ("20-0:5",
- *  "0-5, 8, 9, 20"), or null while it is empty or names a setting that is
- *  not a whole dB within 0-20. */
-function parseAttSpec(text: string): number[] | null {
-  const vs = parseRangeSpec(text)
-  return vs.length > 0 && vs.every((v) => Number.isInteger(v) && v >= 0 && v <= ATT_MAX_LIMIT_DB)
-    ? vs : null
-}
-
-/** The spec a snapshot saved before the single field had: its start, stop
- *  and step (or the older Att max, which always started at 0). */
-function legacyAttSpec(snap: LoadPullPageSnapshot): string {
-  const start = snap.attStartDb ?? 0
-  const stop = snap.attStopDb ?? snap.attMaxDb ?? ATT_MAX_LIMIT_DB
-  const step = snap.attStepDb ?? 1
-  return step === 1 ? `${start}-${stop}` : `${start}-${stop}:${step}`
-}
-
 /** One height for every control in the drive column. Four kinds of control —
  *  buttons, a jog pad, a toggle group — at three different sizes read as
  *  unrelated widgets rather than one panel for one motor. */
 const DRIVE_H = 32
-
-/** What the Frequency, DUT power and Att values fields accept (see
- *  lib/numericList). Any of them can also mix ranges and values. */
-/** Examples of the four forms, in the field's own unit. */
-const SPEC_EXAMPLES = {
-  mhz: ['915', '900-930', '900-930:5', '902.3, 915'],
-  lteMhz: ['1880', '1860-1900', '1860-1900:10', '1860, 1880'],
-  earfcn: ['18900', '18700-19100', '18700-19100:100', '18700, 18900'],
-  dbm: ['14', '10-20', '10-20:2', '10, 14, 20'],
-  lteDbm: ['23', '10-23', '10-23:1', '10, 17, 23'],
-  att: ['10', '0-20', '0-20:2', '0-5, 8, 9, 20'],
-} as const
-
-/**
- * The list syntax as four labelled examples. It was one sentence naming the
- * forms in prose ("a stepped range \"a-b:step\" …"), which read as a rule to
- * decode rather than something to copy.
- */
-function SpecTip({ examples }: { examples: readonly string[] }) {
-  const names = ['One', 'Range', 'Step', 'List']
-  return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'auto auto', columnGap: 1.5, rowGap: 0.25 }}>
-      {examples.map((ex, i) => (
-        <Box key={names[i]} sx={{ display: 'contents' }}>
-          <span>{names[i]}</span>
-          <Box component="span" sx={{ fontFamily: MONO }}>{ex}</Box>
-        </Box>
-      ))}
-    </Box>
-  )
-}
 
 
 /** Write fields to this radio's page snapshot and schedule the save. */
@@ -362,8 +296,10 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const reporter = useRunReporter(title, 'LoadPull')
   // What reads power: the sensor, or the spectrum analyzer at this page's
   // own settings (lib/powerSource.ts). The backend runner reads it.
-  const [powerSrc, setPowerSrc] = useState<PowerSourceState>(() => powerSourceOf(snap.powerSource))
-  useEffect(() => { saveSnapshot(isLte, { powerSource: powerSrc }) }, [powerSrc, isLte])
+  const [powerSrc, setPowerSrc] = useSnapshotState<PowerSourceState>(
+    () => powerSourceOf(snap.powerSource),
+    (powerSource) => saveSnapshot(isLte, { powerSource }),
+  )
   const powerFields = powerSrc.source === 'spectrum'
     ? { power_source: 'spectrum' as const, spectrum: spectrumSettingsOf(powerSrc) ?? undefined }
     : {}
@@ -396,27 +332,36 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const allReady = missingRig.length === 0 && dutConnected
   const missingCount = missingRig.length + (dutConnected ? 0 : 1)
 
-  const [paMode, setPaMode] = useState<number>(() => snap.paMode ?? 2)
+  const [paMode, setPaMode] = useSnapshotState<number>(
+    () => snap.paMode ?? 2,
+    (paMode) => saveSnapshot(isLte, { paMode }),
+  )
   // Clamped on read: a snapshot saved before the floor existed can hold a value
   // below it, and restoring one would quietly reintroduce the bad readings.
   // Sweep specs. Seeded from the old single values so an existing snapshot
   // keeps working and reads the same on first load.
   // LTE seeds a band 2 channel, in the unit the LTE pages are reading in, and
   // the modem's full power -- the LTE CW sweep's defaults.
-  const [freqSpec, setFreqSpec] = useState<string>(
+  const [freqSpec, setFreqSpec] = useSnapshotState<string>(
     () => snap.freqSpec ?? (isLte
       ? (channelUnit === 'earfcn' ? '18900' : '1880')
       : String(snap.freqMhz ?? 902.3)),
+    (freqSpec) => saveSnapshot(isLte, { freqSpec }),
   )
-  const [powerSpec, setPowerSpec] = useState<string>(
+  const [powerSpec, setPowerSpec] = useSnapshotState<string>(
     () => snap.powerSpec ?? String(snap.powerDbm ?? (isLte ? LTE_MAX_POWER_DBM : 14)),
+    (powerSpec) => saveSnapshot(isLte, { powerSpec }),
   )
-  const [attEnabled, setAttEnabled] = useState<boolean>(
+  const [attEnabled, setAttEnabled] = useSnapshotState<boolean>(
     () => snap.attEnabled ?? false,
+    (attEnabled) => saveSnapshot(isLte, { attEnabled }),
   )
   // One spec, as Frequency and DUT power take, so a sweep can be a range,
   // a stepped range or any list of settings ("0-5, 8, 9, 20").
-  const [attSpec, setAttSpec] = useState<string>(() => snap.attSpec ?? legacyAttSpec(snap))
+  const [attSpec, setAttSpec] = useSnapshotState<string>(
+    () => snap.attSpec ?? legacyAttSpec(snap),
+    (attSpec) => saveSnapshot(isLte, { attSpec }),
+  )
   const attValues = parseAttSpec(attSpec)
   /** Every setting a whole dB in range -- what a sweep needs. */
   const attRangeOk = attValues != null
@@ -437,11 +382,21 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   /** What the run and its timeouts actually use. The blocker below stops a run
    *  while `settleMs` is null, so the fallback never reaches the hardware. */
   const settleEffectiveMs = settleMs ?? DEFAULT_SETTLE_MS
-  const [deltaXmm, setDeltaXmm] = useState<number>(() => snap.deltaXmm ?? 1)
-  const [jogSpeed, setJogSpeed] = useState<number>(() => snap.jogSpeed ?? 800)
-  const [zeroPulses, setZeroPulses] = useState<number | null>(() => snap.zeroPulses ?? null)
-  const [endPulses, setEndPulses] = useState<number | null>(() => snap.endPulses ?? null)
-  const [freqRanges, setFreqRanges] = useState<FreqRange[]>(() => snap.freqRanges ?? [])
+  const [deltaXmm, setDeltaXmm] = useSnapshotState<number>(
+    () => snap.deltaXmm ?? 1, (deltaXmm) => saveSnapshot(isLte, { deltaXmm }),
+  )
+  const [jogSpeed, setJogSpeed] = useSnapshotState<number>(
+    () => snap.jogSpeed ?? 800, (jogSpeed) => saveSnapshot(isLte, { jogSpeed }),
+  )
+  const [zeroPulses, setZeroPulses] = useSnapshotState<number | null>(
+    () => snap.zeroPulses ?? null, (zeroPulses) => saveSnapshot(isLte, { zeroPulses }),
+  )
+  const [endPulses, setEndPulses] = useSnapshotState<number | null>(
+    () => snap.endPulses ?? null, (endPulses) => saveSnapshot(isLte, { endPulses }),
+  )
+  const [freqRanges, setFreqRanges] = useSnapshotState<FreqRange[]>(
+    () => snap.freqRanges ?? [], (freqRanges) => saveSnapshot(isLte, { freqRanges }),
+  )
   const [rangesOpen, setRangesOpen] = useState(false)
   // Starts false every session on purpose: it asserts how the bench is
   // cabled *now*, which is the one precondition nothing here can verify.
@@ -449,7 +404,10 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   const [results, setResults] = useState<LoadPullResultRow[]>(() => snap.results ?? [])
   // The plan the rows in `results` belong to, or null for none (cleared,
   // imported). See `planKey`.
-  const [runKey, setRunKey] = useState<string | null>(() => snap.runKey ?? null)
+  // Saved at once rather than on the debounce.
+  const [runKey, setRunKey] = useSnapshotState<string | null>(
+    () => snap.runKey ?? null, (runKey) => saveSnapshot(isLte, { runKey }, true),
+  )
   // Rows a continued run started with; 0 for a fresh one. For the ETA.
   const [resumeBase, setResumeBase] = useState(0)
   const [smithOpen, setSmithOpen] = useState(false)
@@ -486,37 +444,25 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     })),
   }))
 
-  useEffect(() => { saveSnapshot(isLte, { paMode }) }, [paMode, isLte])
-  useEffect(() => { saveSnapshot(isLte, { freqSpec }) }, [freqSpec, isLte])
-  useEffect(() => { saveSnapshot(isLte, { powerSpec }) }, [powerSpec, isLte])
-  useEffect(() => { saveSnapshot(isLte, { attEnabled }) }, [attEnabled, isLte])
-  useEffect(() => { saveSnapshot(isLte, { attSpec }) }, [attSpec, isLte])
   useEffect(() => {
     if (settleMs != null) { saveSnapshot(isLte, { settleMs }) }
   }, [settleMs, isLte])
-  useEffect(() => { saveSnapshot(isLte, { deltaXmm }) }, [deltaXmm, isLte])
-  useEffect(() => { saveSnapshot(isLte, { jogSpeed }) }, [jogSpeed, isLte])
-  useEffect(() => { saveSnapshot(isLte, { zeroPulses }) }, [zeroPulses, isLte])
-  useEffect(() => { saveSnapshot(isLte, { runKey }, true) }, [runKey, isLte])
-  useEffect(() => { saveSnapshot(isLte, { endPulses }) }, [endPulses, isLte])
-  useEffect(() => { saveSnapshot(isLte, { freqRanges }) }, [freqRanges, isLte])
 
   // One frequency per run, so the correction is decided once.
 
-  // ---------- The run, driven by the backend ----------
-  //
-  // The loop used to run in this page and died with the tab: twice at ~890
-  // points of an attenuator sweep Chrome killed the page mid-run. The backend
-  // drives it now (backend/loadpull/runner.py). This page sends the plan,
-  // polls the run, copies its rows into the table and answers its attenuator
-  // prompts, and a reloaded page picks the run back up on its first poll.
-  const radio: 'LoRa' | 'LTE' = isLte ? 'LTE' : 'LoRa'
-  const [runStatus, setRunStatus] = useState<LoadPullRunStatus | null>(null)
-  /** The backend run, when it is this page's radio. */
-  const mine = runStatus?.radio === radio ? runStatus : null
-  const running = mine?.state === 'running'
-  /** The other Load Pull page's run holds the rig: one run at a time. */
-  const otherRunning = runStatus?.state === 'running' && runStatus.radio !== radio
+  // Epoch seconds of the run the table holds, for the workbook's Run sheet.
+  // Cleared on import and Clear, so a file's rows are never stamped with the
+  // timing of whatever run happened to precede them.
+  const runTimesRef = useRef<RunTimes>(null)
+  // The backend run and everything that follows it: see useLoadPullRun.
+  const {
+    radio, runStatus, setRunStatus, mine, running, otherRunning, attPrompt, adoptRun,
+    remeasureIdx, setRemeasureIdx, remeasureFresh, remeasureErr, remeasureRow,
+    remeasuring, remeasureBlocked, remeasureM, openRemeasure, takeRemeasured,
+  } = useLoadPullRun({
+    isLte, active, results, setResults, runKey, runTimesRef, log, reporter,
+    dutConnected, pathAck, settleMs, settleEffectiveMs, paMode, preflight, lossAt, powerFields,
+  })
   // Written at once during a run rather than on the debounce, so a tab that
   // crashes or freezes mid-run has every finished row saved for Continue: a
   // frozen page never fires the timer the debounced write waits on.
@@ -526,11 +472,6 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
   // Replaced per run. Stop aborts it, which cancels in-flight requests and
   // wakes every settle delay immediately.
   const abortRef = useRef(new AbortController())
-  const attPrompt = useAttPrompt()
-  // Epoch seconds of the run the table holds, for the workbook's Run sheet.
-  // Cleared on import and Clear, so a file's rows are never stamped with the
-  // timing of whatever run happened to precede them.
-  const runTimesRef = useRef<{ started_at: number; finished_at: number | null } | null>(null)
   // Set while the table is showing a file rather than a run of this rig.
   // Cleared by Clear and by starting a run, so it can never outlive the
   // rows it describes.
@@ -885,167 +826,6 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
     },
   ]
 
-  // Poll the run: every second while one is live, every few while this page
-  // is on screen (to notice a run started from another tab), and once on
-  // mount, so a page reloaded mid-run re-attaches whichever page it lands on.
-  const pollMs = running ? 1000 : active ? (otherRunning ? 1000 : 3000) : 0
-  const pollStatus = useCallback(async () => {
-    try { setRunStatus(await loadPullApi.status()) } catch { /* backend down: keep the last */ }
-  }, [])
-  useEffect(() => { void pollStatus() }, [pollStatus])
-  useEffect(() => {
-    if (!pollMs) return
-    const id = window.setInterval(() => { void pollStatus() }, pollMs)
-    return () => window.clearInterval(id)
-  }, [pollMs, pollStatus])
-
-  // Copy new rows into the table -- only for the run these rows belong to
-  // (same plan key), and appended after the rows a Continue started from.
-  const resultsRef = useRef(results)
-  useEffect(() => { resultsRef.current = results }, [results])
-  const runRows = mine?.rows ?? 0
-  const runBase = mine?.start_index ?? 0
-  const runPlanKey = mine?.plan_key ?? null
-  useEffect(() => {
-    if (runPlanKey == null || runPlanKey !== runKey) return
-    const have = resultsRef.current.length - runBase
-    if (have < 0 || runRows <= have) return
-    let stale = false
-    loadPullApi.rows(have)
-      .then((rows) => {
-        if (stale || rows.length === 0) return
-        // Appended only onto the table the request was made from, so two
-        // overlapping fetches cannot add the same rows twice.
-        setResults((prev) => (prev.length === runBase + have ? [...prev, ...rows] : prev))
-      })
-      .catch(() => { /* the next poll tries again */ })
-    return () => { stale = true }
-  }, [runRows, runBase, runPlanKey, runKey])
-
-  // The attenuator prompt: shown once per prompt the run raises, answered back.
-  // One answered from another tab disappears from the status, and this copy
-  // closes; the stale answer it posts is ignored by the backend.
-  const promptSeqRef = useRef(0)
-  const prompt = mine?.att_prompt ?? null
-  const promptSeq = prompt?.seq ?? 0
-  useEffect(() => {
-    if (!prompt) {
-      if (promptSeqRef.current) attPrompt.cancel()
-      return
-    }
-    if (prompt.seq === promptSeqRef.current) return
-    promptSeqRef.current = prompt.seq
-    const seq = prompt.seq
-    void attPrompt.ask(prompt.db, prompt.cycle, prompt.cycles, prompt.upcoming ?? []).then((a) => {
-      if (a.db != null) log('LoadPull', `attenuator set to ${a.db} dB (asked ${prompt.db} dB)`)
-      loadPullApi.answerPrompt(seq, a.proceed, a.db)
-        .then(setRunStatus)
-        .catch((e: Error) => reporter.note(`could not answer the attenuator prompt: ${e.message}`, 'error'))
-    })
-  }, [promptSeq]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Report the end of a run once, whichever way it ended.
-  const lastStateRef = useRef<string | null>(null)
-  const runState = mine?.state ?? null
-  useEffect(() => {
-    const prev = lastStateRef.current
-    lastStateRef.current = runState
-    if (prev !== 'running' || runState === 'running' || !mine) return
-    // A remeasure reports in its own dialog, not as a run finishing.
-    if (mine.plan_key?.startsWith(REMEASURE_KEY)) return
-    if (runTimesRef.current) {
-      runTimesRef.current.finished_at = mine.finished_at ?? Date.now() / 1000
-    }
-    // Points jumped over at the attenuator prompt were never going to be
-    // measured, so they are not "of" the total either.
-    const summary = {
-      completed: mine.rows, total: mine.total - mine.start_index - (mine.skipped ?? 0), errors: mine.errors,
-    }
-    if (runState === 'done') reporter.finished(summary)
-    else if (runState === 'cancelled') {
-      reporter.stopped(summary)
-      if (mine.error) reporter.note(mine.error, 'warn')
-    } else if (runState === 'error') reporter.failed(mine.error ?? 'run failed')
-  }, [runState]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Remeasure: one saved point taken again, from the Smith chart. It runs as
-  // a one-point run on the backend, so the move, VNA read, attenuator prompt,
-  // Stop and E-STOP all behave as in a run; its own plan key keeps its row
-  // out of the table until Use new puts it in place of the old one.
-  const [remeasureIdx, setRemeasureIdx] = useState<number | null>(null)
-  const [remeasureFresh, setRemeasureFresh] = useState<LoadPullResultRow | null>(null)
-  const [remeasureErr, setRemeasureErr] = useState<string | null>(null)
-  const [remeasureKey, setRemeasureKey] = useState<string | null>(null)
-  const openRemeasure = useCallback((idx: number) => {
-    setRemeasureIdx(idx)
-    setRemeasureFresh(null)
-    setRemeasureErr(null)
-  }, [])
-  const remeasureRow = remeasureIdx != null ? results[remeasureIdx] ?? null : null
-  const remeasuring = running && remeasureKey != null && mine?.plan_key === remeasureKey
-  const remeasureBlocked = otherRunning ? `The ${isLte ? 'LoRa' : 'LTE'} Load Pull run is going`
-    : running && !remeasuring ? 'A run is going'
-      : !dutConnected ? 'Connect the DUT over BLE first'
-        : !pathAck ? 'Confirm the RF path first'
-          : settleMs == null ? `Set the settle (min ${MIN_SETTLE_MS} ms) first`
-            : null
-  const remeasureM = useMutation({
-    mutationFn: async (idx: number) => {
-      const r = results[idx]
-      if (!r || r.freq_mhz == null || r.power_dbm_setting == null) throw new Error('this row has no settings to remeasure at')
-      if (!(await preflight.run())) throw new Error('cancelled, instruments not ready')
-      // The row's own settings, not today's plan: the fields may have
-      // changed since it was taken. Settle and PA mode are the page's now.
-      const key = `${REMEASURE_KEY}${idx}:${Date.now()}`
-      const l = lossAt(r.freq_mhz)
-      const status = await loadPullApi.start({
-        radio,
-        points: [{
-          pos: r.pos_pulses, freq_mhz: r.freq_mhz, earfcn: r.earfcn ?? null,
-          power_dbm: r.power_dbm_setting, att_db: r.att_db ?? null,
-        }],
-        start_index: 0,
-        settle_ms: settleEffectiveMs,
-        ...(isLte ? {} : { pa_mode: paMode }),
-        path_loss: [{ freq_mhz: r.freq_mhz, db: l.db, calibrated: l.calibrated }],
-        ...powerFields,
-        vna_half_span_frac: VNA_HALF_SPAN_FRAC,
-        plan_key: key,
-      })
-      promptSeqRef.current = 0
-      lastStateRef.current = 'running'
-      setRemeasureKey(key)
-      setRemeasureFresh(null)
-      setRemeasureErr(null)
-      setRunStatus(status)
-      log('LoadPull', `remeasuring point #${idx + 1}`)
-    },
-    onError: (e: Error) => setRemeasureErr(e.message),
-  })
-  // Its reading, once the one-point run has ended.
-  const remeasureState = remeasureKey != null && mine?.plan_key === remeasureKey ? mine.state : null
-  useEffect(() => {
-    if (!remeasureKey || !remeasureState || remeasureState === 'running') return
-    setRemeasureKey(null)
-    if (remeasureState !== 'done') {
-      setRemeasureErr(remeasureState === 'cancelled' ? (mine?.error ?? 'Stopped') : (mine?.error ?? 'Remeasure failed'))
-      return
-    }
-    loadPullApi.rows(0)
-      .then((rows) => {
-        if (rows[0]) setRemeasureFresh(rows[0])
-        else setRemeasureErr('No reading came back')
-      })
-      .catch((e: Error) => setRemeasureErr(`could not fetch the reading: ${e.message}`))
-  }, [remeasureState]) // eslint-disable-line react-hooks/exhaustive-deps
-  const takeRemeasured = () => {
-    if (remeasureIdx == null || !remeasureFresh) return
-    const idx = remeasureIdx
-    const fresh = remeasureFresh
-    setResults((prev) => prev.map((r, i) => (i === idx ? fresh : r)))
-    log('LoadPull', `point #${idx + 1} replaced with its remeasurement`)
-    setRemeasureIdx(null)
-  }
   const goToM = useMutation({
     mutationFn: (pos: number) => motor.move(pos, true),
     onSuccess: (_d, pos) => log('Motor', `go to ${fmt(pos / PULSES_PER_MM, 2)} mm ok`),
@@ -1102,9 +882,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
         : Date.now() / 1000
       runTimesRef.current = { started_at: startedAt, finished_at: null }
       saveSnapshot(isLte, { runStartedAt: startedAt }, true)
-      promptSeqRef.current = 0
-      lastStateRef.current = 'running'
-      setRunStatus(status)
+      adoptRun(status)
       reporter.started(totalPoints - start)
       if (resume) reporter.note(`continuing from point ${start + 1} of ${totalPoints}`)
       if (isLte) reporter.note('restarting the modem')
@@ -1307,150 +1085,19 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
           </Section>
         </TwoCol>
 
-        <Section
-          title="Test point"
-          anchorId={anchor('test-point')}
-          panel
-          // LTE only: which unit Channel is read in. The setting every LTE
-          // page shares; switching here rewrites the channels typed so far
-          // into the new unit, as the LTE automation tabs do.
-          action={isLte && (
-            <SegmentedChoice
-              aria-label="Channel unit"
-              value={channelUnit}
-              options={[
-                { value: 'mhz', label: 'MHz' },
-                { value: 'earfcn', label: 'EARFCN' },
-              ]}
-              onChange={(next: ChannelUnit) => {
-                setFreqSpec((spec) => convertChannelSpec(spec, channelUnit, next, lteBands))
-                setChannelUnit(next)
-              }}
-              disabled={running}
-            />
-          )}
-        >
-          <FieldGrid columns={4}>
-            {/* The list syntax lives on the two fields that take it, rather
-                than as a line of its own under the grid. A wrapper because
-                LabeledField does not forward a ref for the tooltip. */}
-            <Tooltip
-              title={<SpecTip examples={!isLte ? SPEC_EXAMPLES.mhz : channelUnit === 'earfcn' ? SPEC_EXAMPLES.earfcn : SPEC_EXAMPLES.lteMhz} />}
-              placement="top-start"
-            >
-              <Box>
-                {/* LTE takes channels in the unit every LTE page reads (the
-                    switch on this card's header), resolved within its
-                    selected bands. */}
-                <LabeledField
-                  label={isLte ? 'Channel' : 'Frequency'} hint={freqUnit} value={freqSpec}
-                  onChange={(e) => setFreqSpec(e.target.value)}
-                  disabled={running}
-                  error={freqSpec.trim() !== '' && (freqs.length === 0 || unresolvedChannels > 0)}
-                  placeholder={!isLte ? '915, 900-930:5 or 902.3,915'
-                    : channelUnit === 'earfcn' ? '18900 or 18700-19100:100' : '1880 or 1860-1900:10'}
-                />
-              </Box>
-            </Tooltip>
-            <Tooltip title={<SpecTip examples={isLte ? SPEC_EXAMPLES.lteDbm : SPEC_EXAMPLES.dbm} />} placement="top-start">
-              <Box>
-                <LabeledField
-                  label="DUT power" hint="dBm" value={powerSpec}
-                  onChange={(e) => setPowerSpec(e.target.value)}
-                  disabled={running}
-                  error={powerSpec.trim() !== '' && (powers.length === 0 || powersOutOfRange)}
-                  placeholder={isLte ? '23 or 10-23:1' : '14 or 10-20:2'}
-                />
-              </Box>
-            </Tooltip>
-            {/* LoRa's PA selection. The LTE modem has no such setting. */}
-            {!isLte && (
-              <LabeledField
-                label="PA mode" select value={paMode}
-                onChange={(e) => setPaMode(Number(e.target.value))}
-                disabled={running}
-              >
-                <MenuItem value={2}>Auto</MenuItem>
-                <MenuItem value={1}>On</MenuItem>
-                <MenuItem value={0}>Off</MenuItem>
-              </LabeledField>
-            )}
-            <LabeledField
-              label="Settle" hint={`ms · min ${MIN_SETTLE_MS}`} type="number" value={settleText}
-              onChange={(e) => setSettleText(e.target.value)}
-              // Raise a typed-but-too-low value to the floor on blur; leave an
-              // empty field empty, so it can be cleared and retyped.
-              onBlur={() => setSettleText((t) => (
-                t.trim() === '' ? t : String(clampSettleMs(Number(t)))
-              ))}
-              disabled={running}
-              error={settleMs == null}
-              inputProps={{ min: MIN_SETTLE_MS, step: 50 }}
-            />
-            {/* The attenuator sits on the trombone's second output and is set
-                by hand, so sweeping it is opt-in — off, the run behaves exactly
-                as it did before. Filed with the other test-point fields rather
-                than in a row of its own, which read as a different kind of
-                setting. */}
-            <LabeledField
-              label="Attenuator" select value={attEnabled ? 1 : 0}
-              onChange={(e) => setAttEnabled(Number(e.target.value) === 1)}
-              disabled={running}
-            >
-              <MenuItem value={0}>Off</MenuItem>
-              <MenuItem value={1}>Sweep</MenuItem>
-            </LabeledField>
-            <Tooltip title={<SpecTip examples={SPEC_EXAMPLES.att} />} placement="top-start">
-              <Box>
-                <LabeledField
-                  label="Att values" hint={`dB · 0–${ATT_MAX_LIMIT_DB}`} value={attSpec}
-                  onChange={(e) => setAttSpec(e.target.value)}
-                  disabled={running || !attEnabled}
-                  error={attEnabled && !attRangeOk}
-                  placeholder="0-20, 0-20:2 or 0-5, 8, 20"
-                />
-              </Box>
-            </Tooltip>
-          </FieldGrid>
-          {/* The plan multiplies out fast — three positions of a 30-point
-              trombone sweep across four powers is 360 points — so say what it
-              is a product of next to the fields that decide it. The total is
-              on the Plan tile and beside Delta X; this line is only the
-              factors. Always one line tall, so the card does not grow when
-              the plan becomes complete. */}
-          {/* LTE: the same line names any channel the selected bands cannot
-              resolve, and carries Edit bands, so the band list can be fixed
-              here rather than only on the LTE CW page. One line either way,
-              cut with an ellipsis, so the card keeps its height. */}
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1, minHeight: isLte ? 26 : 18 }}>
-          {channelProblems.length > 0 ? (
-            <Typography
-              title={`Not in bands ${lteBands.join(', ')}: ${channelProblems.join('; ')}`}
-              sx={{ ...TEXT.micro, color: 'warning.main', flexGrow: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-            >
-              Not in bands {lteBands.join(', ')}: {channelProblems.join(' · ')}
-            </Typography>
-          ) : (
-          <Typography sx={{ ...TEXT.micro, color: 'text.secondary', flexGrow: 1, minWidth: 0 }}>
-            {positions.length > 0 && freqs.length > 0 && powers.length > 0 ? (
-              <>
-                {positions.length} {positions.length === 1 ? 'position' : 'positions'}
-                {' × '}{freqs.length} {isLte ? (freqs.length === 1 ? 'channel' : 'channels') : (freqs.length === 1 ? 'freq' : 'freqs')}
-                {' × '}{powers.length} {powers.length === 1 ? 'power' : 'powers'}
-                {attEnabled && attRangeOk && (
-                  <>{' × '}{attSteps.length} att</>
-                )}
-              </>
-            ) : ' '}
-          </Typography>
-          )}
-          {isLte && (
-            <MiniAction onClick={() => setBandsOpen(true)} disabled={running}>
-              Edit bands
-            </MiniAction>
-          )}
-          </Stack>
-        </Section>
+        <TestPointSection
+          anchorId={anchor('test-point')} isLte={isLte} running={running}
+          channelUnit={channelUnit} setChannelUnit={setChannelUnit} lteBands={lteBands}
+          onEditBands={() => setBandsOpen(true)}
+          freqSpec={freqSpec} setFreqSpec={setFreqSpec} freqUnit={freqUnit} nFreqs={freqs.length}
+          unresolvedChannels={unresolvedChannels} channelProblems={channelProblems}
+          powerSpec={powerSpec} setPowerSpec={setPowerSpec} nPowers={powers.length} powersOutOfRange={powersOutOfRange}
+          paMode={paMode} setPaMode={setPaMode}
+          settleText={settleText} setSettleText={setSettleText} settleMs={settleMs}
+          attEnabled={attEnabled} setAttEnabled={setAttEnabled} attSpec={attSpec} setAttSpec={setAttSpec}
+          attRangeOk={attRangeOk} nAttSteps={attSteps.length}
+          nPositions={positions.length}
+        />
 
         {/* What reads power at each point, beside the plan it measures. */}
         <Section title="Measure" anchorId={anchor('measure')} panel>

@@ -1,0 +1,14 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`LTE modulated automation panel > cycles the modem once, then starts, measures and aborts each point 1`] = `
+[
+  "/device/lte/modem-off {"timeout":5}",
+  "/device/lte/modem-on {"timeout":10}",
+  "/device/lte/modulated {"timeout":5,"start":true,"earfcn":18900,"time_ms":20000,"tx_power_dbm":20,"bandwidth":2,"mcs":5,"rb_count":6,"rb_start":0,"nb_index":0}",
+  "measure freq_hz=1880000000",
+  "/device/lte/modulated {"timeout":5,"start":false,"earfcn":18900,"time_ms":20000,"tx_power_dbm":20,"bandwidth":2,"mcs":5,"rb_count":6,"rb_start":0,"nb_index":0}",
+  "/device/lte/modulated {"timeout":5,"start":true,"earfcn":18900,"time_ms":20000,"tx_power_dbm":23,"bandwidth":2,"mcs":5,"rb_count":6,"rb_start":0,"nb_index":0}",
+  "measure freq_hz=1880000000",
+  "/device/lte/modulated {"timeout":5,"start":false,"earfcn":18900,"time_ms":20000,"tx_power_dbm":23,"bandwidth":2,"mcs":5,"rb_count":6,"rb_start":0,"nb_index":0}",
+]
+`;
