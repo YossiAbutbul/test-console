@@ -3,23 +3,20 @@
  * The panel (`BleAutomationPanel.tsx`) and the Full Run page both run it from
  * here; see `engine/sweepTest.ts`.
  */
-import { instrumentsApi } from '../../api/instruments'
 import type { InstrumentId } from '../../context/InstrumentsContext'
-import { sleep } from '../../lib/async'
 import {
-  measureSpectrumOf, powerInstrument, powerSourceOf, powerSourceValid, type PowerSourceState,
+  powerInstrument, powerSourceOf, wiredPowerOf, powerSourceValid, type PowerSourceState,
 } from '../../lib/powerSource'
 import { DEFAULT_SETTLE_MS, clampSettleMs } from '../../lib/settle'
-import { verdictOf } from '../../lib/verdict'
 import {
   bleCwPageSnapshot, type BleAutomationResultRow, type BleAutomationRow, type BleChannelUnit,
   type BleCwPageSnapshot,
 } from '../../store/bleCwPageStore'
 import { valuesText, type SweepTest } from '../engine/sweepTest'
-import { DURATION_MAX_S, offAirReason } from '../ble/radio'
+import { DURATION_MAX_S } from '../ble/radio'
 import { CSV_HEADER, toCsvBody } from './csv'
 import {
-  AUTO_TONE_MAX_S, AUTO_TONE_TYPICAL_S, autoToneSeconds, buildPlan, estimateRunMs, minToneSeconds,
+  AUTO_TONE_MAX_S, AUTO_TONE_TYPICAL_S, buildPlan, estimateRunMs, minToneSeconds,
   rowIssues, stepBudgetMs, type PlanPoint,
 } from './plan'
 
@@ -65,11 +62,6 @@ export function normaliseRow(r: Partial<SweepRow>): SweepRow {
     maxDbm: r.maxDbm ?? '',
   }
 }
-
-/** The wall clock, out of line so it is read when called, not in render. */
-const epochNow = (): number => Date.now()
-/** The same for the monotonic clock a read is timed on. */
-const monoNow = (): number => performance.now()
 
 /**
  * The tone duration these settings ask for.
@@ -155,127 +147,13 @@ export const bleCwTest: SweepTest<BleCwRaw, BleCwSettings, PlanPoint, ResultRow>
   freqMhz: (p) => p.freqMhz,
   blankRow,
 
-  createRun: (s, { lossAt, link }) => {
-    if (!link) throw new Error('BLE CW needs the BLE link')
+  wire: (s, plan) => {
     const tone = toneOf(s)
-    const plan = buildPlan(s.rows, s.unit)
-    /** Set by a point whose DUT did not come back; the next point ends the run. */
-    let lost: string | null = null
-    /** Longest time yet, this run, from a tone's start being sent to its
-     *  reading finishing -- what an auto tone is sized from. */
-    let slowestWindow: number | null = null
-    /** The auto tone last used, so a change is reported once, not per point. */
-    let lastAutoTone: number | null = null
-
     return {
-      // Outside the step timeout: a power change waits on a reboot, and
-      // has its own bound in the relink. A DUT that did not come back from
-      // the last point ends the run here, rather than failing every point
-      // after it in milliseconds.
-      beforeItem: async (item, i, { signal, reporter }) => {
-        if (lost) throw new Error(lost)
-        const prev = i > 0 ? plan[i - 1].power : null
-        if (prev === item.power) return
-        reporter.note(`tone power ${item.power} — resetting the DUT`)
-        // The first power is set even if the page believes the DUT is on
-        // it: a run starts from a power it set itself, the way the LTE
-        // run power-cycles its modem.
-        if (i === 0) await link.setPower(item.power, signal)
-        else await link.ensurePower(item.power, signal)
-      },
-
-      /**
-       * One point: tone on -> settle -> read power/CC -> wait out the tone -> relink.
-       *
-       * The relink is in `finally` for the same reason the LTE panel's abort is:
-       * a failed or stopped point must not leave the next one -- or the operator
-       * -- with a DUT that is off the link. It is not abortable: the tone runs to
-       * its end whatever we do, so Stop waits for it rather than leaving the DUT
-       * stranded mid-tone.
-       *
-       * Never throws; failures land in the row.
-       */
-      measure: async (item, { signal, reporter, noteUncalibrated, preview }) => {
-        const row = blankRow(item)
-        if (signal.aborted) return row
-        const fHz = item.freqMhz * 1e6
-        let started = false
-        const pointToneS = tone.auto ? autoToneSeconds(slowestWindow) : tone.fixed
-        if (tone.auto && pointToneS !== lastAutoTone) {
-          const w = slowestWindow
-          reporter.note(w == null
-            ? `auto tone: ${pointToneS} s for the first point, until a reading has been timed`
-            : `auto tone: ${pointToneS} s per point (slowest reading finished ${(w / 1000).toFixed(1)} s into its tone)`)
-          lastAutoTone = pointToneS
-        }
-        try {
-          const r = await link.tone({ channel: item.channel, duration_s: pointToneS, offset: 0 }, signal)
-          started = true
-          // Unanswered is the expected shape: the link goes with the tone.
-          row.status = r.acknowledged ? r.status : null
-          await sleep(s.settleMs, signal)
-          if (signal.aborted) return row
-          const pl = lossAt(item.freqMhz)
-          const readStart = monoNow()
-          const m = await instrumentsApi.measure(fHz, { signal, spectrum: measureSpectrumOf(s.powerSrc) })
-          const readMs = monoNow() - readStart
-          row.measured_dbm_raw = m.power_dbm
-          row.measured_dbm = m.power_dbm == null ? null : m.power_dbm + pl.db
-          if (!pl.calibrated) noteUncalibrated(item.freqMhz)
-          row.current_a = m.current_a
-          row.voltage_v = m.voltage_v
-          row.verdict = verdictOf(row.measured_dbm, item.minDbm, item.maxDbm)
-          row.ok = !m.error
-          if (m.error) row.error = m.error
-          // The numbers stay in the row, so a late read can be seen for what it
-          // was, but it is not judged or counted as measured.
-          const readEnd = epochNow()
-          const until = link.onAirUntil()
-          const offAir = offAirReason(readEnd, until, readMs)
-          if (offAir) {
-            row.ok = false
-            row.verdict = null
-            row.error = m.error ? `${offAir}; ${m.error}` : offAir
-          }
-          // Timed from when the start went out, so it covers everything the tone
-          // has to outlast: the link release, the settle and the reads.
-          if (until != null) {
-            const spanMs = readEnd - (until - pointToneS * 1000)
-            slowestWindow = Math.max(slowestWindow ?? 0, spanMs)
-          }
-          // On screen now rather than after the reconnect, which is seconds away
-          // and changes nothing in the row unless it fails -- then the row is
-          // updated with why.
-          preview(row)
-        } catch (e) {
-          row.error = signal.aborted ? null : (e as Error).message
-        } finally {
-          if (started) {
-            try {
-              await link.finishTone()
-            } catch (e) {
-              const message = `DUT did not come back after the tone: ${(e as Error).message}`
-              lost = message
-              row.ok = false
-              row.error ??= message
-            }
-          }
-        }
-        return row
-      },
-
-      // A tone left on air -- a point abandoned by its timeout -- is
-      // waited out, so the run ends with the DUT back on the link.
-      after: () => link.finishTone(),
-      // The tone itself cannot be stopped; say so, rather than letting the run
-      // look hung while it waits for the DUT to come back.
-      onStop: (reporter) => {
-        const until = link.onAirUntil()
-        if (until != null) {
-          const left = Math.max(0, Math.ceil((until - epochNow()) / 1000))
-          reporter.note(`stopping — the tone on air cannot be cut short; reconnecting when it ends in ${left} s`, 'warn')
-        }
-      },
+      points: plan.map((p) => ({
+        channel: p.channel, freq_mhz: p.freqMhz, power: p.power, min_dbm: p.minDbm, max_dbm: p.maxDbm,
+      })),
+      settle_ms: s.settleMs, power: wiredPowerOf(s.powerSrc), tone_s: tone.auto ? null : tone.fixed,
     }
   },
 

@@ -25,20 +25,43 @@ turns that heading into the version and date.
   measured points can be opened during the run without stopping it, failed
   and errored points first. One Stop ends it all, and however a run ends it
   leaves the rig idle (LoRa TX stopped, the LTE modem powered off, BLE back
-  on the link). A sequence can be exported to a file and loaded back (Undo
-  restores the one it replaced); results go into a report as a summary plus
-  one entry per step.
+  on the link). Save steps writes the sequence's steps and settings (no
+  results) to a file, and Open steps brings such a file back (Undo restores
+  the sequence it replaced); Add to report puts each step on its own test's
+  tab (LoRa CW, BLE CW, ...), titled with its step number.
+- The Test Sequence and the five sweep pages (LoRa CW, LoRa modulated, LTE
+  CW, LTE modulated, BLE CW) now run on the backend (`/sequence/*`) rather
+  than in the browser: a closed or reloaded tab no longer ends a run
+  mid-point, and the page picks the run back up, rows and any re-cable prompt
+  included, when it is opened again. A re-cable prompt with no page open
+  waits until it is answered or the run is stopped. A sweep page's run is a
+  one-step sequence; the planning and editors are unchanged.
+- Test Sequence: Frequency accuracy (LoRa and LTE) can be a step. It runs the
+  page's zoom on the backend point by point (key the CW carrier, narrow the
+  analyzer stage by stage, judge the error in ppm per point and per stage,
+  key down), edited in the step with the page's own plan and stage tables;
+  its results go to the Frequency accuracy page's report tab.
+- One run at a time across the whole rig: a sequence or sweep is refused
+  while Mode Sweep, Load Pull or Frequency Accuracy runs and the other way
+  round, and while any of them runs the DUT refuses manual commands (409)
+  except Stop / TX off, an LTE abort, modem off and a tone-power read. Run
+  keys show "Rig busy" and Send greys out, naming the run on hover.
 
 ### Changed
 - Sidebar: Product reports' section is now Runs & Reports, with the Test
   Sequence above it.
-- Only one browser-driven run at a time: a sweep page or the Test Sequence refuses
-  to start while another is running.
-- The sweeps' run logic moved out of their panels into one module per test
-  (`tests/<id>/sweepTest.ts`), shared by the panel and the Test Sequence. What a
-  run sends is unchanged (the panels' characterisation snapshots hold).
+- The sweeps' planning moved out of their panels into one module per test
+  (`tests/<id>/sweepTest.ts`), shared by the panel and the Test Sequence; the
+  runs themselves are the backend's (see Added).
 - The frontend build no longer warns about chunk size: the limit is 3 MB
   (from 500 kB), just above the Reports page, which loads on demand.
+- The app sidebar's scrollbar shows only while the pointer is over it.
+
+### Fixed
+- Opening a Test Sequence step froze the page for about half a second: every
+  text field mounted its own copy of MUI's autofill keyframes, and with every
+  page mounted each one restyled the whole app. They are added once now,
+  which also speeds up any page that shows or hides fields.
 
 ## [1.5.0] - 2026-11-23
 

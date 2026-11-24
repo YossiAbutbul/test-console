@@ -30,7 +30,8 @@ import type { SweepSettingsStore } from '../engine/sweepTest'
 import { SweepActionsSlot } from '../engine/automationLayout'
 import { SUITE_TESTS, suiteTest } from './catalog'
 import { StepResults } from './StepResults'
-import type { JudgedRow } from '../engine/runSweep'
+import { FreqStepEditor } from './FreqStepEditor'
+import type { JudgedRow } from '../engine/sweepTest'
 
 interface Props {
   step: FullRunStep
@@ -199,6 +200,9 @@ function Panel({ step, view, link, modem, onChange }: {
         </>
       )
     }
+    case 'freq-accuracy':
+    case 'lte-freq-accuracy':
+      return <FreqStepEditor step={step} view={view} onChange={onChange} />
     default:
       return null
   }

@@ -3,7 +3,6 @@ import type { PowerSourceState } from '../../lib/powerSource'
 import { useState } from 'react'
 import { Box, MenuItem, Stack, TableCell, TableRow, TextField } from '@mui/material'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
-import { usePathLoss } from '../../context/PathLossContext'
 import { useConnection } from '../../context/ConnectionContext'
 import { downloadCsv as saveCsv, exportName } from '../../lib/download'
 import { fmt } from '../../lib/format'
@@ -23,7 +22,7 @@ import {
   ColHead, ResultsCard, SettleEstimate, SettleField, SweepCard, SweepRowShell,
 } from '../engine/AutomationKit'
 import { BODY_ROW_SX, CELL_SX, EDITOR_GAP, useAddRowFocus } from '../engine/automationLayout'
-import type { SweepSettingsStore } from '../engine/sweepTest'
+import { wireStep, type SweepSettingsStore } from '../engine/sweepTest'
 import { useSnapshotState } from '../../store/useSnapshotState'
 import {
   modulatedPageSnapshot,
@@ -34,7 +33,7 @@ import {
 import { selectOnFocus } from '../../lib/selectOnFocus'
 import { NumberField } from '../../ui/NumberField'
 import {
-  DEFAULT_POWER, DEFAULT_ROW, blankRow, drValid, effectiveBw, marginValid, modulatedTest, rowPoints,
+  DEFAULT_POWER, DEFAULT_ROW, drValid, effectiveBw, marginValid, modulatedTest, rowPoints,
   type ModulatedRaw, type ModulatedSettings, type PlanPoint,
 } from './sweepTest'
 
@@ -156,7 +155,6 @@ interface AutomationPanelProps {
 export function AutomationPanel({
   protocol, onControlsChange, store = PAGE_STORE, editor = false, editorView = 'sweep',
 }: AutomationPanelProps) {
-  const { lossAt } = usePathLoss()
   const { status: bleStatus } = useConnection()
   // The stored settings, resolved once for the starting values below: rows
   // filled in, settle clamped, the power source -- the sensor, or the
@@ -209,9 +207,8 @@ export function AutomationPanel({
     plannedMs: estimatedRunMs,
     ready: modulatedTest.problem(settings) == null,
     preflight,
-    blankRow,
-    createRun: () => modulatedTest.createRun(settings, { lossAt }),
-    stepTimeoutMs: modulatedTest.stepTimeoutMs(settings),
+    wire: () => wireStep(modulatedTest, settings),
+    passive: editor,
     refuse: () => (editor ? 'these are a Full Run step settings' : hasBackend ? null : 'no backend for this protocol'),
     parseCsv: parseModulatedCsv,
     onControlsChange,

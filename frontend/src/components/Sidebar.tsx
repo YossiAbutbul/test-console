@@ -548,7 +548,26 @@ export function Sidebar({ activeId, onSelect, open, floating, onClose }: Sidebar
             DC supply keys, none of them the same size. */}
         <SettingsButton />
       </Stack>
-      <Box component="nav" aria-label="Pages" sx={{ flexGrow: 1, overflowY: 'auto', px: 1.25, pb: 1.5 }}>
+      <Box
+        component="nav"
+        aria-label="Pages"
+        sx={(t) => ({
+          flexGrow: 1, overflowY: 'auto', px: 1.25, pb: 1.5,
+          // The bar shows only while the pointer is over the list (or a key
+          // has focus in it), as a macOS sidebar's does. Its lane is kept
+          // either way, so the items never shift when it appears.
+          scrollbarGutter: 'stable',
+          scrollbarColor: 'transparent transparent',
+          '&::-webkit-scrollbar-thumb': { background: 'transparent' },
+          '&:hover, &:focus-within': {
+            scrollbarColor: `${getAppPalette(t.palette.mode).appBarBorder} transparent`,
+          },
+          '&:hover::-webkit-scrollbar-thumb, &:focus-within::-webkit-scrollbar-thumb': {
+            background: getAppPalette(t.palette.mode).appBarBorder,
+            backgroundClip: 'padding-box',
+          },
+        })}
+      >
         {/* Sections, not a folder tree. The protocol is the section header;
             its groups (TX, Other) were a second level of folders that each
             held a handful of rows, and opening one was a click spent on

@@ -9,6 +9,7 @@ import type { CommandResponse } from '../types/models'
 import { useAppPalette } from '../context/ThemeModeContext'
 import { Section } from './Section'
 import { useDutGated } from './gate'
+import { useActiveRun } from '../lib/useRunStatus'
 import { HazardGlyph } from './HazardGlyph'
 import { hazardRingSx, type HazardKind } from './hazardStyle'
 import { actionSx } from './actionSx'
@@ -93,6 +94,10 @@ export function RunControls({
   onRun, onStop, children, blockedBy, hazard = 'tx',
 }: RunControlsProps) {
   const gated = useDutGated()
+  // Another run holds the rig -- a Test Sequence, another page's sweep, Load
+  // Pull. The backend would refuse this one (409); the key says so first.
+  const active = useActiveRun()
+  const rigBusy = !running && !starting && active != null
   const blocker = gated ? 'DUT' : (!canRun && !running ? blockedBy : undefined)
   // The key keeps its width, so a blocker too long for it is named in the
   // tooltip and on the page's check course rather than squeezed onto it.
@@ -105,11 +110,11 @@ export function RunControls({
           ? <CircularProgress size={14} color="inherit" />
           : <HazardGlyph kind={hazard} />
       }
-      disabled={running || starting || !canRun || gated}
+      disabled={running || starting || !canRun || gated || rigBusy}
       onClick={onRun}
       sx={[actionSx(ACTION_W.run), hazardRingSx(hazard)]}
     >
-      {running && progress ? `Running ${progress}` : blocker ? blockedLabel : runLabel}
+      {running && progress ? `Running ${progress}` : blocker ? blockedLabel : rigBusy ? 'Rig busy' : runLabel}
     </Button>
   )
   return (
@@ -127,7 +132,11 @@ export function RunControls({
       {/* A tooltip only when the key cannot name its blocker itself: on a
           plain "Needs DUT" it made a disabled key answer the pointer, which
           read as one that could be pressed. */}
-      {blocker && blockedLabel === 'Not ready' ? (
+      {!blocker && rigBusy ? (
+        <Tooltip title={`${active} is running. Stop it first`}>
+          <span>{primary}</span>
+        </Tooltip>
+      ) : blocker && blockedLabel === 'Not ready' ? (
         <Tooltip title={`${runLabel} is blocked until the ${blocker} step is done`}>
           <span>{primary}</span>
         </Tooltip>
@@ -238,11 +247,17 @@ export function SendStopControls({
   busy, sending, stopping, canSend = true, canStop = true, sendDisabledReason, onSend, onStop,
 }: SendStopControlsProps) {
   const gated = useDutGated()
+  // A run on the backend holds the DUT, which refuses a manual command
+  // meanwhile (409, backend/api/runs.py). Stop is never held back: it is the
+  // way out, and the backend lets it through.
+  const run = useActiveRun()
+  const reason = run ? `${run} is running. Stop it first` : sendDisabledReason
+  const sendOk = canSend && !run
   const send = (
     <Button
       variant="contained"
       startIcon={sending ? <KeySpinner /> : <HazardGlyph kind="tx" />}
-      disabled={busy || !canSend || gated}
+      disabled={busy || !sendOk || gated}
       onClick={onSend}
       sx={[actionSx(ACTION_W.run), hazardRingSx('tx')]}
     >
@@ -266,8 +281,8 @@ export function SendStopControls({
       </Button>
       {/* No tooltip on "Needs DUT", which says it already (see RunControls);
           one only for a reason the key cannot show. */}
-      {!gated && !canSend && sendDisabledReason ? (
-        <Tooltip title={sendDisabledReason}>
+      {!gated && !sendOk && reason ? (
+        <Tooltip title={reason}>
           <span>{send}</span>
         </Tooltip>
       ) : send}

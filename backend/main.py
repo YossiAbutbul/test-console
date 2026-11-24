@@ -34,6 +34,9 @@ from .motor import manager as motor_manager
 from .servo import manager as servo_manager
 from .sweep import runner as sweep_runner
 from .loadpull.runner import runner as load_pull_runner
+from .sequence import runner as sequence_runner
+from .api.runs import router as runs_router
+from .api.sequence import router as sequence_router
 
 # Resolved through `paths` rather than from __file__: frozen into the desktop
 # bundle there is no repo above this module, and the built SPA sits beside the
@@ -114,6 +117,8 @@ async def _release_hardware() -> None:
         ("load pull", load_pull_runner.shutdown),
         # And Frequency Accuracy, which keys the DUT on every point.
         ("frequency accuracy", freq_accuracy.shutdown),
+        # And a Test Sequence, which keys the DUT on every point of every step.
+        ("test sequence", sequence_runner.shutdown),
         ("BLE", ble_manager.disconnect),
         ("instruments", instruments_close_all),
         ("servo", lambda: asyncio.to_thread(servo_manager.disconnect)),
@@ -163,6 +168,8 @@ app.include_router(motor_router)
 app.include_router(reports_router)
 app.include_router(servo_router)
 app.include_router(test_router)
+app.include_router(sequence_router)
+app.include_router(runs_router)
 
 
 @app.get("/health")

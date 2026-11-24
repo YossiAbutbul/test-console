@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { Box, IconButton, MenuItem, Stack, TableCell, TableRow, TextField, Tooltip } from '@mui/material'
 import TuneIcon from '@mui/icons-material/FilterListRounded'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
-import { usePathLoss } from '../../context/PathLossContext'
 import { useConnection } from '../../context/ConnectionContext'
 import { downloadCsv as saveCsv, exportName } from '../../lib/download'
 import { fmt } from '../../lib/format'
@@ -38,9 +37,9 @@ import type { ChannelUnit } from '../lte/channel'
 import { selectOnFocus } from '../../lib/selectOnFocus'
 import { NumberField } from '../../ui/NumberField'
 
-import type { SweepSettingsStore } from '../engine/sweepTest'
+import { wireStep, type SweepSettingsStore } from '../engine/sweepTest'
 import {
-  lteModulatedTest, DEFAULT_POWER, DEFAULT_ROW, MAX_POWER_DBM, MODEM_RESTART_MS, blankRow, convertSpec,
+  lteModulatedTest, DEFAULT_POWER, DEFAULT_ROW, MAX_POWER_DBM, MODEM_RESTART_MS, convertSpec,
   marginValid, mcsValid, rbValid, rowPoints, toChannels,
   type LteModulatedRaw, type LteModulatedSettings, type PlanPoint,
 } from './sweepTest'
@@ -178,7 +177,6 @@ const PAGE_STORE: SweepSettingsStore<LteModulatedRaw> = { snap, persist: persist
 export function AutomationPanel({
   modem, unit, bands, onUnitChange, onEditBands, onControlsChange, store = PAGE_STORE, editor = false, editorView = 'sweep',
 }: Props) {
-  const { lossAt } = usePathLoss()
   const { status: bleStatus } = useConnection()
   // The stored settings, resolved once for the starting values below: rows
   // filled in, settle clamped, the power source -- the sensor, or the
@@ -235,13 +233,13 @@ export function AutomationPanel({
     saveResults: (v) => { if (!editor) { snap().results = v; persistLteModulatedPage() } },
     plan,
     freqMhz: lteModulatedTest.freqMhz,
-    formatFreq: lteModulatedTest.formatFreq,
     plannedMs: plannedRunMs,
     ready: lteModulatedTest.problem(settings) == null,
     preflight,
-    blankRow,
-    createRun: () => lteModulatedTest.createRun(settings, { lossAt, modem }),
-    stepTimeoutMs: lteModulatedTest.stepTimeoutMs(settings),
+    wire: () => wireStep(lteModulatedTest, settings),
+    passive: editor,
+    // The backend cycles the modem for the run and leaves it off.
+    onEnd: () => modem.markOff(),
     refuse: () => (editor ? 'these are a Full Run step settings' : null),
     parseCsv: parseLteModulatedCsv,
     onControlsChange,

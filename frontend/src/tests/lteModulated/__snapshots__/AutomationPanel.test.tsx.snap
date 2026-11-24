@@ -1,14 +1,45 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`LTE modulated automation panel > cycles the modem once, then starts, measures and aborts each point 1`] = `
-[
-  "/device/lte/modem-off {"timeout":5}",
-  "/device/lte/modem-on {"timeout":10}",
-  "/device/lte/modulated {"timeout":5,"start":true,"earfcn":18900,"time_ms":20000,"tx_power_dbm":20,"bandwidth":2,"mcs":5,"rb_count":6,"rb_start":0,"nb_index":0}",
-  "measure freq_hz=1880000000",
-  "/device/lte/modulated {"timeout":5,"start":false,"earfcn":18900,"time_ms":20000,"tx_power_dbm":20,"bandwidth":2,"mcs":5,"rb_count":6,"rb_start":0,"nb_index":0}",
-  "/device/lte/modulated {"timeout":5,"start":true,"earfcn":18900,"time_ms":20000,"tx_power_dbm":23,"bandwidth":2,"mcs":5,"rb_count":6,"rb_start":0,"nb_index":0}",
-  "measure freq_hz=1880000000",
-  "/device/lte/modulated {"timeout":5,"start":false,"earfcn":18900,"time_ms":20000,"tx_power_dbm":23,"bandwidth":2,"mcs":5,"rb_count":6,"rb_start":0,"nb_index":0}",
-]
+exports[`LTE modulated automation panel > hands the backend its points and takes the judged rows back 1`] = `
+{
+  "bench": "main",
+  "path_loss": {
+    "default_db": 0,
+    "points": [],
+  },
+  "steps": [
+    {
+      "label": "LTE modulated",
+      "points": [
+        {
+          "band": 2,
+          "bandwidth": 2,
+          "earfcn": 18900,
+          "freq_mhz": 1880,
+          "margin_db": 1,
+          "mcs": 5,
+          "power_dbm": 20,
+          "rb_count": 6,
+        },
+        {
+          "band": 2,
+          "bandwidth": 2,
+          "earfcn": 18900,
+          "freq_mhz": 1880,
+          "margin_db": 1,
+          "mcs": 5,
+          "power_dbm": 23,
+          "rb_count": 6,
+        },
+      ],
+      "power": {
+        "source": "sensor",
+      },
+      "settle_ms": 400,
+      "setup": "main",
+      "test": "lte-modulated",
+      "uid": "run:lte-modulated",
+    },
+  ],
+}
 `;

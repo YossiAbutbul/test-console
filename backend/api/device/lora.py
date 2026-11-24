@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from ...device import Modem, PaMode
 from ..errors import handle_driver_errors
 from ._common import CommandResponse, get_device
+from ..runs import refuse_if_rig_busy
 
 router = APIRouter()
 
@@ -43,6 +44,7 @@ class StopRequest(BaseModel):
 
 @router.post("/lora-cw", response_model=CommandResponse)
 async def lora_cw(req: LoraCwRequest) -> CommandResponse:
+    refuse_if_rig_busy()
     dev = get_device()
     with handle_driver_errors("device lora cw"):
         result = await dev.lora_cw(
@@ -58,6 +60,7 @@ async def lora_cw(req: LoraCwRequest) -> CommandResponse:
 
 @router.post("/lora-power", response_model=CommandResponse)
 async def lora_power(req: LoraPowerRequest) -> CommandResponse:
+    refuse_if_rig_busy()
     dev = get_device()
     with handle_driver_errors("device lora power"):
         result = await dev.lora_power(
@@ -71,6 +74,7 @@ async def lora_power(req: LoraPowerRequest) -> CommandResponse:
 
 @router.post("/lora-modulated", response_model=CommandResponse)
 async def lora_modulated(req: LoraModulatedRequest) -> CommandResponse:
+    refuse_if_rig_busy()
     dev = get_device()
     with handle_driver_errors("device lora modulated"):
         result = await dev.lora_modulated(

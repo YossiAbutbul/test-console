@@ -3,7 +3,7 @@
  *
  * The browser only polls `/test/status`, so there is no local loop to hang
  * announcements off. This watches the polled run state and fires the same
- * `RunReporter` calls that `runSequence` fires for in-browser sweeps.
+ * `RunReporter` calls a run reports through.
  */
 import { useEffect, useRef } from 'react'
 import type { RunState } from '../../types/models'

@@ -1,9 +1,8 @@
 /**
- * The tests a sequence can chain.
- *
- * The five browser-driven sweeps for now. Load Pull, Mode Sweep and Frequency
- * Accuracy are backend runs (start, poll a status endpoint, cancel) and will
- * join through an adapter of their own behind the same `runStep`.
+ * The tests a sequence can chain: the five sweeps and frequency accuracy
+ * (LoRa, LTE), each a step type of the backend's sequence runner
+ * (backend/sequence/steps.py). In the order the sidebar lists them under each
+ * protocol. Load Pull and Mode Sweep are not steps yet.
  */
 import type { AnySweepTest } from '../engine/sweepTest'
 import type { Protocol } from '../types'
@@ -12,9 +11,12 @@ import { lteCwTest } from '../lteCw/sweepTest'
 import { lteModulatedTest } from '../lteModulated/sweepTest'
 import { modulatedTest } from '../modulated/sweepTest'
 import { loraCwTest } from '../power/sweepTest'
+import { loraFreqAccuracyTest, lteFreqAccuracyTest } from '../freqAccuracy/sweepTest'
 
 export const SUITE_TESTS: AnySweepTest[] = [
-  loraCwTest, modulatedTest, lteCwTest, lteModulatedTest, bleCwTest,
+  loraCwTest, modulatedTest, loraFreqAccuracyTest,
+  lteCwTest, lteModulatedTest, lteFreqAccuracyTest,
+  bleCwTest,
 ]
 
 export function suiteTest(id: string): AnySweepTest | undefined {

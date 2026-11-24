@@ -5,7 +5,7 @@
  * built once survives a reload and a restart of the app.
  */
 import type { SetupId } from '../tests/engine/sweepTest'
-import type { StepOutcome } from '../tests/fullRun/runSuite'
+import type { StepOutcome } from '../tests/fullRun/suiteVerdict'
 import { makePageStore } from './makePageStore'
 import { STORAGE_KEYS } from './keys'
 

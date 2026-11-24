@@ -19,6 +19,7 @@ from backend.hw.adapters import KeysightDCPowerAnalyzer, MiniCircuitsPowerMeter
 from backend.loadpull.runner import runner as load_pull_runner
 from backend.motor import manager as motor
 from backend.origin_guard import OriginGuard, origin_allowed
+from backend.sequence import runner as sequence_runner
 from backend.sweep import runner as sweep_runner
 from backend.sweep.models import RunState
 
@@ -149,6 +150,7 @@ def idle(monkeypatch):
     monkeypatch.setattr(sweep_runner, "status", lambda: _Status(RunState.IDLE))
     monkeypatch.setattr(load_pull_runner, "status", lambda: _Status(RunState.IDLE))
     monkeypatch.setattr(freq_accuracy, "running", lambda: False)
+    monkeypatch.setattr(sequence_runner, "running", lambda: False)
     return monkeypatch
 
 
@@ -176,10 +178,80 @@ def test_a_run_of_another_kind_is_refused(idle, busy, starting) -> None:
     assert "stop it before" in e.value.detail
 
 
+@pytest.mark.parametrize("starting", ["Mode Sweep", "Load Pull", "Frequency Accuracy"])
+def test_a_test_sequence_holds_off_every_other_run(idle, starting) -> None:
+    idle.setattr(sequence_runner, "running", lambda: True)
+    with pytest.raises(HTTPException, match="Test Sequence is running"):
+        runs.refuse_if_running(starting)
+    assert runs.get_active() == {"run": "Test Sequence"}
+
+
+def test_a_sweep_pages_run_is_named_by_its_test(idle) -> None:
+    idle.setattr(sequence_runner, "running", lambda: True)
+    idle.setattr(sequence_runner, "name", lambda: "LoRa CW")
+    with pytest.raises(HTTPException, match="LoRa CW is running; stop it before starting Load Pull"):
+        runs.refuse_if_running("Load Pull")
+
+
+def test_a_second_test_sequence_is_refused(idle) -> None:
+    idle.setattr(sequence_runner, "running", lambda: True)
+    with pytest.raises(HTTPException, match="already in progress"):
+        runs.refuse_if_running("Test Sequence")
+
+
 def test_the_same_kind_gets_its_usual_answer(idle) -> None:
     idle.setattr(freq_accuracy, "running", lambda: True)
     with pytest.raises(HTTPException, match="already in progress"):
         runs.refuse_if_running("Frequency Accuracy")
+
+
+# ---------- a run holds the DUT ----------
+
+def _keying_routes():
+    """Every manual command that keys the DUT or changes its setup. The
+    request is never read: the guard is the handler's first line."""
+    from backend.api.device import ble, lora, lte
+
+    req = type("Req", (), {"start": True})()
+    return [
+        ("lora cw", lambda: lora.lora_cw(req)),
+        ("lora power", lambda: lora.lora_power(req)),
+        ("lora modulated", lambda: lora.lora_modulated(req)),
+        ("lte modem on", lambda: lte.modem_on(None)),
+        ("lte cw start", lambda: lte.lte_cw(req)),
+        ("lte modulated start", lambda: lte.lte_modulated(req)),
+        ("ble tx power set", lambda: ble.ble_tx_power(req)),
+        ("ble tone", lambda: ble.ble_tone(req)),
+    ]
+
+
+@pytest.mark.parametrize("name, call", _keying_routes(), ids=[n for n, _ in _keying_routes()])
+def test_manual_commands_are_refused_while_a_run_holds_the_rig(idle, name, call) -> None:
+    idle.setattr(sequence_runner, "running", lambda: True)
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(call())
+    assert e.value.status_code == 409
+    assert "Test Sequence is running" in e.value.detail
+
+
+def test_the_ways_out_stay_open_during_a_run(idle) -> None:
+    """Stop, an LTE abort, modem off and a power read are never refused: with
+    no DUT connected they fail for that reason, not for the run."""
+    from backend.api.device import ble, lora, lte
+    from backend.ble import manager
+
+    idle.setattr(sequence_runner, "running", lambda: True)
+    idle.setattr(manager, "_device", None, raising=False)
+    abort = type("Req", (), {"start": False})()
+    for call in (lambda: lora.stop(None), lambda: lte.modem_off(None),
+                 lambda: lte.lte_cw(abort), lambda: lte.lte_modulated(abort),
+                 lambda: ble.ble_tx_power_read()):
+        try:
+            asyncio.run(call())
+        except HTTPException as e:
+            assert "is running" not in str(e.detail), e.detail
+        except Exception:
+            pass  # anything but the run guard
 
 
 # ---------- origin guard ----------

@@ -3,7 +3,6 @@ import type { PowerSourceState } from '../../lib/powerSource'
 import { useMemo, useState } from 'react'
 import { Box, Stack, TableCell, TableRow, TextField, Typography } from '@mui/material'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
-import { usePathLoss } from '../../context/PathLossContext'
 import { useConnection } from '../../context/ConnectionContext'
 import { formatDuration } from '../../lib/async'
 import { downloadCsv as saveCsv, exportName } from '../../lib/download'
@@ -22,7 +21,7 @@ import {
   ColHead, HeaderField, ResultsCard, SettleField, SweepCard, SweepRowShell,
 } from '../engine/AutomationKit'
 import { BODY_ROW_SX, CELL_SX, EDITOR_GAP, useAddRowFocus } from '../engine/automationLayout'
-import type { SweepSettingsStore } from '../engine/sweepTest'
+import { wireStep, type SweepSettingsStore } from '../engine/sweepTest'
 import { DURATION_MAX_S, channelMhz } from '../ble/radio'
 import type { BleLink } from '../ble/useBleLink'
 import { useSnapshotState } from '../../store/useSnapshotState'
@@ -35,7 +34,7 @@ import {
 } from '../../store/bleCwPageStore'
 import { selectOnFocus } from '../../lib/selectOnFocus'
 import {
-  DEFAULT_ROW, blankRow, bleCwTest, toneOf, type BleCwRaw, type BleCwSettings,
+  DEFAULT_ROW, bleCwTest, toneOf, type BleCwRaw, type BleCwSettings,
 } from './sweepTest'
 
 export type { AutomationControls } from '../engine/useAutomationRun'
@@ -115,7 +114,6 @@ interface Props {
 export function BleAutomationPanel({
   link, unit, onUnitChange, blocked, onControlsChange, store = PAGE_STORE, editor = false, editorView = 'sweep',
 }: Props) {
-  const { lossAt } = usePathLoss()
   const { status: bleStatus } = useConnection()
   // The stored settings, resolved once for the starting values below.
   const [initial] = useState(() => bleCwTest.resolve({ ...store.snap(), unit }))
@@ -179,9 +177,10 @@ export function BleAutomationPanel({
     plannedMs: plannedRunMs,
     ready: bleCwTest.problem(settings) == null && !blocked && !link.busy,
     preflight,
-    blankRow,
-    createRun: () => bleCwTest.createRun(settings, { lossAt, link }),
-    stepTimeoutMs: bleCwTest.stepTimeoutMs(settings),
+    wire: () => wireStep(bleCwTest, settings),
+    passive: editor,
+    // The backend sets the tone power for the run; the page reads it again.
+    onEnd: () => link.forget(),
     refuse: () => (editor ? 'these are a Full Run step settings' : null),
     parseCsv: parseBleCwCsv,
     onControlsChange,

@@ -50,7 +50,7 @@ function tally(d: ReportEntryDraft) {
   return { points: d.rows.length, pass, fail }
 }
 
-export function AddToReport({ build, more, disabled }: {
+export function AddToReport({ build, more, addBuild = true, disabled }: {
   /** The run as it stands. Copied when the dialog opens; also read on each
    *  render to notice a new run coming in, so it must be free of effects. */
   build: () => ReportEntryDraft
@@ -60,6 +60,13 @@ export function AddToReport({ build, more, disabled }: {
    * opens.
    */
   more?: () => ReportEntryDraft[]
+  /**
+   * False when `build` only names the batch -- the dialog's subtitle and the
+   * DUT it was measured on -- and the entries are `more` alone. A Test
+   * Sequence adds each step on its own test's tab; its summary was a tab of
+   * its own that nobody looked for.
+   */
+  addBuild?: boolean
   disabled?: boolean
 }) {
   const [draft, setDraft] = useState<ReportEntryDraft | null>(null)
@@ -91,16 +98,18 @@ export function AddToReport({ build, more, disabled }: {
         Add to report
       </MiniAction>
       {draft && (
-        <AddDialog draft={draft} more={extra} onClose={() => setDraft(null)}
+        <AddDialog draft={draft} more={extra} addDraft={addBuild} onClose={() => setDraft(null)}
           measuredOn={remembered && remembered.fp === fingerprint(draft) ? remembered : null} />
       )}
     </>
   )
 }
 
-function AddDialog({ draft, more, onClose, measuredOn }: {
+function AddDialog({ draft, more, addDraft, onClose, measuredOn }: {
   draft: ReportEntryDraft
   more: ReportEntryDraft[]
+  /** Whether `draft` is an entry too, or only names the batch. */
+  addDraft: boolean
   onClose: () => void
   /** The DUT these results were measured on, when it is known. */
   measuredOn: RunDut | null
@@ -134,13 +143,19 @@ function AddDialog({ draft, more, onClose, measuredOn }: {
   const source = !mac ? null
     : mac === measuredOn?.mac ? 'measured on this unit'
       : mac === normMac(liveMac) ? 'the DUT connected now' : 'typed'
-  const t = tally(draft)
+  const entries = addDraft ? [draft, ...more] : more
+  // Points and verdicts across what goes in: one entry's own, or, for a
+  // batch named apart from its entries, theirs together.
+  const t = addDraft ? tally(draft) : more.map(tally).reduce(
+    (a, x) => ({ points: a.points + x.points, pass: a.pass + x.pass, fail: a.fail + x.fail }),
+    { points: 0, pass: 0, fail: 0 },
+  )
 
   const add = useMutation({
     mutationFn: async () => {
       const pid = creating ? (await reportsApi.create(newName.trim())).id : target
       // One after another, so the report holds them in the order given.
-      for (const d of [draft, ...more]) {
+      for (const d of entries) {
         await reportsApi.addEntry(pid, {
           ...d,
           note: note.trim(),
@@ -157,8 +172,8 @@ function AddDialog({ draft, more, onClose, measuredOn }: {
       success(`Added to "${name}"`)
       // Something new on Product reports (its module id is 'reports').
       badge('info', 'reports')
-      log('Report', more.length > 0
-        ? `${draft.title}: ${more.length + 1} entries added to "${name}"`
+      log('Report', entries.length > 1
+        ? `${draft.title}: ${entries.length} entries added to "${name}"`
         : `${draft.title}: ${t.points} points added to "${name}"`)
       onClose()
     },
@@ -189,8 +204,8 @@ function AddDialog({ draft, more, onClose, measuredOn }: {
         <Stack direction="row" spacing={2.5} sx={{ ...TEXT.label, fontVariantNumeric: 'tabular-nums' }}>
           {/* Several entries: the first is a summary with a row per entry
               after it, so its rows are counted as those. */}
-          {more.length > 0
-            ? <span><b>{more.length + 1}</b> entries</span>
+          {entries.length > 1
+            ? <span><b>{entries.length}</b> entries</span>
             : <span><b>{t.points}</b> point{t.points === 1 ? '' : 's'}</span>}
           {(t.pass > 0 || t.fail > 0) && (
             <>

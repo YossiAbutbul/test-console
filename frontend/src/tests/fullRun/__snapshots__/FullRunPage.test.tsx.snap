@@ -1,26 +1,69 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`Full Run page > runs the steps in order, repeats with their own settings, and pauses once to re-cable 1`] = `
-[
-  "/device/lora-power {"timeout":5,"freq_hz":915000000,"power_dbm":14,"pa_mode":1}",
-  "measure freq_hz=915000000",
-  "/device/stop {"timeout":5}",
-  "/device/stop {"timeout":5}",
-  "/device/lora-power {"timeout":5,"freq_hz":915000000,"power_dbm":20,"pa_mode":1}",
-  "measure freq_hz=915000000",
-  "/device/stop {"timeout":5}",
-  "/device/stop {"timeout":5}",
-  "measure freq_hz=2440000000",
-  "/device/stop {"timeout":5}",
-]
-`;
-
-exports[`Full Run page > runs the steps in order, repeats with their own settings, and pauses once to re-cable 2`] = `
-[
-  "setPower 31",
-  "tone {"channel":19,"duration_s":5,"offset":0}",
-  "finishTone",
-  "finishTone",
-  "finishTone",
-]
+exports[`Full Run page > sends the steps in order, each with its own points, and pauses once to re-cable 1`] = `
+{
+  "bench": "main",
+  "path_loss": {
+    "default_db": 0,
+    "points": [],
+  },
+  "steps": [
+    {
+      "label": "LoRa CW",
+      "points": [
+        {
+          "freq_mhz": 915,
+          "margin_db": 1,
+          "pa_mode": 1,
+          "power_dbm": 14,
+        },
+      ],
+      "power": {
+        "source": "sensor",
+      },
+      "settle_ms": 400,
+      "setup": "main",
+      "test": "power",
+      "uid": "a",
+    },
+    {
+      "label": "LoRa CW",
+      "points": [
+        {
+          "freq_mhz": 915,
+          "margin_db": 1,
+          "pa_mode": 1,
+          "power_dbm": 20,
+        },
+      ],
+      "power": {
+        "source": "sensor",
+      },
+      "settle_ms": 400,
+      "setup": "main",
+      "test": "power",
+      "uid": "b",
+    },
+    {
+      "label": "BLE CW",
+      "points": [
+        {
+          "channel": 19,
+          "freq_mhz": 2440,
+          "max_dbm": null,
+          "min_dbm": null,
+          "power": 31,
+        },
+      ],
+      "power": {
+        "source": "sensor",
+      },
+      "settle_ms": 400,
+      "setup": "ble",
+      "test": "ble-cw",
+      "tone_s": null,
+      "uid": "c",
+    },
+  ],
+}
 `;

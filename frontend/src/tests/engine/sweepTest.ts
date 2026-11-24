@@ -12,12 +12,9 @@
  * normalised, settle clamped, power source filled in.
  */
 import type { ReportEntryDraft } from '../../api/reports'
+import type { SequenceStepIn, SequenceTestId, WiredStep } from '../../api/sequence'
 import type { InstrumentId } from '../../context/InstrumentsContext'
-import type { PathLossAt } from '../../lib/pathLoss'
-import type { BleLink } from '../ble/useBleLink'
-import type { LteModem } from '../lte/useLteModem'
 import type { Protocol } from '../types'
-import type { JudgedRow, RunSteps } from './runSweep'
 
 /**
  * How the bench is cabled for a test.
@@ -30,13 +27,10 @@ import type { JudgedRow, RunSteps } from './runSweep'
  */
 export type SetupId = 'main' | 'ble' | 'load-pull'
 
-/** What a run needs from the page it runs on. */
-export interface RunDeps {
-  lossAt: (freqMhz: number) => PathLossAt
-  /** The DUT's BLE radio, for a test that drives it (`needs: 'ble-link'`). */
-  link?: BleLink
-  /** The LTE modem, for a test that drives it (`needs: 'lte-modem'`). */
-  modem?: LteModem
+/** The fields every sweep's result row has. */
+export interface JudgedRow {
+  verdict: 'pass' | 'fail' | null
+  error: string | null
 }
 
 export interface SweepTest<Raw extends object, R, Item, Row extends JudgedRow> {
@@ -63,8 +57,9 @@ export interface SweepTest<Raw extends object, R, Item, Row extends JudgedRow> {
   freqMhz: (item: Item) => number
   formatFreq?: (mhz: number) => string
   blankRow: (item: Item) => Row
-  /** One run's steps; fresh state each call. */
-  createRun: (r: R, deps: RunDeps) => RunSteps<Item, Row>
+  /** The step as the backend runs it (backend/sequence/steps.py): the plan's
+   *  points in its point model, with the settle and power source. */
+  wire: (r: R, plan: Item[]) => WiredStep
   /** The results as the page's Add to report writes them. */
   report: (r: R, rows: Row[]) => ReportEntryDraft
   /** The results as the page's Export writes them: header, then rows. */
@@ -82,6 +77,15 @@ export interface SweepTest<Raw extends object, R, Item, Row extends JudgedRow> {
 export interface SweepSettingsStore<Raw extends object> {
   snap: () => Raw
   persist: () => void
+}
+
+/** A step as the backend runs it, less its id: what the test is, the setup
+ *  it needs, its label for the log, and its points. */
+export function wireStep<R, Item>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  t: SweepTest<any, R, Item, any>, r: R, label = t.label,
+): Omit<SequenceStepIn, 'uid'> {
+  return { test: t.id as SequenceTestId, setup: t.setup, label, ...t.wire(r, t.plan(r)) }
 }
 
 /** A sweep test whose types are not known where it is used -- the Full Run

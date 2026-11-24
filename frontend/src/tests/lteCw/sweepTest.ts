@@ -3,17 +3,14 @@
  * sends. The panel (`LteAutomationPanel.tsx`) and the Full Run page both run it from
  * here; see `engine/sweepTest.ts`.
  */
-import { device } from '../../api/device'
-import { instrumentsApi } from '../../api/instruments'
 import type { InstrumentId } from '../../context/InstrumentsContext'
-import { sleep } from '../../lib/async'
 import { uplinkFromEarfcn, uplinkFromMhz, type UplinkMatch, DEFAULT_BANDS } from '../../lib/earfcn'
 import { parseRangeSpec } from '../../lib/numericList'
 import {
-  measureSpectrumOf, powerInstrument, powerSourceOf, powerSourceValid, type PowerSourceState,
+  powerInstrument, powerSourceOf, wiredPowerOf, powerSourceValid, type PowerSourceState,
 } from '../../lib/powerSource'
 import { DEFAULT_SETTLE_MS, clampSettleMs } from '../../lib/settle'
-import { parseLimit, verdictWithinMargin } from '../../lib/verdict'
+import { parseLimit } from '../../lib/verdict'
 import { storage } from '../../store/persistent'
 import { STORAGE_KEYS } from '../../store/keys'
 import {
@@ -280,97 +277,12 @@ export const lteCwTest: SweepTest<LteCwRaw, LteCwSettings, PlanPoint, ResultRow>
   formatFreq: (f) => f.toFixed(1),
   blankRow,
 
-  createRun: (s, { lossAt, modem }) => {
-    if (!modem) throw new Error('LTE CW needs the LTE modem')
-    return {
-      /**
-       * One point: CW on → settle → read power/CC → abort.
-       *
-       * The abort is not just tidiness. The modem takes one test at a time and
-       * drops a START that arrives while another is running, so without it every
-       * point after the first would silently measure the first point's channel.
-       * It runs in `finally` for the same reason the LoRa panel stops the PA there
-       * — a failed point must not leave the DUT transmitting into the next one.
-       *
-       * Never throws; failures land in the row.
-       */
-      measure: async (item, { signal, noteUncalibrated }) => {
-        const row = blankRow(item)
-        if (signal.aborted) return row
-        const params = paramsFor(item)
-        const fHz = Math.round(item.freqMhz * 1e6)
-        try {
-          const tx = await device.lteCw({ ...params, start: true }, { signal })
-          row.ok = tx.ok
-          row.status = tx.status
-          if (!tx.ok) {
-            row.error = `tx status=${tx.status}`
-          } else {
-            modem.setRunning({
-              label: 'CW',
-              abort: () => device.lteCw({ ...params, start: false }),
-            })
-            await sleep(s.settleMs, signal)
-            if (signal.aborted) return row
-            // The analyzer is ranged to this point's power as it arrives after
-            // the cable; the sensor ignores it.
-            const m = await instrumentsApi.measure(fHz, {
-              signal, spectrum: measureSpectrumOf(s.powerSrc), expectedDbm: item.pow - lossAt(item.freqMhz).db,
-            })
-            row.measured_dbm_raw = m.power_dbm
-            // Looked up per point: a run sweeps channels, so a single figure would
-            // be right for at most one of them.
-            const pl = lossAt(item.freqMhz)
-            row.measured_dbm = m.power_dbm == null ? null : m.power_dbm + pl.db
-            if (!pl.calibrated) noteUncalibrated(item.freqMhz)
-            row.current_a = m.current_a
-            row.voltage_v = m.voltage_v
-            // Judged on the corrected power against what was *asked for*, not the
-            // raw sensor reading: the latter is short by the loss of the cable run
-            // and would fail a perfectly good part.
-            row.verdict = verdictWithinMargin(row.measured_dbm, item.pow, item.marginDb)
-            if (m.error) row.error = m.error
-          }
-        } catch (e) {
-          // A cancelled request is the operator stopping, not a measurement fault.
-          row.error = signal.aborted ? null : (e as Error).message
-        } finally {
-          try {
-            await device.lteCw({ ...params, start: false })
-            modem.setRunning(null)
-          } catch { /* reported by the end-of-run abort */ }
-        }
-        return row
-      },
-      // Once for the whole run, not per point: the boot is ~10 s and every
-      // point after the first would pay it for nothing. Cycling rather
-      // than skipping when the modem looks up means the sweep starts from
-      // a modem in a known state, with nothing left running on it.
-      before: async ({ reporter }) => {
-        reporter.note('restarting the modem')
-        await modem.cycle()
-      },
-      // Modem power is left as it was found: the key is the only thing that
-      // powers it down, so a run does not silently undo it.
-      after: async () => {
-        const live = modem.getRunning()
-        if (!live) return
-        try { await live.abort() } catch { /* ignore */ }
-        modem.setRunning(null)
-      },
-      // Independently tell the DUT to stop transmitting — the abort only ends our
-      // side of the conversation. The modem is left powered, as everywhere else
-      // on this page.
-      onStop: (reporter) => {
-        const live = modem.getRunning()
-        if (live) {
-          void live.abort()
-            .then(() => modem.setRunning(null))
-            .catch((e: Error) => reporter.note(`abort failed: ${e.message}`, 'error'))
-        }
-      },
-    }
-  },
+  wire: (s, plan) => ({
+    points: plan.map((p) => ({
+      earfcn: p.earfcn, band: p.band, freq_mhz: p.freqMhz, power_dbm: p.pow, margin_db: p.marginDb,
+    })),
+    settle_ms: s.settleMs, power: wiredPowerOf(s.powerSrc),
+  }),
 
   report: (s, rows) => ({
     test: 'lte-cw-automation', title: 'LTE CW automation',

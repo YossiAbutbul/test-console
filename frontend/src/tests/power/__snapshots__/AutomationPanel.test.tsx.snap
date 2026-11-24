@@ -1,0 +1,37 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`LoRa CW automation panel > hands the backend its points, then fills the table from the run 1`] = `
+{
+  "bench": "main",
+  "path_loss": {
+    "default_db": 0,
+    "points": [],
+  },
+  "steps": [
+    {
+      "label": "LoRa CW",
+      "points": [
+        {
+          "freq_mhz": 902.3,
+          "margin_db": 1,
+          "pa_mode": 1,
+          "power_dbm": 14,
+        },
+        {
+          "freq_mhz": 915,
+          "margin_db": 1,
+          "pa_mode": 1,
+          "power_dbm": 14,
+        },
+      ],
+      "power": {
+        "source": "sensor",
+      },
+      "settle_ms": 400,
+      "setup": "main",
+      "test": "power",
+      "uid": "run:power",
+    },
+  ],
+}
+`;

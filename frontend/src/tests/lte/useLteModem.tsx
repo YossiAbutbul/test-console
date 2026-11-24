@@ -80,6 +80,12 @@ export interface LteModem {
   powerOff: () => Promise<CommandResponse>
   getRunning: () => LiveTest | null
   setRunning: (t: LiveTest | null) => void
+  /**
+   * Believe the modem off with no test on it, sending nothing: a backend run
+   * cycled it and left it off (backend/sequence/runner.py `_leave_idle`), so
+   * the next Send powers it up rather than skipping a MODEM_ON it needs.
+   */
+  markOff: () => void
   /** "Turning on modem" — rendered by the page, covers the ~10 s boot. */
   dialog: ReactNode
 }
@@ -243,8 +249,9 @@ export function useLteModem({ onFrame, pageId }: Options = {}): LteModem {
   const setRunning = setLive
 
   const dialog = useMemo(() => <ModemBootDialog open={starting} />, [starting])
+  const markOff = useCallback(() => { setLive(null); setOn(false) }, [setLive, setOn])
 
   return useMemo(() => ({
-    on, busy, toggle, cycle, prepare, powerOff, getRunning, setRunning, dialog,
-  }), [on, busy, toggle, cycle, prepare, powerOff, getRunning, setRunning, dialog])
+    on, busy, toggle, cycle, prepare, powerOff, getRunning, setRunning, markOff, dialog,
+  }), [on, busy, toggle, cycle, prepare, powerOff, getRunning, setRunning, markOff, dialog])
 }

@@ -1,7 +1,13 @@
-import type { ReactNode } from 'react'
+import { useContext, type ReactNode } from 'react'
 import { Box, IconButton, Stack, TextField, Tooltip, Typography, type TextFieldProps } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/DeleteRounded'
 import { CONTROL_H } from '../../ui'
+import { withoutIndex } from '../engine/automationLayout'
+import { PlanCompact } from './planCompact'
+
+/** Compact: the heading's leading spacer (always the first span; every
+ *  heading after it is a span too) is not shown. */
+const INDEX_HIDDEN = { '& > span:first-of-type': { display: 'none' } } as const
 
 /*
  * The pieces of the Sweep table the power, CW and modulated pages share --
@@ -40,10 +46,16 @@ export function PlanGrid({ cols, minWidth, heads, children, maxRows }: {
   // overflowX is set too: overflowY alone makes overflowX compute to auto,
   // and the heading and the rows each drew a sideways bar of their own.
   const gutter = maxRows ? { scrollbarGutter: 'stable', overflowY: 'hidden', overflowX: 'hidden' } : {}
+  const compact = useContext(PlanCompact)
   return (
     <Box sx={{ overflowX: 'auto' }}>
-      <Box sx={{ minWidth }}>
-        <Box sx={{ display: 'grid', gridTemplateColumns: cols, gap: 1, alignItems: 'end', mb: 0.75, ...gutter }}>
+      {/* Compact, less the index track and its gap. */}
+      <Box sx={{ minWidth: compact ? minWidth - 28 : minWidth }}>
+        <Box sx={{
+          display: 'grid', gridTemplateColumns: compact ? withoutIndex(cols) : cols, gap: 1, alignItems: 'end', mb: 0.75,
+          ...gutter, ...(compact ? INDEX_HIDDEN : null),
+        }}
+        >
           {heads}
         </Box>
         <Stack spacing={`${ROW_GAP}px`} sx={maxRows ? {
@@ -66,9 +78,14 @@ export function PlanRow({ cols, n, children, readout, onRemove, removeDisabled, 
   removeDisabled?: boolean
   removeLabel?: string
 }) {
+  const compact = useContext(PlanCompact)
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: cols, gap: 1, alignItems: 'center', flexShrink: 0 }}>
-      <Typography sx={{ fontSize: 12, color: 'text.secondary', textAlign: 'right' }}>{n}.</Typography>
+    <Box sx={{
+      display: 'grid', gridTemplateColumns: compact ? withoutIndex(cols) : cols, gap: 1, alignItems: 'center',
+      flexShrink: 0,
+    }}
+    >
+      {!compact && <Typography sx={{ fontSize: 12, color: 'text.secondary', textAlign: 'right' }}>{n}.</Typography>}
       {children}
       {/* A column of its own only for tables that have one. */}
       {readout !== undefined && (

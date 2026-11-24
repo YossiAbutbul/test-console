@@ -65,6 +65,13 @@ export function powerInstrument(p: PowerSourceState | PowerSource): InstrumentId
 
 /** What `instrumentsApi.measure` sends for this source: nothing extra for
  *  the sensor, the analyzer's settings otherwise. */
+/** The power source as a backend run takes it (PowerSource in
+ *  backend/sequence/models.py): the analyzer's settings only when it reads. */
+export function wiredPowerOf(p: PowerSourceState): { source: PowerSource; spectrum?: SpectrumSweepSettings } {
+  const spectrum = measureSpectrumOf(p)
+  return spectrum ? { source: 'spectrum', spectrum } : { source: 'sensor' }
+}
+
 export function measureSpectrumOf(p: PowerSourceState | undefined): SpectrumSweepSettings | undefined {
   if (!p || p.source !== 'spectrum') return undefined
   return spectrumSettingsOf(p) ?? undefined

@@ -1,15 +1,47 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`BLE CW automation panel > sets power per change, tones, measures and relinks each point 1`] = `
-[
-  "setPower 31",
-  "tone {"channel":0,"duration_s":5,"offset":0}",
-  "finishTone",
-  "tone {"channel":39,"duration_s":2,"offset":0}",
-  "finishTone",
-  "ensurePower 20",
-  "tone {"channel":19,"duration_s":2,"offset":0}",
-  "finishTone",
-  "finishTone",
-]
+exports[`BLE CW automation panel > hands the backend its channels and powers, and takes the judged rows back 1`] = `
+{
+  "bench": "ble",
+  "path_loss": {
+    "default_db": 0,
+    "points": [],
+  },
+  "steps": [
+    {
+      "label": "BLE CW",
+      "points": [
+        {
+          "channel": 0,
+          "freq_mhz": 2402,
+          "max_dbm": 10,
+          "min_dbm": 0,
+          "power": 31,
+        },
+        {
+          "channel": 39,
+          "freq_mhz": 2480,
+          "max_dbm": 10,
+          "min_dbm": 0,
+          "power": 31,
+        },
+        {
+          "channel": 19,
+          "freq_mhz": 2440,
+          "max_dbm": null,
+          "min_dbm": null,
+          "power": 20,
+        },
+      ],
+      "power": {
+        "source": "sensor",
+      },
+      "settle_ms": 400,
+      "setup": "ble",
+      "test": "ble-cw",
+      "tone_s": null,
+      "uid": "run:ble-cw",
+    },
+  ],
+}
 `;

@@ -11,7 +11,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Box, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import { SegmentedChoice, TEXT, VerdictMark } from '../../ui'
-import type { JudgedRow } from '../engine/runSweep'
+import type { JudgedRow } from '../engine/sweepTest'
 import type { AnySweepTest } from '../engine/sweepTest'
 
 interface Props {
@@ -78,14 +78,16 @@ function columnsOf(header: readonly string[], body: Cell[][]): Col[] {
     return i >= 0 && new Set(body.map((r) => String(r[i] ?? ''))).size > 1
   }
   plain('Channel'); plain('EARFCN')
-  plain('Freq [MHz]')
-  plain('Set [dBm]', 'set'); plain('Power param', 'set')
+  plain('Freq [MHz]'); plain('Frequency [MHz]', 'freq')
+  plain('Set [dBm]', 'set'); plain('Power param', 'set'); plain('Power [dBm]', 'set')
   for (const h of ['Band', 'PA mode', 'Modem', 'BW', 'Datarate', 'MCS', 'RBs']) {
     if (varies(h)) plain(h, h, h !== 'PA mode' && h !== 'Modem' && h !== 'BW')
   }
   plain('Measured [dBm]', 'measured')
+  // Frequency accuracy: what the zoom found, and how far off.
+  plain('Error [Hz]'); plain('Error [ppm]')
   plain('CC [mA]')
-  const st = at('Status')
+  const st = at('Status') >= 0 ? at('Status') : at('Note')
   if (st >= 0) {
     const text = (c: Cell[], r: JudgedRow) => r.error ?? dash(c[st])
     cols.push({ key: 'status', name: 'Status', numeric: false, render: text, text })

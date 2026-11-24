@@ -1,14 +1,39 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`LTE CW automation panel > cycles the modem once, then starts, measures and aborts CW per channel 1`] = `
-[
-  "/device/lte/modem-off {"timeout":5}",
-  "/device/lte/modem-on {"timeout":10}",
-  "/device/lte/cw {"timeout":5,"start":true,"earfcn":18900,"time_ms":20000,"tx_power_dbm":20,"offset_hz":0}",
-  "measure freq_hz=1880000000",
-  "/device/lte/cw {"timeout":5,"start":false,"earfcn":18900,"time_ms":20000,"tx_power_dbm":20,"offset_hz":0}",
-  "/device/lte/cw {"timeout":5,"start":true,"earfcn":19000,"time_ms":20000,"tx_power_dbm":20,"offset_hz":0}",
-  "measure freq_hz=1890000000",
-  "/device/lte/cw {"timeout":5,"start":false,"earfcn":19000,"time_ms":20000,"tx_power_dbm":20,"offset_hz":0}",
-]
+exports[`LTE CW automation panel > hands the backend its channels and takes the judged rows back 1`] = `
+{
+  "bench": "main",
+  "path_loss": {
+    "default_db": 0,
+    "points": [],
+  },
+  "steps": [
+    {
+      "label": "LTE CW",
+      "points": [
+        {
+          "band": 2,
+          "earfcn": 18900,
+          "freq_mhz": 1880,
+          "margin_db": 1,
+          "power_dbm": 20,
+        },
+        {
+          "band": 2,
+          "earfcn": 19000,
+          "freq_mhz": 1890,
+          "margin_db": 1,
+          "power_dbm": 20,
+        },
+      ],
+      "power": {
+        "source": "sensor",
+      },
+      "settle_ms": 400,
+      "setup": "main",
+      "test": "lte-cw",
+      "uid": "run:lte-cw",
+    },
+  ],
+}
 `;

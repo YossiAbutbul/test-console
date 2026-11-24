@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { Box, IconButton, Stack, TableCell, TableRow, TextField, Tooltip } from '@mui/material'
 import TuneIcon from '@mui/icons-material/FilterListRounded'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
-import { usePathLoss } from '../../context/PathLossContext'
 import { useConnection } from '../../context/ConnectionContext'
 import { downloadCsv as saveCsv, exportName } from '../../lib/download'
 import { fmt } from '../../lib/format'
@@ -33,9 +32,9 @@ import {
 import type { ChannelUnit } from '../lte/channel'
 import { selectOnFocus } from '../../lib/selectOnFocus'
 
-import type { SweepSettingsStore } from '../engine/sweepTest'
+import { wireStep, type SweepSettingsStore } from '../engine/sweepTest'
 import {
-  lteCwTest, DEFAULT_POWER, DEFAULT_ROW, MAX_POWER_DBM, MODEM_RESTART_MS, blankRow, convertSpec,
+  lteCwTest, DEFAULT_POWER, DEFAULT_ROW, MAX_POWER_DBM, MODEM_RESTART_MS, convertSpec,
   marginValid, rowPoints, toChannels,
   type LteCwRaw, type LteCwSettings, type PlanPoint,
 } from './sweepTest'
@@ -153,7 +152,6 @@ const PAGE_STORE: SweepSettingsStore<LteCwRaw> = { snap, persist: persistLteCwPa
 export function LteAutomationPanel({
   modem, unit, bands, onUnitChange, onEditBands, onControlsChange, store = PAGE_STORE, editor = false, editorView = 'sweep',
 }: Props) {
-  const { lossAt } = usePathLoss()
   const { status: bleStatus } = useConnection()
   // The stored settings, resolved once for the starting values below: rows
   // filled in, settle clamped, the power source -- the sensor, or the
@@ -211,13 +209,13 @@ export function LteAutomationPanel({
     saveResults: (v) => { if (!editor) { snap().results = v; persistLteCwPage() } },
     plan,
     freqMhz: lteCwTest.freqMhz,
-    formatFreq: lteCwTest.formatFreq,
     plannedMs: plannedRunMs,
     ready: lteCwTest.problem(settings) == null,
     preflight,
-    blankRow,
-    createRun: () => lteCwTest.createRun(settings, { lossAt, modem }),
-    stepTimeoutMs: lteCwTest.stepTimeoutMs(settings),
+    wire: () => wireStep(lteCwTest, settings),
+    passive: editor,
+    // The backend cycles the modem for the run and leaves it off.
+    onEnd: () => modem.markOff(),
     refuse: () => (editor ? 'these are a Full Run step settings' : null),
     parseCsv: parseLteCwCsv,
     onControlsChange,

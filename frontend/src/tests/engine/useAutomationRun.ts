@@ -2,33 +2,30 @@
  * The run half of a sweep panel (LoRa CW / modulated, LTE CW / modulated,
  * BLE CW), shared.
  *
- * The five panels were one file copied five times: about 55 % of their lines
- * appeared in every copy, and a fix to one (the uncalibrated-path-loss note,
- * the verdict summary, the stale-results reset) had to be carried to the
- * others by hand. What differs between them -- the row schema, the command a
- * point sends, what readies the radio -- stays in each panel and comes in
- * through the options. What is the same lives here:
+ * The run is the backend's: a page's sweep is a one-step Test Sequence
+ * (backend/sequence/runner.py), the same code a Test Sequence's step runs.
+ * The panel plans it -- its test turns the settings into points
+ * (`SweepTest.wire`) -- and this sends it, polls it, copies its rows into the
+ * table and reports its end. It used to loop here, in the browser, and a
+ * closed tab ended it mid-point with the DUT possibly still keyed; now the
+ * run goes on, and the page picks it back up when it is opened again.
  *
- *  - the results, mirrored into the page snapshot and into a ref so the
- *    end-of-run summary can count them without waiting for a render;
- *  - preflight, abort, `runSequence`, and the notes a run ends with;
- *  - Stop, CSV import, the top bar's "Run" pill, and the controls the page
- *    header draws the Run / Stop buttons from.
- *
- * Pinned by each panel's characterisation test (`*AutomationPanel.test.tsx`),
- * which snapshots what a run sends the DUT and the instruments.
+ * What stays here is about the page: the results, mirrored into the page
+ * snapshot; preflight; Stop; CSV import; the top bar's "Run" pill; and the
+ * controls the page header draws the Run / Stop buttons from.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNotify } from '../../context/NotifyContext'
 import { usePathLoss } from '../../context/PathLossContext'
 import { usePublishLiveOutput } from '../../context/liveOutput'
-import { claimRun } from '../../lib/runLock'
+import { sequenceApi, type SequenceStatus, type SequenceStepIn } from '../../api/sequence'
 import { tallyVerdicts } from '../../lib/verdict'
 import { useSnapshotState } from '../../store/useSnapshotState'
-import { runSweep } from './runSweep'
+import type { JudgedRow } from './sweepTest'
 import type { Preflight } from './useInstrumentPreflight'
 import { useRunReporter } from './useRunReporter'
+import { SEQUENCE_STATUS_KEY, useActiveRun, useSequenceStatus } from '../../lib/useRunStatus'
 
 /**
  * What the page header needs to drive the run.
@@ -52,13 +49,14 @@ export interface AutomationControls {
   freqsMhz: number[]
 }
 
-export type { JudgedRow, PointContext, RunContext, RunSteps } from './runSweep'
-import type { JudgedRow, RunSteps } from './runSweep'
+export type { JudgedRow } from './sweepTest'
 
 export interface AutomationRunOptions<Item, Row extends JudgedRow> {
   /** The reporter's name for this run, e.g. "TX CW automation". */
   reporterName: string
-  /** The top bar's "Run" pill: its id, the detail before "3/40", the page. */
+  /** The top bar's "Run" pill: its id, the detail before "3/40", the page.
+   *  The id is also the run's step id on the backend, which is how a page
+   *  knows a run as its own. */
   live: { id: string; detail: string; pageId: string }
   /** Results as the page snapshot holds them, and how to write them back. */
   loadResults: () => Row[]
@@ -66,49 +64,56 @@ export interface AutomationRunOptions<Item, Row extends JudgedRow> {
   plan: Item[]
   /** The frequency a point measures at, in MHz. */
   freqMhz: (item: Item) => number
-  /** How the uncalibrated-path-loss note lists a frequency. */
-  formatFreq?: (mhz: number) => string
   plannedMs: number
   /** Beyond a non-empty plan: every row valid, the power source set, ... */
   ready: boolean
   preflight: Preflight
-  blankRow: (item: Item) => Row
-  /** Builds the run's steps (`measure`, `before`, `after`, ...), once per
-   *  run, after `onStart`. See `RunSteps`. */
-  createRun: () => RunSteps<Item, Row>
-  stepTimeoutMs: number
+  /** The run as the backend takes it, without its id: built as Run is
+   *  pressed, from the settings then. */
+  wire: () => Omit<SequenceStepIn, 'uid'>
   /** A reason the run cannot go at all, checked before preflight. */
   refuse?: () => string | null
+  /** Not a page of its own (a Test Sequence step's editor): never runs, and
+   *  does not follow the page's run. */
+  passive?: boolean
   /** Run-level state the panel resets as a run starts. */
   onStart?: () => void
+  /** The run has ended, however -- for the panel to drop what it believed
+   *  about the radio (the backend leaves it idle). */
+  onEnd?: () => void
   /** Reads an exported CSV back into rows. */
   parseCsv: (text: string) => Row[]
   onControlsChange?: (c: AutomationControls) => void
 }
 
 export function useAutomationRun<Item, Row extends JudgedRow>(o: AutomationRunOptions<Item, Row>) {
-  const { defaultDb } = usePathLoss()
+  const { points: lossPoints, defaultDb } = usePathLoss()
   const notify = useNotify()
   const reporter = useRunReporter(o.reporterName, 'Automation')
+  const queryClient = useQueryClient()
+  const uid = o.live.id
 
   const [results, setResults] = useSnapshotState<Row[]>(o.loadResults, o.saveResults)
-  // Mirrored so the end-of-run summary can count verdicts without waiting for
-  // a re-render to publish the last point.
+  // Mirrored so a rows fetch appends to what is there now, not to what was
+  // there when the poll that asked for it rendered.
   const resultsRef = useRef<Row[]>(results)
-  const [running, setRunning] = useState(false)
-  const [progressIdx, setProgressIdx] = useState(0)
-  // Replaced per run. Stop aborts it, which cancels the in-flight request and
-  // wakes the settle delay immediately.
-  const abortRef = useRef(new AbortController())
-
   const replaceResults = useCallback((rows: Row[]) => {
     resultsRef.current = rows
     setResults(rows)
   }, [setResults])
 
+  const status = useSequenceStatus()
+  const activeRun = useActiveRun()
+  /** The backend's run, when it is this page's. */
+  const mine = !o.passive && status?.steps.length === 1 && status.steps[0].uid === uid ? status : null
+  const running = mine?.state === 'running'
+  /** Another run holds the rig: a Test Sequence, another page's sweep,
+   *  Load Pull... The backend would refuse a start (409); this says so first. */
+  const otherRun = !running && activeRun ? activeRun : null
+
   const totalPoints = o.plan.length
-  // runSequence reports the 1-based point in hand, so the points already
-  // finished are one fewer.
+  const runTotal = mine?.steps[0].planned ?? totalPoints
+  const progressIdx = running && mine?.current ? mine.current.done + 1 : 0
   const completedPoints = Math.max(0, progressIdx - 1)
   // Joined into a key so the list keeps its identity between renders; the
   // controls effect below would otherwise re-publish on every one.
@@ -123,9 +128,67 @@ export function useAutomationRun<Item, Row extends JudgedRow>(o: AutomationRunOp
   usePublishLiveOutput(o.live.id, running ? {
     kind: 'run',
     label: 'Run',
-    detail: `${o.live.detail} ${progressIdx}/${totalPoints}`,
+    detail: `${o.live.detail} ${progressIdx}/${runTotal}`,
     pageId: o.live.pageId,
   } : null)
+
+  /**
+   * The run this page follows, told apart from the next by its start time;
+   * the last note it logged; a rows fetch in flight. Null when it follows
+   * none: a run that ended before this page mounted is not reported again,
+   * and its rows are already in the page's snapshot.
+   */
+  const watch = useRef<{ startedAt: number | null; noteSeq: number; fetching: boolean } | null>(null)
+  const prevState = useRef<string | null>(null)
+  const latest = useRef(o)
+  useEffect(() => { latest.current = o })
+
+  useEffect(() => {
+    if (!mine) return
+    const from = prevState.current
+    prevState.current = mine.state
+    if (mine.state === 'running' && watch.current?.startedAt !== mine.started_at) {
+      // Started before this page reloaded, or from another tab: picked up as
+      // it is now, its rows fetched from the first.
+      watch.current = { startedAt: mine.started_at, noteSeq: mine.notes.at(-1)?.seq ?? 0, fetching: false }
+      replaceResults([])
+      reporter.started(mine.steps[0].planned)
+    }
+    const w = watch.current
+    if (!w || w.startedAt !== mine.started_at) return
+
+    for (const n of mine.notes) {
+      if (n.seq <= w.noteSeq) continue
+      w.noteSeq = n.seq
+      reporter.note(n.message, n.level)
+    }
+
+    const step = mine.steps[0]
+    const have = resultsRef.current.length
+    if (step.measured > have && !w.fetching) {
+      w.fetching = true
+      sequenceApi.rows(uid, have)
+        .then((more) => {
+          if (watch.current !== w || resultsRef.current.length !== have) return
+          replaceResults([...resultsRef.current, ...(more as unknown as Row[])])
+        })
+        .catch(() => { /* the next poll tries again */ })
+        .finally(() => { w.fetching = false })
+    }
+
+    if (from === 'running' && mine.state !== 'running') {
+      latest.current.onEnd?.()
+      const summary = {
+        completed: step.measured,
+        total: step.planned,
+        errors: step.errors,
+        verdicts: { pass: step.passed, fail: step.failed, total: step.passed + step.failed },
+      }
+      if (mine.state === 'error') reporter.failed(mine.error ?? step.message ?? 'the run could not go on')
+      else if (mine.state === 'cancelled') reporter.stopped(summary)
+      else reporter.finished(summary)
+    }
+  }, [mine, uid, reporter, replaceResults])
 
   /**
    * Load a results CSV this panel exported.
@@ -150,69 +213,51 @@ export function useAutomationRun<Item, Row extends JudgedRow>(o: AutomationRunOp
     }
   }
 
-  // The run in flight's own steps, for Stop.
-  const stepsRef = useRef<RunSteps<Item, Row> | null>(null)
+  const publish = useCallback((s: SequenceStatus) => {
+    queryClient.setQueryData(SEQUENCE_STATUS_KEY, s)
+    void queryClient.invalidateQueries({ queryKey: ['runs', 'active'] })
+  }, [queryClient])
 
   const runM = useMutation({
     mutationFn: async () => {
-      const refusal = o.refuse?.()
+      const L = latest.current
+      const refusal = L.passive ? 'these are a Test Sequence step’s settings' : L.refuse?.()
       if (refusal) {
         reporter.note(refusal, 'warn')
         return
       }
-      if (!(await o.preflight.run())) {
+      if (!(await L.preflight.run())) {
         reporter.note('cancelled — instruments not ready', 'warn')
         return
       }
-      const release = claimRun(o.live.id, o.live.detail)
-      if (typeof release === 'string') {
-        reporter.note(release, 'warn')
-        return
-      }
-      const abort = new AbortController()
-      abortRef.current = abort
-      o.onStart?.()
-      const steps = o.createRun()
-      stepsRef.current = steps
-      setRunning(true)
+      const step: SequenceStepIn = { ...L.wire(), uid }
+      // The bench is taken to be cabled for this page's test: a page's own
+      // run never stopped to ask, and the operator is at it.
+      const st = await sequenceApi.start({
+        steps: [step],
+        bench: step.setup,
+        path_loss: { default_db: defaultDb, points: lossPoints.map((p) => ({ freq_mhz: p.freqMhz, db: p.db })) },
+      })
+      L.onStart?.()
+      watch.current = { startedAt: st.started_at, noteSeq: 0, fetching: false }
+      prevState.current = null
       replaceResults([])
-      setProgressIdx(0)
-      try {
-        await runSweep<Item, Row>({
-          plan: o.plan,
-          steps,
-          blankRow: o.blankRow,
-          abort,
-          reporter,
-          stepTimeoutMs: o.stepTimeoutMs,
-          freqMhz: o.freqMhz,
-          formatFreq: o.formatFreq,
-          defaultDb,
-          onRows: replaceResults,
-          onProgress: setProgressIdx,
-          preview: (row) => setResults([...resultsRef.current, { ...row }]),
-        })
-      } finally {
-        release()
-        setRunning(false)
-        // A row shown early (`preview`) whose run was stopped before it
-        // finished is not part of the results; put the table back to what was
-        // recorded.
-        setResults(resultsRef.current)
-      }
+      reporter.started(step.points.length)
+      publish(st)
     },
-    onError: (e: Error) => reporter.failed(e.message),
+    // Refused by the backend (another run holds the rig, a bad point) or the
+    // backend not there: nothing ran.
+    onError: (e: Error) => reporter.note(e.message, 'warn'),
   })
 
   // One identity across renders: the controls effect below publishes it
   // upward, and a fresh callback every render would re-publish -- and
   // re-render the page -- every render.
   const onStop = useCallback(() => {
-    // Aborting cancels the in-flight request and wakes the settle delay, so
-    // the loop notices immediately rather than at the end of the point.
-    abortRef.current.abort()
-    stepsRef.current?.onStop?.(reporter)
-  }, [reporter])
+    sequenceApi.cancel()
+      .then(publish)
+      .catch((e: Error) => reporter.note(`stop failed: ${e.message}`, 'error'))
+  }, [publish, reporter])
 
   const runMutate = runM.mutate
   const onRun = useCallback(() => { runMutate() }, [runMutate])
@@ -224,25 +269,28 @@ export function useAutomationRun<Item, Row extends JudgedRow>(o: AutomationRunOp
   useEffect(() => {
     onControlsChange?.({
       running,
-      canRun: totalPoints > 0 && ready,
-      progress: `${progressIdx}/${totalPoints}`,
+      canRun: totalPoints > 0 && ready && !otherRun,
+      progress: `${progressIdx}/${runTotal}`,
       onRun,
       onStop,
       totalPoints,
       plannedMs,
       freqsMhz: planFreqs,
     })
-  }, [running, totalPoints, ready, progressIdx, onRun, onStop, onControlsChange, plannedMs, planFreqs])
+  }, [running, totalPoints, runTotal, ready, otherRun, progressIdx, onRun, onStop, onControlsChange, plannedMs, planFreqs])
 
   return {
     reporter,
     results,
-    /** Replace the table (and the ref the summary reads). */
+    /** Replace the table (and the ref the fetches append to). */
     replaceResults,
     running,
     progressIdx,
     completedPoints,
-    totalPoints,
+    totalPoints: running ? runTotal : totalPoints,
+    /** The run holding the rig when it is not this page's, for the panel to
+     *  say why Run is off. */
+    otherRun,
     importFile,
   }
 }

@@ -202,6 +202,23 @@ class TestFreqAccuracyShutdown:
         assert freq_accuracy.shutdown is original
 
     @sync
+    async def test_a_test_sequence_is_stopped_first(self) -> None:
+        """A sequence keys the DUT on every point: it is let go before the
+        links it drives are closed."""
+        called: list[str] = []
+        original = main.sequence_runner.shutdown
+
+        async def fake() -> None:
+            called.append("sequence")
+
+        main.sequence_runner.shutdown = fake  # type: ignore[assignment]
+        try:
+            await main._release_hardware()
+        finally:
+            main.sequence_runner.shutdown = original  # type: ignore[assignment]
+        assert called == ["sequence"]
+
+    @sync
     async def test_cancels_and_waits_for_a_running_task(self) -> None:
         from backend.api import freq_accuracy as fa
 

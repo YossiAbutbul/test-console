@@ -24,6 +24,7 @@ from ...device import (
 )
 from ...device.info import WriteOutcome
 from ..errors import handle_driver_errors
+from ..runs import refuse_if_rig_busy
 from ._common import get_device
 
 log = logging.getLogger(__name__)
@@ -124,6 +125,7 @@ async def ble_tx_power_read() -> BleTxPowerReadResponse:
 
 @router.post("/tx-power", response_model=BleTxPowerResponse)
 async def ble_tx_power(req: BleTxPowerRequest) -> BleTxPowerResponse:
+    refuse_if_rig_busy()
     dev = get_device()
     with handle_driver_errors("device ble tx power"):
         set_ = await dev.ble_tx_power_set(req.param, timeout=req.timeout)
@@ -139,6 +141,7 @@ async def ble_tx_power(req: BleTxPowerRequest) -> BleTxPowerResponse:
 
 @router.post("/tone", response_model=BleToneResponse)
 async def ble_tone(req: BleToneRequest) -> BleToneResponse:
+    refuse_if_rig_busy()
     dev = get_device()
     with handle_driver_errors("device ble tone"):
         result = await dev.ble_tone_start(

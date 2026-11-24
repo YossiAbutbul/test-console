@@ -3,16 +3,13 @@
  * The panel (`AutomationPanel.tsx`) and the Full Run page both run it from
  * here; see `engine/sweepTest.ts`.
  */
-import { device } from '../../api/device'
-import { instrumentsApi } from '../../api/instruments'
 import type { InstrumentId } from '../../context/InstrumentsContext'
-import { sleep } from '../../lib/async'
 import { parseRangeSpec } from '../../lib/numericList'
 import {
-  measureSpectrumOf, powerInstrument, powerSourceOf, powerSourceValid, type PowerSourceState,
+  powerInstrument, wiredPowerOf, powerSourceOf, powerSourceValid, type PowerSourceState,
 } from '../../lib/powerSource'
 import { DEFAULT_SETTLE_MS, clampSettleMs } from '../../lib/settle'
-import { parseLimit, verdictWithinMargin } from '../../lib/verdict'
+import { parseLimit } from '../../lib/verdict'
 import {
   powerPageSnapshot, type AutomationResultRow, type AutomationSweepRow, type PowerPageSnapshot,
 } from '../../store/powerPageStore'
@@ -145,65 +142,9 @@ export const loraCwTest: SweepTest<LoraCwRaw, LoraCwSettings, PlanPoint, ResultR
   freqMhz: (p) => p.freq,
   blankRow,
 
-  createRun: (s, { lossAt }) => ({
-    /**
-     * One point: TX on at this (freq, power) → settle → read power/CC → TX off.
-     *
-     * The DUT is switched off after every point rather than left transmitting
-     * into the next one, so each reading starts from the same state and the PA
-     * is never keyed between points. Never throws — failures land in the row.
-     */
-    measure: async (item, { signal, noteUncalibrated }) => {
-      const fHz = Math.round(item.freq * 1_000_000)
-      const row = blankRow(item)
-      if (signal.aborted) return row
-      try {
-        const tx = await device.loraPower(
-          { freq_hz: fHz, power_dbm: item.pow, pa_mode: item.paMode },
-          { signal },
-        )
-        row.ok = tx.ok
-        row.status = tx.status
-        if (!tx.ok) {
-          row.error = `tx status=${tx.status}`
-        } else {
-          await sleep(s.settleMs, signal)
-          if (signal.aborted) return row
-          // The analyzer is ranged to this point's power as it arrives after
-          // the cable; the sensor ignores it.
-          const m = await instrumentsApi.measure(fHz, {
-            signal, spectrum: measureSpectrumOf(s.powerSrc), expectedDbm: item.pow - lossAt(item.freq).db,
-          })
-          row.measured_dbm_raw = m.power_dbm
-          // Looked up per point: an automation run sweeps frequencies, so a
-          // single figure would be right for at most one of them.
-          const pl = lossAt(item.freq)
-          row.measured_dbm = m.power_dbm == null ? null : m.power_dbm + pl.db
-          if (!pl.calibrated) noteUncalibrated(item.freq)
-          row.current_a = m.current_a
-          row.voltage_v = m.voltage_v
-          // Judged on the corrected power against what was *asked for*, not the
-          // raw sensor reading: the latter is short by the loss of the cable run
-          // and would fail a perfectly good part.
-          row.verdict = verdictWithinMargin(row.measured_dbm, item.pow, item.marginDb)
-          if (m.error) row.error = m.error
-        }
-      } catch (e) {
-        // A cancelled request is the operator stopping, not a measurement fault.
-        row.error = signal.aborted ? null : (e as Error).message
-      } finally {
-        // TX off before the next point — always, including on failure, so a bad
-        // point cannot leave the DUT keyed.
-        try { await device.stop() } catch { /* reported by the end-of-run stop */ }
-      }
-      return row
-    },
-    after: async () => { try { await device.stop() } catch { /* ignore */ } },
-    // Independently tell the DUT to stop transmitting — the abort only ends
-    // our side of the conversation.
-    onStop: (reporter) => {
-      void device.stop().catch((e: Error) => reporter.note(`stop failed: ${e.message}`, 'error'))
-    },
+  wire: (s, plan) => ({
+    points: plan.map((p) => ({ freq_mhz: p.freq, power_dbm: p.pow, pa_mode: p.paMode, margin_db: p.marginDb })),
+    settle_ms: s.settleMs, power: wiredPowerOf(s.powerSrc),
   }),
 
   report: (s, rows) => ({

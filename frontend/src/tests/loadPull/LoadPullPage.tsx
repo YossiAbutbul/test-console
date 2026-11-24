@@ -699,7 +699,7 @@ export function LoadPullPage({ protocol, group, active }: TestPageProps) {
       // An LTE run power-cycles the modem once before its first point.
       + (isLte && totalPoints > 0 ? LTE_MODEM_RESTART_MS : 0),
   )
-  // runSequence reports the 1-based point in hand.
+  // Progress is the 1-based point in hand.
   const completedPoints = Math.max(0, progressIdx - 1)
   // A continued run is timed on the points it has left, so the rate is not
   // flattered by the rows it started with.

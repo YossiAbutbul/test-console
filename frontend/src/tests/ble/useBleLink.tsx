@@ -80,6 +80,9 @@ export interface BleLink {
   onAirUntil: () => number | null
   /** Something here is in flight -- the tabs hold their sends meanwhile. */
   busy: boolean
+  /** Drop the belief about the power, sending nothing: a backend run set it
+   *  behind this hook's back, so the next `ensurePower` reads it first. */
+  forget: () => void
 }
 
 interface Options {
@@ -257,9 +260,10 @@ export function useBleLink({ onFrame, pageId }: Options = {}): BleLink {
   }), [pillKey, publish, relink, track])
 
   const onAirUntil = useCallback(() => untilRef.current, [])
+  const forget = useCallback(() => remember(null), [remember])
 
   return useMemo(() => ({
     phase, power, readPower, setPower, ensurePower, tone, finishTone, onAirUntil,
-    busy: inFlight > 0,
-  }), [phase, power, readPower, setPower, ensurePower, tone, finishTone, onAirUntil, inFlight])
+    busy: inFlight > 0, forget,
+  }), [phase, power, readPower, setPower, ensurePower, tone, finishTone, onAirUntil, inFlight, forget])
 }

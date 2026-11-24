@@ -28,7 +28,7 @@ import ChevronIcon from '@mui/icons-material/ChevronRightRounded'
 import { formatDuration } from '../../lib/async'
 import { useAppPalette } from '../../context/ThemeModeContext'
 import { REDUCED_MOTION, scrollBehavior } from '../../ui'
-import type { StepOutcome } from './runSuite'
+import type { StepOutcome } from './suiteVerdict'
 import { LIBRARY_MIME, PROTOCOLS, protocolMime } from './catalog'
 import type { Protocol } from '../types'
 
@@ -140,10 +140,12 @@ export function StepList({
   // stepped aside land in their new places without sliding a second time,
   // and the dropped row starts from where it was let go.
   const [settle, setSettle] = useState<{ uid: string; offset: number } | null>(null)
-  // Where a test dragged in from the library would land: its index, and the
-  // top of the gap the rows part to make for it. Measured in the drag
-  // handler; render may not read the rows' refs.
-  const [dropAt, setDropAt] = useState<{ index: number; y: number } | null>(null)
+  /** Where a test from the library will land, and where its gap is drawn.
+   *  Measured in the drag handler; render may not read the rows' refs.
+   *  `underHead`: it lands first in a group that has a heading, so the gap
+   *  opens under that heading and the heading stays put -- drawn above it,
+   *  the gap read as the end of the group before. */
+  const [dropAt, setDropAt] = useState<{ index: number; y: number; underHead: boolean } | null>(null)
   const items = useRef(new Map<string, HTMLDivElement | null>())
   const handles = useRef(new Map<string, HTMLButtonElement | null>())
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -235,6 +237,15 @@ export function StepList({
     if (e.key === 'ArrowDown') { e.preventDefault(); move(uid, index, index + 1) }
   }
 
+  /** The height of the heading at the top of row `i` (the space before its
+   *  group and the heading itself), 0 for a row without one. */
+  const headOf = (i: number): number => {
+    if (!steps[i]?.group) return 0
+    const el = items.current.get(steps[i].uid)
+    const pad = el ? parseFloat(getComputedStyle(el).paddingTop) || 0 : 0
+    return pad + GROUP_H
+  }
+
   /** Where a row is drawn relative to its place. */
   const offsetOf = (uid: string, i: number): number => {
     if (settle?.uid === uid) return settle.offset
@@ -263,6 +274,7 @@ export function StepList({
     // goes if it has no steps yet. The gap opens there, so what is shown is
     // what will happen.
     const protocol = PROTOCOLS.find((p) => e.dataTransfer!.types.includes(protocolMime(p)))
+    let underHead = false
     if (protocol) {
       const rank = PROTOCOLS.indexOf(protocol)
       const rankOf = (j: number) => PROTOCOLS.indexOf(steps[j].protocol as Protocol)
@@ -271,12 +283,13 @@ export function StepList({
       let hi = lo
       while (hi < n && rankOf(hi) === rank) hi++
       at = Math.max(lo, Math.min(hi, at))
+      underHead = at === lo && lo < hi
     }
     if (at === dropAt?.index) return
     const gapY = m.length === 0 ? 0
       : at >= m.length ? m[m.length - 1].top + m[m.length - 1].height
-        : m[at].top
-    setDropAt({ index: at, y: gapY })
+        : m[at].top + (underHead ? headOf(at) : 0)
+    setDropAt({ index: at, y: gapY, underHead })
   }
   const onDrop = (e: globalThis.DragEvent) => {
     const id = e.dataTransfer?.getData(LIBRARY_MIME)
@@ -356,8 +369,21 @@ export function StepList({
         // takes the top corners, its last the bottom ones.
         const first = !!s.group
         const last = i === n - 1 || !!steps[i + 1]?.group
+        // While a row is lifted out, the group closes around the hole it
+        // will land in: the rows either side of the gap take their own
+        // corners and edge, rather than stay open onto a row that is no
+        // longer there -- which read as a broken outline.
+        let top = first
+        let bottom = last
+        if (drag && !dragging) {
+          const others = steps.map((_, j) => j).filter((j) => j !== drag.from)
+          const p = others.indexOf(i)
+          const proto = (j: number | undefined) => (j == null ? undefined : steps[j].protocol)
+          top = p === 0 || proto(others[p - 1]) !== s.protocol || p === drag.to
+          bottom = p === others.length - 1 || proto(others[p + 1]) !== s.protocol || p + 1 === drag.to
+        }
         const radius = dragging ? '12px'
-          : `${first ? 12 : 0}px ${first ? 12 : 0}px ${last ? 12 : 0}px ${last ? 12 : 0}px`
+          : `${top ? 12 : 0}px ${top ? 12 : 0}px ${bottom ? 12 : 0}px ${bottom ? 12 : 0}px`
         return (
           <Box
             key={s.uid}
@@ -388,6 +414,11 @@ export function StepList({
                 sx={{
                   height: GROUP_H, display: 'flex', alignItems: 'center', gap: 1, px: 1.5,
                   visibility: drag ? 'hidden' : 'visible',
+                  // The row moves down to make the gap; its heading stays
+                  // where it was, so the gap opens inside its own group.
+                  transform: dropAt?.underHead && dropAt.index === i ? `translateY(${-ROW_H}px)` : 'none',
+                  transition: animate ? SLIDE : 'none',
+                  [REDUCED_MOTION]: { transition: 'none' },
                 }}
               >
                 <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: s.color }} />
@@ -407,13 +438,13 @@ export function StepList({
               sx={{
                 bgcolor: 'background.paper',
                 border: 1, borderColor: 'divider',
-                borderTopWidth: first || dragging ? 1 : 0,
-                borderBottomWidth: last || dragging ? 1 : 0,
+                borderTopWidth: top || dragging ? 1 : 0,
+                borderBottomWidth: bottom || dragging ? 1 : 0,
                 borderRadius: radius,
                 overflow: 'hidden',
                 // Lifted while dragged: a shadow and a touch larger, as a
                 // card picked up off the table.
-                transform: dragging ? 'scale(1.015)' : 'none',
+                transform: dragging ? 'scale(1.01)' : 'none',
                 boxShadow: dragging ? '0 12px 32px rgba(0,0,0,0.16), 0 2px 6px rgba(0,0,0,0.08)' : 'none',
                 transition: 'box-shadow 200ms, transform 200ms',
               }}
@@ -437,7 +468,7 @@ export function StepList({
                   transition: 'background-color 150ms',
                   // The separator starts where the text does, not at the
                   // edge: the number circles read as one column.
-                  '&::before': first || dragging ? undefined : {
+                  '&::before': top || dragging ? undefined : {
                     content: '""', position: 'absolute', top: 0, left: 68, right: 0,
                     borderTop: 1, borderColor: 'divider',
                   },
@@ -461,7 +492,15 @@ export function StepList({
                   }),
                 }}
               >
-                <Tooltip title={running ? '' : 'Drag to reorder, or ↑ ↓'} enterDelay={600}>
+                {/* Above the handle: to its left it ran off the panel's edge.
+                    Gone while a row is carried, where it only covered the
+                    rows being dragged past. */}
+                <Tooltip
+                  title={running || drag ? '' : 'Drag to reorder'}
+                  placement="top"
+                  enterDelay={600}
+                  open={drag ? false : undefined}
+                >
                   <IconButton
                     className="row-handle"
                     size="small"

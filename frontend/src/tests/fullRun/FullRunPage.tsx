@@ -14,8 +14,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Box, Divider, Stack, Tooltip, Typography } from '@mui/material'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweepRounded'
-import DownloadIcon from '@mui/icons-material/DownloadRounded'
-import UploadIcon from '@mui/icons-material/UploadRounded'
+import FolderOpenIcon from '@mui/icons-material/FolderOpenRounded'
+import SaveIcon from '@mui/icons-material/SaveOutlined'
 import UndoIcon from '@mui/icons-material/UndoRounded'
 import { PageHeader } from '../../components/PageHeader'
 import { AddToReport } from '../../components/reports/AddToReport'
@@ -34,11 +34,11 @@ import {
   fullRunSnapshot, persistFullRun, type FullRunStep, type StepResult,
 } from '../../store/fullRunStore'
 import type { SetupId } from '../engine/sweepTest'
-import type { JudgedRow } from '../engine/runSweep'
+import type { JudgedRow } from '../engine/sweepTest'
 import { LIBRARY_MIME, PROTOCOLS, protocolColor, shortLabel, suiteTest } from './catalog'
 import { RecablePrompt } from './RecablePrompt'
 import { sequenceFromFile, sequenceToFile } from './sequenceFile'
-import { recablePoints } from './runSuite'
+import { recablePoints } from './suiteVerdict'
 import { DEFAULT_SETUPS } from './setups'
 import { StepDetail, type StepView as StepTabView } from './StepDetail'
 import { StepList, type StepView } from './StepList'
@@ -75,6 +75,10 @@ function byProtocol(steps: FullRunStep[]): FullRunStep[] {
 /** The library beside the sequence, until the page is too narrow for both. */
 const LIBRARY_W = 264
 const TWO_COL_MIN = 980
+
+/** The scrollbar's lane (theme.ts sets it at 10 px), for a scroll area
+ *  that keeps its lane in a panel's padding. */
+const SCROLLBAR_W = 10
 
 export function FullRunPage() {
   const palette = useAppPalette()
@@ -291,10 +295,14 @@ export function FullRunPage() {
     const res = results[x.step.uid]
     if (!res || res.rows.length === 0) return []
     const d = x.test.report(x.test.resolve(x.step.settings), res.rows)
-    // Titled by step, so two copies of one test stay apart in the report's
-    // sheet for that test.
-    return [{ ...d, title: `Sequence step ${i + 1} · ${x.fullTitle} · ${x.summary}` }]
+    // Under its own test's id, so it lands on that test's tab beside the
+    // runs from the test's page. Titled by step, so two copies of one test
+    // stay apart there, and say where they came from.
+    return [{ ...d, title: `${x.fullTitle} · ${x.summary} (Test Sequence step ${i + 1})` }]
   })
+  // How many steps use each test, for the library's count beside it.
+  const libraryCounts: Record<string, number> = {}
+  for (const st of steps) libraryCounts[st.testId] = (libraryCounts[st.testId] ?? 0) + 1
   // ---- the sequence as a file
   const fileInput = useRef<HTMLInputElement | null>(null)
   const exportSequence = () => {
@@ -305,14 +313,14 @@ export function FullRunPage() {
     try {
       const { steps: loaded, skipped } = sequenceFromFile(await f.text(), newUid)
       // Replaces the sequence; Undo brings the one it replaced back.
-      setUndo({ label: 'Undo load', steps })
+      setUndo({ label: 'Undo open steps', steps })
       setOpen(null)
       setArrived(null)
       setSteps(loaded)
-      notify.success(`Loaded ${loaded.length} step${loaded.length === 1 ? '' : 's'} from ${f.name}`
+      notify.success(`Opened ${loaded.length} step${loaded.length === 1 ? '' : 's'} from ${f.name}`
         + (skipped ? ` · ${skipped} left out (test not in this version)` : ''))
     } catch (e) {
-      notify.error((e as Error).message, { title: 'Could not load the sequence' })
+      notify.error((e as Error).message, { title: 'Could not open these steps' })
     }
   }
 
@@ -391,9 +399,15 @@ export function FullRunPage() {
           <Section title="Tests" panel grow>
             {/* `scrollbarGutter: stable`: the bar's lane is kept whether or
                 not it is needed, so it never narrows the content when it
-                appears. */}
-            <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', scrollbarGutter: 'stable', containerType: 'inline-size', containerName: 'library' }}>
-              <TestLibrary disabled={running} onAdd={(id) => insert(id)} />
+                appears. The lane sits in the panel's right padding (a
+                negative margin its width), or the list ended 10 px short of
+                that side and the panel looked lopsided. */}
+            <Box sx={{
+              flexGrow: 1, minHeight: 0, overflowY: 'auto', scrollbarGutter: 'stable',
+              mr: `-${SCROLLBAR_W}px`, containerType: 'inline-size', containerName: 'library',
+            }}
+            >
+              <TestLibrary disabled={running} onAdd={(id) => insert(id)} counts={libraryCounts} />
             </Box>
           </Section>
 
@@ -436,14 +450,25 @@ export function FullRunPage() {
                     </span>
                   </Tooltip>
                   <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.75 }} />
-                  {/* The sequence itself, to and from a file. Results go to a
-                      report, beside them. */}
-                  <MiniAction startIcon={<UploadIcon />} disabled={running} onClick={() => fileInput.current?.click()}>
-                    Load
-                  </MiniAction>
-                  <MiniAction startIcon={<DownloadIcon />} disabled={running || steps.length === 0} onClick={exportSequence}>
-                    Export
-                  </MiniAction>
+                  {/* The sequence itself -- its steps and their settings -- to
+                      and from a file. "Load" / "Export" read as importing or
+                      exporting test results, which is what Add to report is
+                      for; these name what they move, with document icons
+                      rather than upload / download arrows. */}
+                  <Tooltip title="Open saved steps, not results">
+                    <span>
+                      <MiniAction startIcon={<FolderOpenIcon />} disabled={running} onClick={() => fileInput.current?.click()}>
+                        Open steps
+                      </MiniAction>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Save steps to a file, not results">
+                    <span>
+                      <MiniAction startIcon={<SaveIcon />} disabled={running || steps.length === 0} onClick={exportSequence}>
+                        Save steps
+                      </MiniAction>
+                    </span>
+                  </Tooltip>
                   <input
                     ref={fileInput}
                     type="file"
@@ -459,7 +484,7 @@ export function FullRunPage() {
                     }}
                   />
                   <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.75 }} />
-                  <AddToReport disabled={!ranAny || running} build={summaryDraft} more={stepDrafts} />
+                  <AddToReport disabled={!ranAny || running} build={summaryDraft} more={stepDrafts} addBuild={false} />
                   <MiniAction
                     tone="destructive"
                     startIcon={<DeleteSweepIcon />}
@@ -471,7 +496,16 @@ export function FullRunPage() {
                 </Stack>
               }
             >
-              <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', overflowX: 'auto', scrollbarGutter: 'stable' }}>
+              {/* The scroll area reaches into the panel's padding (negative
+                  margin, matching padding), so its clip edge sits there: a
+                  step lifted to drag is drawn a little larger and with a
+                  shadow, and clipped at the rows' own edge it looked pushed
+                  under the panel's border. The rows stay where they were. */}
+              <Box sx={{
+                flexGrow: 1, minHeight: 0, overflowY: 'auto', overflowX: 'auto', scrollbarGutter: 'stable',
+                mx: -1.75, px: 1.75,
+              }}
+              >
                 <Box sx={{ minWidth: 680, pb: 0.5, height: '100%' }}>
                   <StepList
                     steps={views}

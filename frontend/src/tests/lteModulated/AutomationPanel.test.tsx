@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-/** Characterisation test for the LTE modulated sweep; see power/AutomationPanel.test. */
+/** The LTE modulated sweep page's run, handed to the backend; see power/AutomationPanel.test. */
 import { act, cleanup, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { command, installFakeBackend, measured, rigTrace } from '../../testing/fakeBackend'
+import { installFakeBackend, rigTrace } from '../../testing/fakeBackend'
+import { fakeSequence } from '../../testing/fakeSequence'
 import { renderWithApp } from '../../testing/renderWithApp'
 import { lteModulatedPageSnapshot } from '../../store/lteModulatedPageStore'
 import { useLteModem } from '../lte/useLteModem'
@@ -32,22 +33,29 @@ describe('LTE modulated automation panel', () => {
   })
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
-  it('cycles the modem once, then starts, measures and aborts each point', async () => {
-    const backend = installFakeBackend({
-      'POST /device/lte/modem-off': () => command(),
-      'POST /device/lte/modem-on': () => command(),
-      'POST /device/lte/modulated': () => command(),
-      'POST /instruments/measure': () => measured(20.2),
+  it('hands the backend its points and takes the judged rows back', async () => {
+    const seq = fakeSequence({
+      measure: (_s, p) => {
+        const m = 20.2
+        return {
+          ...p, set_power_dbm: p.power_dbm, measured_dbm: m, measured_dbm_raw: m, current_a: 0.1, voltage_v: 3.6,
+          ok: true, status: 0, error: null,
+          verdict: Math.abs(m - (p.power_dbm as number)) <= (p.margin_db as number) ? 'pass' : 'fail',
+        }
+      },
     })
+    const backend = installFakeBackend(seq.routes)
     renderWithApp(<Harness />)
     await waitFor(() => expect(controls?.canRun).toBe(true))
     expect(controls!.totalPoints).toBe(2)
 
     act(() => controls!.onRun())
-    await waitFor(() => expect(controls?.running).toBe(true))
+    await waitFor(() => expect(seq.bodies).toHaveLength(1))
+    expect(seq.bodies[0]).toMatchSnapshot()
     await waitFor(() => expect(controls?.running).toBe(false), { timeout: 8000 })
-
-    expect(rigTrace(backend.calls)).toMatchSnapshot()
+    await waitFor(() => expect(lteModulatedPageSnapshot.automation?.results).toHaveLength(2))
+    // The modem is the backend's for the run.
+    expect(rigTrace(backend.calls)).toEqual([])
     expect(lteModulatedPageSnapshot.automation?.results?.map((r) => [r.set_power_dbm, r.verdict]))
       .toEqual([[20, 'pass'], [23, 'fail']])
   }, 15000)

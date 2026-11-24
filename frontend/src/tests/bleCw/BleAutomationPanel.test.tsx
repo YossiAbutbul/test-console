@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
 /**
- * Characterisation test for the BLE CW sweep; see power/AutomationPanel.test.
- * The radio is a fake `BleLink`: the real one waits out each tone in real
- * time, and what is pinned here is the order the panel drives it in.
+ * The BLE CW sweep page's run, handed to the backend; see
+ * power/AutomationPanel.test. The page's own radio is a fake `BleLink`, which
+ * a run must not touch: the backend drives the DUT's radio itself.
  */
 import { act, cleanup, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installFakeBackend, measured } from '../../testing/fakeBackend'
+import { installFakeBackend, rigTrace } from '../../testing/fakeBackend'
+import { fakeSequence } from '../../testing/fakeSequence'
 import { renderWithApp } from '../../testing/renderWithApp'
 import { bleCwPageSnapshot } from '../../store/bleCwPageStore'
 import type { BleLink } from '../ble/useBleLink'
@@ -26,6 +27,7 @@ function fakeLink(trace: string[]): BleLink {
     },
     finishTone: async () => { trace.push('finishTone') },
     onAirUntil: () => Date.now() + 60_000,
+    forget: () => {},
   } as BleLink
 }
 
@@ -45,10 +47,20 @@ describe('BLE CW automation panel', () => {
   })
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
-  it('sets power per change, tones, measures and relinks each point', async () => {
-    const backend = installFakeBackend({
-      'POST /instruments/measure': (c) => measured(c.query.get('freq_hz') === '2402000000' ? 5 : 12),
+  it('hands the backend its channels and powers, and takes the judged rows back', async () => {
+    const seq = fakeSequence({
+      measure: (_s, p) => {
+        const m = p.channel === 0 ? 5 : 12
+        const lo = p.min_dbm as number | null
+        const hi = p.max_dbm as number | null
+        return {
+          ...p, power_param: p.power, measured_dbm: m, measured_dbm_raw: m, current_a: 0.1, voltage_v: 3.6,
+          ok: true, status: 0, error: null,
+          verdict: lo == null && hi == null ? null : (lo == null || m >= lo) && (hi == null || m <= hi) ? 'pass' : 'fail',
+        }
+      },
     })
+    const backend = installFakeBackend(seq.routes)
     const trace: string[] = []
     const link = fakeLink(trace)
     renderWithApp(
@@ -61,13 +73,11 @@ describe('BLE CW automation panel', () => {
     expect(controls!.totalPoints).toBe(3)
 
     act(() => controls!.onRun())
-    await waitFor(() => expect(controls?.running).toBe(true))
-    await waitFor(() => expect(controls?.running).toBe(false), { timeout: 8000 })
-
-    expect(trace).toMatchSnapshot()
-    expect(backend.to('POST', '/instruments/measure').map((c) => c.query.get('freq_hz')))
-      .toEqual(['2402000000', '2480000000', '2440000000'])
-    expect(bleCwPageSnapshot.automation?.results?.map((r) => [r.channel, r.verdict]))
-      .toEqual([[0, 'pass'], [39, 'fail'], [19, null]])
+    await waitFor(() => expect(seq.bodies).toHaveLength(1))
+    expect(seq.bodies[0]).toMatchSnapshot()
+    await waitFor(() => expect(bleCwPageSnapshot.automation?.results?.map((r) => [r.channel, r.verdict]))
+      .toEqual([[0, 'pass'], [39, 'fail'], [19, null]]), { timeout: 8000 })
+    expect(trace).toEqual([])
+    expect(rigTrace(backend.calls)).toEqual([])
   }, 15000)
 })

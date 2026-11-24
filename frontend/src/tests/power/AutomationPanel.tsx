@@ -3,7 +3,6 @@ import type { PowerSourceState } from '../../lib/powerSource'
 import { useState } from 'react'
 import { Box, MenuItem, Stack, TableCell, TableRow, TextField } from '@mui/material'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
-import { usePathLoss } from '../../context/PathLossContext'
 import { useConnection } from '../../context/ConnectionContext'
 import { downloadCsv as saveCsv, exportName } from '../../lib/download'
 import { fmt } from '../../lib/format'
@@ -19,7 +18,7 @@ import {
   ColHead, ResultsCard, SettleEstimate, SettleField, SweepCard, SweepRowShell,
 } from '../engine/AutomationKit'
 import { BODY_ROW_SX, CELL_SX, EDITOR_GAP, useAddRowFocus } from '../engine/automationLayout'
-import type { SweepSettingsStore } from '../engine/sweepTest'
+import { wireStep, type SweepSettingsStore } from '../engine/sweepTest'
 import { useSnapshotState } from '../../store/useSnapshotState'
 import {
   powerPageSnapshot,
@@ -29,7 +28,7 @@ import {
 } from '../../store/powerPageStore'
 import { selectOnFocus } from '../../lib/selectOnFocus'
 import {
-  DEFAULT_POWER, DEFAULT_ROW, blankRow, loraCwTest, marginValid, rowPoints,
+  DEFAULT_POWER, DEFAULT_ROW, loraCwTest, marginValid, rowPoints,
   type LoraCwRaw, type LoraCwSettings, type PlanPoint,
 } from './sweepTest'
 
@@ -144,7 +143,6 @@ interface AutomationPanelProps {
 export function AutomationPanel({
   protocol, onControlsChange, store = PAGE_STORE, editor = false, editorView = 'sweep',
 }: AutomationPanelProps) {
-  const { lossAt } = usePathLoss()
   const { status: bleStatus } = useConnection()
   // The stored settings, resolved once for the starting values below: rows
   // filled in, settle clamped, the power source -- the sensor, or the
@@ -197,9 +195,8 @@ export function AutomationPanel({
     plannedMs: estimatedRunMs,
     ready: loraCwTest.problem(settings) == null,
     preflight,
-    blankRow,
-    createRun: () => loraCwTest.createRun(settings, { lossAt }),
-    stepTimeoutMs: loraCwTest.stepTimeoutMs(settings),
+    wire: () => wireStep(loraCwTest, settings),
+    passive: editor,
     refuse: () => (editor ? 'these are a Full Run step settings' : hasBackend ? null : 'no backend for this protocol'),
     parseCsv: parsePowerCsv,
     onControlsChange,

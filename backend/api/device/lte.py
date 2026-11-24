@@ -16,6 +16,7 @@ from ...device import (
     TX_POWER_SCALE, LteBandwidth, LteTstrfCmd,
 )
 from ..errors import handle_driver_errors
+from ..runs import refuse_if_rig_busy
 from ._common import CommandResponse, get_device
 
 router = APIRouter(prefix="/lte")
@@ -55,6 +56,7 @@ class LteCwRequest(BaseModel):
 
 @router.post("/modem-on", response_model=CommandResponse)
 async def modem_on(req: ModemRequest | None = None) -> CommandResponse:
+    refuse_if_rig_busy()
     dev = get_device()
     timeout = req.timeout if req else MODEM_ON_TIMEOUT_S
     with handle_driver_errors("device lte modem on"):
@@ -73,6 +75,8 @@ async def modem_off(req: ModemRequest | None = None) -> CommandResponse:
 
 @router.post("/cw", response_model=CommandResponse)
 async def lte_cw(req: LteCwRequest) -> CommandResponse:
+    if req.start:
+        refuse_if_rig_busy()
     dev = get_device()
     with handle_driver_errors("device lte cw"):
         result = await dev.lte_cw(
@@ -140,6 +144,8 @@ class LteModulatedRequest(BaseModel):
 
 @router.post("/modulated", response_model=CommandResponse)
 async def lte_modulated(req: LteModulatedRequest) -> CommandResponse:
+    if req.start:
+        refuse_if_rig_busy()
     dev = get_device()
     with handle_driver_errors("device lte modulated"):
         result = await dev.lte_modulated(

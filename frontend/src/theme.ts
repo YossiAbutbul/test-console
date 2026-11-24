@@ -335,6 +335,11 @@ export function makeTheme(mode: ThemeMode): Theme {
           // proportional 1 beside an 8 makes "11/18" and "1m 12s" shift width
           // as they count, and labels like "18 points" jitter between runs.
           body: { fontVariantNumeric: 'tabular-nums' },
+          // Once for every input -- see MuiInputBase's disableInjectingGlobalStyles.
+          // MUI's InputBase starts these on autofill to notice it; the names
+          // must stay as MUI uses them.
+          '@keyframes mui-auto-fill': { from: { display: 'block' } },
+          '@keyframes mui-auto-fill-cancel': { from: { display: 'block' } },
           // The window is the app: panes scroll, the page body never does. A
           // tooltip near the right edge (Show inspector) gave <html> a
           // scrollbar while it was open, which flashed in and shifted
@@ -374,7 +379,13 @@ export function makeTheme(mode: ThemeMode): Theme {
         defaultProps: { autoComplete: 'off' },
       },
       MuiInputBase: {
-        defaultProps: { autoComplete: 'off' },
+        // Each input used to mount its own copy of MUI's autofill keyframes
+        // (4 global rules) and remove it on unmount. Every page stays
+        // mounted, so the document is ~10 000 elements, and each insert or
+        // removal restyled all of them: opening a Test Sequence step (12
+        // fields) froze the page ~0.5 s. The keyframes are added once, in
+        // MuiCssBaseline below, and no input injects them.
+        defaultProps: { autoComplete: 'off', disableInjectingGlobalStyles: true },
         // No browser spin buttons on number fields: they appeared on hover
         // inside narrow fields and competed with the page's own nudge keys.
         styleOverrides: {

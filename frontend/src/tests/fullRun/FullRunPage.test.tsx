@@ -1,19 +1,20 @@
 // @vitest-environment happy-dom
 /**
- * The Full Run page against a fake backend: what a run of several steps sends
- * the DUT and the instruments, in what order, where it stops to re-cable, and
- * what Stop leaves undone.
+ * The Full Run page against a fake backend: what it sends the backend's
+ * sequence runner, where the run stops to re-cable, what Stop does, and a
+ * run picked back up by a page that was closed. What the runner sends the rig
+ * is backend/tests/test_sequence_runner.py's business.
  *
  * The BLE radio is a fake `BleLink`, as in the BLE panel's own test: the real
  * one waits out each tone in real time.
  */
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { command, installFakeBackend, measured, rigTrace } from '../../testing/fakeBackend'
+import { installFakeBackend, rigTrace } from '../../testing/fakeBackend'
+import { fakeSequence } from '../../testing/fakeSequence'
 import { renderWithApp } from '../../testing/renderWithApp'
 import { PageActiveContext, ToolbarSlotContext } from '../../ui'
 import { fullRunSnapshot, type FullRunStep } from '../../store/fullRunStore'
-import { resetRunLocks } from '../../lib/runLock'
 import type { BleLink } from '../ble/useBleLink'
 import { FullRunPage } from './FullRunPage'
 import { sequenceToFile } from './sequenceFile'
@@ -34,6 +35,7 @@ vi.mock('../ble/useBleLink', () => ({
     },
     finishTone: async () => { bleTrace.push('finishTone') },
     onAirUntil: () => Date.now() + 60_000,
+    forget: () => {},
   }),
 }))
 
@@ -60,7 +62,7 @@ function renderPage() {
 
 /** The header's Run key, by its label: its accessible name is the tooltip's. */
 const runButton = () => {
-  const b = [...document.querySelectorAll('button')].find((x) => /Run sequence|Running|Needs|Not ready/.test(x.textContent ?? ''))
+  const b = [...document.querySelectorAll('button')].find((x) => /Run sequence|Running|Needs|Not ready|Rig busy/.test(x.textContent ?? ''))
   if (!b) throw new Error('no Run key')
   return b
 }
@@ -69,18 +71,15 @@ const stopButton = () => [...document.querySelectorAll('button')].find((x) => x.
 describe('Full Run page', () => {
   beforeEach(() => {
     bleTrace.length = 0
-    resetRunLocks()
     for (const k of Object.keys(fullRunSnapshot)) delete (fullRunSnapshot as Record<string, unknown>)[k]
   })
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.body.innerHTML = '' })
 
-  it('runs the steps in order, repeats with their own settings, and pauses once to re-cable', async () => {
+  it('sends the steps in order, each with its own points, and pauses once to re-cable', async () => {
     fullRunSnapshot.steps = [loraCw('a', '14'), loraCw('b', '20'), bleCw('c')]
     fullRunSnapshot.bench = 'main'
-    const backend = installFakeBackend({
-      'POST /device/lora-power': () => command(),
-      'POST /instruments/measure': (c) => measured(c.query.get('freq_hz') === '915000000' ? 14 : 8),
-    })
+    const seq = fakeSequence()
+    const backend = installFakeBackend(seq.routes)
     renderPage()
 
     // The plan shows where it will stop to re-cable, before anything runs.
@@ -89,30 +88,92 @@ describe('Full Run page', () => {
     await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false))
     act(() => { fireEvent.click(runButton()) })
 
-    // Both LoRa steps run, then it waits at the cable.
+    // The backend runs both LoRa steps, then waits at the cable.
     await screen.findByText('Re-cable the bench', undefined, { timeout: 8000 })
-    expect(backend.to('POST', '/device/lora-power').map((c) => (c.body as { power_dbm: number }).power_dbm))
-      .toEqual([14, 20])
-    expect(bleTrace).toEqual([])
+    expect(seq.bodies).toHaveLength(1)
+    expect(seq.bodies[0]).toMatchSnapshot()
 
     act(() => { fireEvent.click(screen.getByRole('button', { name: 'Cabled — continue' })) })
     await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false), { timeout: 8000 })
 
-    expect(rigTrace(backend.calls)).toMatchSnapshot()
-    expect(bleTrace).toMatchSnapshot()
-    // Only one prompt: the two LoRa steps share a setup.
+    expect(backend.to('POST', '/sequence/recable').map((c) => c.body)).toEqual([{ seq: 3, ok: true }])
+    // Nothing keyed from the page: the backend drives the rig.
+    expect(rigTrace(backend.calls)).toEqual([])
+    expect(bleTrace).toEqual([])
     expect(fullRunSnapshot.bench).toBe('ble')
-    expect(Object.fromEntries(Object.entries(fullRunSnapshot.results ?? {}).map(([k, r]) => [k, r.outcome.verdict])))
-      .toEqual({ a: 'pass', b: 'fail', c: 'na' })
+    await waitFor(() => expect(Object.fromEntries(Object.entries(fullRunSnapshot.results ?? {})
+      .map(([k, r]) => [k, r.outcome.verdict]))).toEqual({ a: 'pass', b: 'fail', c: 'na' }))
+    expect(fullRunSnapshot.results?.b?.rows).toHaveLength(1)
+  }, 20000)
+
+  it('runs a frequency accuracy step with its stages, and shows its errors in ppm', async () => {
+    fullRunSnapshot.steps = [{
+      uid: 'f', testId: 'freq-accuracy',
+      settings: {
+        rows: [{ freq: '902.3,915', power: '14', paMode: 2, tolPpm: '30' }],
+        measure: { stages: [{ span_hz: 1_000_000, rbw_hz: 10_000, vbw_hz: 10_000 }], settleMs: '400', stageTolPpm: [''] },
+      },
+    }]
+    fullRunSnapshot.bench = 'main'
+    const seq = fakeSequence({
+      measure: (_s, p) => {
+        const err = p.freq_mhz === 915 ? 40_000 : 4
+        const ppm = err / ((p.freq_mhz as number) * 1e6) * 1e6
+        return {
+          freqMhz: p.freq_mhz, earfcn: null, power: p.power_dbm, paMode: p.pa_mode, limitPpm: p.limit_ppm,
+          stagePpm: [ppm], stageLimits: [null], measuredHz: (p.freq_mhz as number) * 1e6 + err,
+          errorHz: err, errorPpm: ppm, levelDbm: -20, note: '',
+          verdict: Math.abs(ppm) <= (p.limit_ppm as number) ? 'pass' : 'fail', error: null,
+        }
+      },
+    })
+    const up = { connected: true, idn: 'FAKE,1' }
+    installFakeBackend({
+      ...seq.routes,
+      // The zoom needs the analyzer; nothing else.
+      'GET /instruments/status': () => ({
+        power_sensor: up, dc_analyzer: up, spectrum: up,
+        network_analyzer: { connected: false, idn: null }, signal_generator: { connected: false, idn: null },
+      }),
+    })
+    renderPage()
+    await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false))
+    act(() => { fireEvent.click(runButton()) })
+    await waitFor(() => expect(fullRunSnapshot.results?.f?.outcome.verdict).toBe('fail'), { timeout: 8000 })
+
+    expect(seq.bodies[0].steps[0]).toMatchObject({
+      test: 'freq-accuracy', setup: 'main', settle_ms: 400,
+      points: [
+        { freq_mhz: 902.3, earfcn: null, power_dbm: 14, pa_mode: 2, limit_ppm: 30 },
+        { freq_mhz: 915, earfcn: null, power_dbm: 14, pa_mode: 2, limit_ppm: 30 },
+      ],
+      freq: { stages: [{ span_hz: 1_000_000, rbw_hz: 10_000, vbw_hz: 10_000 }], stage_limits_ppm: [null] },
+    })
+    // The step's Results tab reads the page's columns: the error, in Hz and ppm.
+    await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false), { timeout: 8000 })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit step 1', hidden: true }))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Results', hidden: true }))
+    expect(await screen.findByText('43.7158')).toBeTruthy()
+  }, 20000)
+
+  it('offers frequency accuracy under LoRa and LTE in the library', async () => {
+    installFakeBackend()
+    renderPage()
+    expect(screen.getByRole('button', { name: 'Add LoRa frequency accuracy' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add LTE frequency accuracy' }))
+    await waitFor(() => expect(fullRunSnapshot.steps?.map((x) => x.testId)).toEqual(['lte-freq-accuracy']))
+    // Opened, its Sweep tab is the page's plan table, and Measure its stages.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit step 1' }))
+    expect(await screen.findByDisplayValue('1880')).toBeTruthy()
+    fireEvent.click(screen.getByRole('tab', { name: 'Measure' }))
+    expect(await screen.findByText('Span')).toBeTruthy()
   }, 20000)
 
   it('Stop at the re-cable prompt ends the run with the rest not run', async () => {
     fullRunSnapshot.steps = [loraCw('a', '14'), bleCw('c'), loraCw('d', '14')]
     fullRunSnapshot.bench = 'main'
-    const backend = installFakeBackend({
-      'POST /device/lora-power': () => command(),
-      'POST /instruments/measure': () => measured(14),
-    })
+    const seq = fakeSequence()
+    const backend = installFakeBackend(seq.routes)
     renderPage()
     await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false))
     act(() => { fireEvent.click(runButton()) })
@@ -121,33 +182,31 @@ describe('Full Run page', () => {
     act(() => { fireEvent.click(screen.getByRole('button', { name: 'Stop run' })) })
     await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false), { timeout: 8000 })
 
-    // Grouped by protocol, both LoRa steps run before the BLE one's prompt.
-    expect(backend.to('POST', '/device/lora-power')).toHaveLength(2)
-    expect(bleTrace).toEqual([])
-    expect(Object.keys(fullRunSnapshot.results ?? {}).sort()).toEqual(['a', 'd'])
+    // Grouped by protocol, both LoRa steps are sent before the BLE one.
+    expect(seq.bodies[0].steps.map((x) => x.uid)).toEqual(['a', 'd', 'c'])
+    expect(backend.to('POST', '/sequence/cancel')).toHaveLength(1)
+    await waitFor(() => expect(Object.keys(fullRunSnapshot.results ?? {}).sort()).toEqual(['a', 'd']))
     // The bench did not move.
     expect(fullRunSnapshot.bench).toBe('main')
   }, 20000)
 
-  it('Stop during a step stops the DUT and runs nothing after it', async () => {
+  it('Stop during a step stops the run and runs nothing after it', async () => {
     fullRunSnapshot.steps = [
       { ...loraCw('a', '14'), settings: { rows: [{ freq: '902.3,915', power: '14', paMode: 1, marginDb: '1' }], settleMs: 400 } },
       loraCw('b', '20'),
     ]
     fullRunSnapshot.bench = 'main'
-    const backend = installFakeBackend({
-      'POST /device/lora-power': () => command(),
-      'POST /instruments/measure': () => measured(14),
-    })
+    const seq = fakeSequence({ stepwise: true })
+    const backend = installFakeBackend(seq.routes)
     renderPage()
     await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false))
     act(() => { fireEvent.click(runButton()) })
-    await waitFor(() => expect(backend.to('POST', '/device/lora-power')).toHaveLength(1), { timeout: 8000 })
+    await waitFor(() => expect(fullRunSnapshot.results?.a?.rows).toHaveLength(1), { timeout: 8000 })
     act(() => { fireEvent.click(stopButton()) })
     await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false), { timeout: 8000 })
 
-    expect(backend.to('POST', '/device/lora-power')).toHaveLength(1)
-    expect(backend.to('POST', '/device/stop').length).toBeGreaterThanOrEqual(1)
+    expect(backend.to('POST', '/sequence/cancel')).toHaveLength(1)
+    expect(seq.status().ended).toBe('stopped')
     expect(fullRunSnapshot.results?.b).toBeUndefined()
   }, 20000)
 
@@ -212,19 +271,16 @@ describe('Full Run page', () => {
   it('leaves a switched-off step out of the run', async () => {
     fullRunSnapshot.steps = [loraCw('a', '14'), { ...bleCw('c'), enabled: false }]
     fullRunSnapshot.bench = 'main'
-    const backend = installFakeBackend({
-      'POST /device/lora-power': () => command(),
-      'POST /instruments/measure': () => measured(14),
-    })
+    const seq = fakeSequence()
+    installFakeBackend(seq.routes)
     renderPage()
     await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false))
     act(() => { fireEvent.click(runButton()) })
     await waitFor(() => expect(fullRunSnapshot.results?.a?.outcome.verdict).toBe('pass'), { timeout: 8000 })
     await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false), { timeout: 8000 })
-    // No re-cable prompt, nothing sent to the BLE radio.
+    // Not sent, so no re-cable prompt.
+    expect(seq.bodies[0].steps.map((x) => x.uid)).toEqual(['a'])
     expect(screen.queryByText('Re-cable the bench')).toBeNull()
-    expect(bleTrace).toEqual([])
-    expect(backend.to('POST', '/device/lora-power')).toHaveLength(1)
   }, 20000)
 
   it("shows a failed step's points mid-run without stopping the run", async () => {
@@ -233,18 +289,16 @@ describe('Full Run page', () => {
       { ...loraCw('b', '14'), settings: { rows: [{ freq: '902.3,915,927.5', power: '14', paMode: 1, marginDb: '1' }], settleMs: 400 } },
     ]
     fullRunSnapshot.bench = 'main'
-    const backend = installFakeBackend({
-      'POST /device/lora-power': () => command(),
-      // Step a asks for 20 dBm and gets 14: a FAIL.
-      'POST /instruments/measure': () => measured(14),
-    })
+    // Step a asks for 20 dBm and gets 14: a FAIL.
+    const seq = fakeSequence({ stepwise: true })
+    installFakeBackend(seq.routes)
     renderPage()
     await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false))
     act(() => { fireEvent.click(runButton()) })
 
     // Step a has failed; step b is under way.
     const capsule = await screen.findByRole('button', { name: /1 FAIL.*see the points/ }, { timeout: 8000 })
-    expect(backend.to('POST', '/device/lora-power').length).toBeLessThan(4)
+    expect(seq.status().state).toBe('running')
     act(() => { fireEvent.click(capsule) })
 
     // Its failed point, with the run still going.
@@ -255,39 +309,62 @@ describe('Full Run page', () => {
     expect(runButton().textContent).toMatch(/Running/)
 
     // And the run finishes every step.
-    await waitFor(() => expect(backend.to('POST', '/device/lora-power')).toHaveLength(4), { timeout: 8000 })
-    await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false), { timeout: 8000 })
+    await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false), { timeout: 10000 })
+    await waitFor(() => expect(fullRunSnapshot.results?.b?.rows).toHaveLength(3))
   }, 20000)
 
-  it('leaves the rig idle at the end: the LTE modem powered off, LoRa stopped', async () => {
-    fullRunSnapshot.steps = [
-      loraCw('a', '14'),
-      {
-        uid: 'l', testId: 'lte-cw',
-        settings: { rows: [{ earfcn: '18900', power: '20', marginDb: '1' }], settleMs: 400, unit: 'earfcn', bands: [2] },
-      },
-    ]
+  it('picks a running sequence back up after the page is closed and reopened', async () => {
+    fullRunSnapshot.steps = [loraCw('a', '14'), bleCw('c')]
     fullRunSnapshot.bench = 'main'
-    const backend = installFakeBackend({
-      'POST /device/lora-power': () => command(),
-      'POST /device/lte/modem-off': () => command(),
-      'POST /device/lte/modem-on': () => command(),
-      'POST /device/lte/cw': () => command(),
-      'POST /instruments/measure': () => measured(14),
-    })
+    const seq = fakeSequence()
+    installFakeBackend(seq.routes)
     renderPage()
     await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false))
     act(() => { fireEvent.click(runButton()) })
-    await waitFor(() => expect(fullRunSnapshot.results?.l).toBeTruthy(), { timeout: 15000 })
-    await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false), { timeout: 15000 })
+    await screen.findByText('Re-cable the bench', undefined, { timeout: 8000 })
 
-    // The LTE step leaves the modem on, as the LTE pages do; the sequence's
-    // end switches it off, and stops LoRa once more.
-    const rig = backend.calls
-      .filter((c) => c.method === 'POST' && c.path.startsWith('/device/'))
-      .map((c) => c.path)
-    expect(rig.slice(-2)).toEqual(['/device/stop', '/device/lte/modem-off'])
-  }, 30000)
+    // The tab goes; the run, parked at its prompt, does not.
+    cleanup()
+    document.body.innerHTML = ''
+    delete fullRunSnapshot.results
+    renderPage()
+
+    // The new page finds it on its first poll: the prompt is back, and step
+    // a's rows with it.
+    await screen.findByText('Re-cable the bench', undefined, { timeout: 8000 })
+    await waitFor(() => expect(fullRunSnapshot.results?.a?.outcome.verdict).toBe('pass'))
+    expect(runButton().textContent).toMatch(/Running/)
+    act(() => { fireEvent.click(screen.getByRole('button', { name: 'Cabled — continue' })) })
+    await waitFor(() => expect(seq.status().state).toBe('done'), { timeout: 8000 })
+    expect(seq.bodies).toHaveLength(1)
+  }, 20000)
+
+  it("leaves a sweep page's own run to that page, and holds Run off meanwhile", async () => {
+    fullRunSnapshot.steps = [loraCw('a', '14')]
+    fullRunSnapshot.bench = 'main'
+    const seq = fakeSequence({ stepwise: true })
+    installFakeBackend({ ...seq.routes, 'GET /runs/active': () => ({ run: 'LoRa CW' }) })
+    // The LoRa CW page's sweep: a one-step sequence named after the page.
+    seq.routes['POST /sequence/run']({
+      method: 'POST', path: '/sequence/run', query: new URLSearchParams(),
+      body: { bench: 'main', path_loss: { default_db: 0, points: [] }, steps: [{ uid: 'run:power', test: 'power', setup: 'main', label: 'LoRa CW', points: [{ freq_mhz: 915, power_dbm: 14, pa_mode: 1, margin_db: 1 }, { freq_mhz: 915, power_dbm: 14, pa_mode: 1, margin_db: 1 }], settle_ms: 400, power: { source: 'sensor' } }] },
+    })
+    renderPage()
+    await waitFor(() => expect(runButton().textContent).toBe('Rig busy'))
+    expect(Object.keys(fullRunSnapshot.results ?? {})).toEqual([])
+  }, 20000)
+
+  it('does not look as if it ran when the backend will not start it', async () => {
+    fullRunSnapshot.steps = [loraCw('a', '14')]
+    fullRunSnapshot.bench = 'main'
+    installFakeBackend()
+    renderPage()
+    await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false))
+    act(() => { fireEvent.click(runButton()) })
+    await new Promise((r) => setTimeout(r, 300))
+    expect(runButton().textContent).not.toMatch(/Running/)
+    expect(Object.keys(fullRunSnapshot.results ?? {})).toEqual([])
+  }, 20000)
 
   it('keeps + grouped by protocol, in the sidebar order', async () => {
     installFakeBackend()
@@ -338,10 +415,7 @@ describe('Full Run page', () => {
   it('keeps a step’s result when it is only looked at, and drops it on a real change', async () => {
     fullRunSnapshot.steps = [loraCw('a', '14')]
     fullRunSnapshot.bench = 'main'
-    installFakeBackend({
-      'POST /device/lora-power': () => command(),
-      'POST /instruments/measure': () => measured(14),
-    })
+    installFakeBackend(fakeSequence().routes)
     renderPage()
     await waitFor(() => expect((runButton() as HTMLButtonElement).disabled).toBe(false))
     act(() => { fireEvent.click(runButton()) })
