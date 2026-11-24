@@ -1,36 +1,29 @@
 import { PowerSourceFields } from '../../components/PowerSourceFields'
-import {
-  measureSpectrumOf, powerInstrument, powerSourceOf, powerSourceValid, type PowerSourceState,
-} from '../../lib/powerSource'
-import { useMemo, useRef, useState } from 'react'
+import type { PowerSourceState } from '../../lib/powerSource'
+import { useMemo, useState } from 'react'
 import { Box, Stack, TableCell, TableRow, TextField, Typography } from '@mui/material'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
-import { instrumentsApi } from '../../api/instruments'
 import { usePathLoss } from '../../context/PathLossContext'
 import { useConnection } from '../../context/ConnectionContext'
-import { formatDuration, sleep } from '../../lib/async'
+import { formatDuration } from '../../lib/async'
 import { downloadCsv as saveCsv, exportName } from '../../lib/download'
 import { fmt } from '../../lib/format'
-import { verdictOf } from '../../lib/verdict'
-import { DEFAULT_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import {
   CONTROL_H, GRID_GAP, Section, SegmentedChoice, TEXT, FAIL_ROW_SX, HeadCell, NUM_CELL_SX,
   VerdictMark,
 } from '../../ui'
 import { CSV_HEADER, parseBleCwCsv, toCsvBody } from './csv'
 import {
-  AUTO_TONE_MAX_S, AUTO_TONE_TYPICAL_S, autoToneSeconds, buildPlan, convertChannelSpec,
-  estimateRunMs, minToneSeconds, powerChanges, rowIssues, rowPoints, specChannels, stepBudgetMs,
-  type PlanPoint,
+  buildPlan, convertChannelSpec, powerChanges, rowIssues, rowPoints, specChannels, type PlanPoint,
 } from './plan'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
-import { useAutomationRun, type AutomationControls, type PointContext } from '../engine/useAutomationRun'
+import { useAutomationRun, type AutomationControls } from '../engine/useAutomationRun'
 import {
   ColHead, HeaderField, ResultsCard, SettleField, SweepCard, SweepRowShell,
 } from '../engine/AutomationKit'
-import { BODY_ROW_SX, CELL_SX, useAddRowFocus } from '../engine/automationLayout'
-import type { InstrumentId } from '../../context/InstrumentsContext'
-import { DURATION_MAX_S, channelMhz, offAirReason } from '../ble/radio'
+import { BODY_ROW_SX, CELL_SX, EDITOR_GAP, useAddRowFocus } from '../engine/automationLayout'
+import type { SweepSettingsStore } from '../engine/sweepTest'
+import { DURATION_MAX_S, channelMhz } from '../ble/radio'
 import type { BleLink } from '../ble/useBleLink'
 import { useSnapshotState } from '../../store/useSnapshotState'
 import {
@@ -41,21 +34,14 @@ import {
   type BleChannelUnit,
 } from '../../store/bleCwPageStore'
 import { selectOnFocus } from '../../lib/selectOnFocus'
+import {
+  DEFAULT_ROW, blankRow, bleCwTest, toneOf, type BleCwRaw, type BleCwSettings,
+} from './sweepTest'
 
 export type { AutomationControls } from '../engine/useAutomationRun'
 
 type ResultRow = BleAutomationResultRow
 type SweepRow = BleAutomationRow
-
-/** Beside the one that reads power, which the panel's power source names. */
-const REQUIRED_INSTRUMENTS: InstrumentId[] = ['dc-analyzer']
-
-/** Blank: auto. Every second of tone past the reading is a second the run
- *  waits per point with the DUT unreachable, so by default the run sizes it
- *  from the measurement itself (`autoToneSeconds`). A number fixes it. */
-const DEFAULT_TONE_S = ''
-
-const DEFAULT_ROW: SweepRow = { channel: '0,19,39', power: '31', minDbm: '', maxDbm: '' }
 
 /** One grid template for the header and every row. */
 const COLS = '20px minmax(140px, 1fr) minmax(120px, 1fr) 88px 88px 76px 32px'
@@ -64,20 +50,6 @@ const MIN_TABLE_W = 600
 /** Results table columns, `#` first; the table is at least 624 px wide. */
 const RESULT_MIN_W = 624
 const RESULT_COLS = [40, '10%', '11%', '10%', '16%', '14%', '10%', '12%', '11%']
-
-/** The wall clock, out of line so it is read when called, not in render. */
-const epochNow = (): number => Date.now()
-/** The same for the monotonic clock a read is timed on. */
-const monoNow = (): number => performance.now()
-
-function normaliseRow(r: Partial<SweepRow>): SweepRow {
-  return {
-    channel: r.channel ?? '',
-    power: r.power ?? DEFAULT_ROW.power,
-    minDbm: r.minDbm ?? '',
-    maxDbm: r.maxDbm ?? '',
-  }
-}
 
 const limitsText = (r: ResultRow): string => {
   if (r.min_dbm == null && r.max_dbm == null) return '—'
@@ -121,21 +93,7 @@ function snap(): NonNullable<typeof bleCwPageSnapshot.automation> {
   return bleCwPageSnapshot.automation
 }
 
-const blankRow = (item: PlanPoint): ResultRow => ({
-  channel: item.channel,
-  freq_mhz: item.freqMhz,
-  power_param: item.power,
-  measured_dbm: null,
-  measured_dbm_raw: null,
-  current_a: null,
-  voltage_v: null,
-  min_dbm: item.minDbm,
-  max_dbm: item.maxDbm,
-  verdict: null,
-  status: null,
-  ok: false,
-  error: null,
-})
+const PAGE_STORE: SweepSettingsStore<BleCwRaw> = { snap, persist: persistBleCwPage }
 
 interface Props {
   /** The DUT's BLE radio, owned by the page -- both tabs drive one radio. */
@@ -146,31 +104,39 @@ interface Props {
   /** The manual tab has a tone in flight; a run must not start into it. */
   blocked?: boolean
   onControlsChange?: (c: AutomationControls) => void
+  /** Settings to edit in place of the page's own (a Full Run step). */
+  store?: SweepSettingsStore<BleCwRaw>
+  /** Only the settings: no results, nothing to run from here. */
+  editor?: boolean
+  /** As an editor, which half to show: the sweep or what measures it. */
+  editorView?: 'sweep' | 'measure'
 }
 
-export function BleAutomationPanel({ link, unit, onUnitChange, blocked, onControlsChange }: Props) {
+export function BleAutomationPanel({
+  link, unit, onUnitChange, blocked, onControlsChange, store = PAGE_STORE, editor = false, editorView = 'sweep',
+}: Props) {
   const { lossAt } = usePathLoss()
   const { status: bleStatus } = useConnection()
+  // The stored settings, resolved once for the starting values below.
+  const [initial] = useState(() => bleCwTest.resolve({ ...store.snap(), unit }))
   const [powerSrc, setPowerSrc] = useSnapshotState<PowerSourceState>(
-    () => powerSourceOf(snap().powerSource),
-    (v) => { snap().powerSource = v; persistBleCwPage() },
+    () => initial.powerSrc,
+    (v) => { store.snap().powerSource = v; store.persist() },
   )
-  const sourceOk = powerSourceValid(powerSrc)
-  const preflight = useInstrumentPreflight([powerInstrument(powerSrc), ...REQUIRED_INSTRUMENTS])
-
-  const [rows, setRows] = useSnapshotState<SweepRow[]>(() => {
-    const stored = snap().rows
-    if (stored?.length) return stored.map(normaliseRow)
-    return [unit === 'mhz' ? { ...DEFAULT_ROW, channel: '2402,2440,2480' } : DEFAULT_ROW]
-  }, (v) => { snap().rows = v; persistBleCwPage() })
+  const [rows, setRows] = useSnapshotState<SweepRow[]>(
+    () => initial.rows,
+    (v) => { store.snap().rows = v; store.persist() },
+  )
   const [settleMs, setSettleMs] = useSnapshotState<number>(
-    () => clampSettleMs(snap().settleMs ?? DEFAULT_SETTLE_MS),
-    (v) => { snap().settleMs = v; persistBleCwPage() },
+    () => initial.settleMs,
+    (v) => { store.snap().settleMs = v; store.persist() },
   )
   const [toneSeconds, setToneSeconds] = useSnapshotState<string>(
-    () => snap().toneFixedSeconds ?? DEFAULT_TONE_S,
-    (v) => { snap().toneFixedSeconds = v; persistBleCwPage() },
+    () => initial.toneSeconds,
+    (v) => { store.snap().toneFixedSeconds = v; store.persist() },
   )
+  const settings: BleCwSettings = { rows, settleMs, powerSrc, toneSeconds, unit }
+  const preflight = useInstrumentPreflight(bleCwTest.instruments(settings))
   const [focusKey, setFocusKey] = useState<string | null>(null)
   const addFocus = useAddRowFocus(rows.length)
 
@@ -192,164 +158,31 @@ export function BleAutomationPanel({ link, unit, onUnitChange, blocked, onContro
   const updateRow = (i: number, patch: Partial<SweepRow>) =>
     setRows((arr) => arr.map((x, j) => (j === i ? { ...x, ...patch } : x)))
 
-  // Tone duration: whole seconds, and long enough that the reading lands
-  // while the tone is still on air -- one that ends first measures the noise
-  // floor and records it as the DUT's power.
-  const toneAuto = toneSeconds.trim() === ''
-  const toneS = Number(toneSeconds)
-  const toneMin = minToneSeconds(settleMs)
-  const toneValid = toneAuto
-    || (Number.isInteger(toneS) && toneS >= toneMin && toneS <= DURATION_MAX_S)
-  /** What the estimate and the step budget assume a point's tone is. */
-  const planToneS = toneAuto ? AUTO_TONE_TYPICAL_S : toneS
+  const tone = toneOf(settings)
+  const toneAuto = tone.auto
+  const toneS = tone.fixed
+  const toneMin = tone.min
+  const toneValid = tone.valid
+  const planToneS = tone.planS
 
   const plan = useMemo(() => buildPlan(rows, unit), [rows, unit])
   const resets = powerChanges(plan)
-  const plannedRunMs = toneValid ? estimateRunMs(plan, planToneS) : 0
-  // A row with a bad field contributes no points; it blocks the run rather
-  // than vanishing from the plan.
-  const anyInvalid = rows.some((r) => {
-    if (r.channel.trim() === '') return false
-    const i = rowIssues(r, unit)
-    return !!(i.channel || i.power || i.limits)
-  })
-
-  /** Set by a point whose DUT did not come back; the next point ends the run. */
-  const lostRef = useRef<string | null>(null)
-  /** Longest time yet, this run, from a tone's start being sent to its
-   *  reading finishing -- what an auto tone is sized from. */
-  const slowestWindowRef = useRef<number | null>(null)
-  /** The auto tone last used, so a change is reported once, not per point. */
-  const lastAutoToneRef = useRef<number | null>(null)
-
-  /**
-   * One point: tone on -> settle -> read power/CC -> wait out the tone -> relink.
-   *
-   * The relink is in `finally` for the same reason the LTE panel's abort is:
-   * a failed or stopped point must not leave the next one -- or the operator
-   * -- with a DUT that is off the link. It is not abortable: the tone runs to
-   * its end whatever we do, so Stop waits for it rather than leaving the DUT
-   * stranded mid-tone.
-   *
-   * Never throws; failures land in the row.
-   */
-  const measurePoint = async (
-    item: PlanPoint,
-    { signal, reporter, noteUncalibrated, preview }: PointContext<ResultRow>,
-  ): Promise<ResultRow> => {
-    const row = blankRow(item)
-    if (signal.aborted) return row
-    const fHz = item.freqMhz * 1e6
-    let started = false
-    const pointToneS = toneAuto ? autoToneSeconds(slowestWindowRef.current) : toneS
-    if (toneAuto && pointToneS !== lastAutoToneRef.current) {
-      const w = slowestWindowRef.current
-      reporter.note(w == null
-        ? `auto tone: ${pointToneS} s for the first point, until a reading has been timed`
-        : `auto tone: ${pointToneS} s per point (slowest reading finished ${(w / 1000).toFixed(1)} s into its tone)`)
-      lastAutoToneRef.current = pointToneS
-    }
-    try {
-      const r = await link.tone({ channel: item.channel, duration_s: pointToneS, offset: 0 }, signal)
-      started = true
-      // Unanswered is the expected shape: the link goes with the tone.
-      row.status = r.acknowledged ? r.status : null
-      await sleep(settleMs, signal)
-      if (signal.aborted) return row
-      const pl = lossAt(item.freqMhz)
-      const readStart = monoNow()
-      const m = await instrumentsApi.measure(fHz, { signal, spectrum: measureSpectrumOf(powerSrc) })
-      const readMs = monoNow() - readStart
-      row.measured_dbm_raw = m.power_dbm
-      row.measured_dbm = m.power_dbm == null ? null : m.power_dbm + pl.db
-      if (!pl.calibrated) noteUncalibrated(item.freqMhz)
-      row.current_a = m.current_a
-      row.voltage_v = m.voltage_v
-      row.verdict = verdictOf(row.measured_dbm, item.minDbm, item.maxDbm)
-      row.ok = !m.error
-      if (m.error) row.error = m.error
-      // The numbers stay in the row, so a late read can be seen for what it
-      // was, but it is not judged or counted as measured.
-      const readEnd = epochNow()
-      const until = link.onAirUntil()
-      const offAir = offAirReason(readEnd, until, readMs)
-      if (offAir) {
-        row.ok = false
-        row.verdict = null
-        row.error = m.error ? `${offAir}; ${m.error}` : offAir
-      }
-      // Timed from when the start went out, so it covers everything the tone
-      // has to outlast: the link release, the settle and the reads.
-      if (until != null) {
-        const spanMs = readEnd - (until - pointToneS * 1000)
-        slowestWindowRef.current = Math.max(slowestWindowRef.current ?? 0, spanMs)
-      }
-      // On screen now rather than after the reconnect, which is seconds away
-      // and changes nothing in the row unless it fails -- then the row is
-      // updated with why.
-      preview(row)
-    } catch (e) {
-      row.error = signal.aborted ? null : (e as Error).message
-    } finally {
-      if (started) {
-        try {
-          await link.finishTone()
-        } catch (e) {
-          const message = `DUT did not come back after the tone: ${(e as Error).message}`
-          lostRef.current = message
-          row.ok = false
-          row.error ??= message
-        }
-      }
-    }
-    return row
-  }
+  const plannedRunMs = bleCwTest.estimateMs(settings, plan)
 
   const run = useAutomationRun<PlanPoint, ResultRow>({
     reporterName: 'BLE CW automation',
     live: { id: 'run:ble-cw', detail: 'BLE CW', pageId: 'ble-cw' },
-    loadResults: () => snap().results ?? [],
-    saveResults: (v) => { snap().results = v; persistBleCwPage() },
+    loadResults: () => (editor ? [] : snap().results ?? []),
+    saveResults: (v) => { if (!editor) { snap().results = v; persistBleCwPage() } },
     plan,
-    freqMhz: (p) => p.freqMhz,
+    freqMhz: bleCwTest.freqMhz,
     plannedMs: plannedRunMs,
-    ready: !anyInvalid && sourceOk && toneValid && !blocked && !link.busy,
+    ready: bleCwTest.problem(settings) == null && !blocked && !link.busy,
     preflight,
     blankRow,
-    measure: measurePoint,
-    stepTimeoutMs: stepBudgetMs(toneAuto ? AUTO_TONE_MAX_S : toneS),
-    onStart: () => {
-      lostRef.current = null
-      slowestWindowRef.current = null
-      lastAutoToneRef.current = null
-    },
-    // Outside the step timeout: a power change waits on a reboot, and
-    // has its own bound in the relink. A DUT that did not come back from
-    // the last point ends the run here, rather than failing every point
-    // after it in milliseconds.
-    beforeItem: async (item, i, { signal, reporter }) => {
-      if (lostRef.current) throw new Error(lostRef.current)
-      const prev = i > 0 ? plan[i - 1].power : null
-      if (prev === item.power) return
-      reporter.note(`tone power ${item.power} — resetting the DUT`)
-      // The first power is set even if the page believes the DUT is on
-      // it: a run starts from a power it set itself, the way the LTE
-      // run power-cycles its modem.
-      if (i === 0) await link.setPower(item.power, signal)
-      else await link.ensurePower(item.power, signal)
-    },
-    // A tone left on air -- a point abandoned by its timeout -- is
-    // waited out, so the run ends with the DUT back on the link.
-    after: () => link.finishTone(),
-    // The tone itself cannot be stopped; say so, rather than letting the run
-    // look hung while it waits for the DUT to come back.
-    onStop: (reporter) => {
-      const until = link.onAirUntil()
-      if (until != null) {
-        const left = Math.max(0, Math.ceil((until - epochNow()) / 1000))
-        reporter.note(`stopping — the tone on air cannot be cut short; reconnecting when it ends in ${left} s`, 'warn')
-      }
-    },
+    createRun: () => bleCwTest.createRun(settings, { lossAt, link }),
+    stepTimeoutMs: bleCwTest.stepTimeoutMs(settings),
+    refuse: () => (editor ? 'these are a Full Run step settings' : null),
     parseCsv: parseBleCwCsv,
     onControlsChange,
   })
@@ -370,8 +203,9 @@ export function BleAutomationPanel({ link, unit, onUnitChange, blocked, onContro
     : 'MHz: "2402-2480:2" · Power: param 6–31 · Min/Max blank = no verdict'
 
   return (
-    <Stack spacing={`${GRID_GAP}px`} sx={{ flexGrow: 1, minHeight: 0 }}>
-      <SweepCard
+    <Stack spacing={editor ? `${EDITOR_GAP}px` : `${GRID_GAP}px`} sx={{ flexGrow: 1, minHeight: 0 }}>
+      {(!editor || editorView === 'sweep') && <SweepCard
+        compact={editor}
         running={running}
         totalPoints={run.totalPoints}
         completedPoints={run.completedPoints}
@@ -484,22 +318,24 @@ export function BleAutomationPanel({ link, unit, onUnitChange, blocked, onContro
             </SweepRowShell>
           )
         })}
-      </SweepCard>
+      </SweepCard>}
 
-      <Section title="Measure" panel>
-        <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={running} />
-      </Section>
+      {editor ? (
+        editorView === 'measure' && (
+          <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={running} compact />
+        )
+      ) : (
+        <Section title="Measure" panel>
+          <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={running} />
+        </Section>
+      )}
 
-      <ResultsCard
+      {!editor && <ResultsCard
         results={results}
         running={running}
         totalPoints={run.totalPoints}
         onExport={() => downloadCsv(results, bleStatus?.address ?? null)}
-        report={() => ({
-          test: 'ble-cw-automation', title: 'BLE CW automation',
-          settings: [['Settle', `${settleMs} ms`], ['Tone', toneAuto ? 'auto' : `${toneSeconds} s`]],
-          columns: [...CSV_HEADER], rows: toCsvBody(results),
-        })}
+        report={() => bleCwTest.report(settings, results)}
         onImport={(f) => void run.importFile(f)}
         onClear={() => run.replaceResults([])}
         minWidth={RESULT_MIN_W}
@@ -516,7 +352,7 @@ export function BleAutomationPanel({ link, unit, onUnitChange, blocked, onContro
           <HeadCell label="Status" />
         </>}
         renderRow={renderResultRow}
-      />
+      />}
 
       {preflight.dialog}
     </Stack>

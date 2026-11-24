@@ -1,34 +1,25 @@
 import { PowerSourceFields } from '../../components/PowerSourceFields'
-import {
-  measureSpectrumOf, powerInstrument, powerSourceOf, powerSourceValid, type PowerSourceState,
-} from '../../lib/powerSource'
+import type { PowerSourceState } from '../../lib/powerSource'
 import { useState } from 'react'
 import { Box, MenuItem, Stack, TableCell, TableRow, TextField } from '@mui/material'
 import { ValidationAdornment, shouldShowValidation } from '../../components/ValidationAdornment'
-import { device } from '../../api/device'
-import { instrumentsApi } from '../../api/instruments'
 import { usePathLoss } from '../../context/PathLossContext'
 import { useConnection } from '../../context/ConnectionContext'
-import { sleep } from '../../lib/async'
 import { downloadCsv as saveCsv, exportName } from '../../lib/download'
 import { fmt } from '../../lib/format'
 import { parseRangeSpec } from '../../lib/numericList'
-import { parseLimit, verdictWithinMargin } from '../../lib/verdict'
-import { DEFAULT_SETTLE_MS, clampSettleMs } from '../../lib/settle'
 import {
   GRID_GAP, Section, FAIL_ROW_SX, HeadCell, NUM_CELL_SX, VerdictMark, deltaText,
 } from '../../ui'
 import { CSV_HEADER, PA_MODE_LABEL, parsePowerCsv, toCsvBody } from './csv'
 import { ResultsGraphModal, type GraphableRow } from './LazyResultsGraphModal'
 import { useInstrumentPreflight } from '../engine/useInstrumentPreflight'
-import { useAutomationRun, type AutomationControls, type PointContext } from '../engine/useAutomationRun'
+import { useAutomationRun, type AutomationControls } from '../engine/useAutomationRun'
 import {
   ColHead, ResultsCard, SettleEstimate, SettleField, SweepCard, SweepRowShell,
 } from '../engine/AutomationKit'
-import {
-  BODY_ROW_SX, CELL_SX, STEP_OVERHEAD_TIMEOUT_MS, useAddRowFocus,
-} from '../engine/automationLayout'
-import type { InstrumentId } from '../../context/InstrumentsContext'
+import { BODY_ROW_SX, CELL_SX, EDITOR_GAP, useAddRowFocus } from '../engine/automationLayout'
+import type { SweepSettingsStore } from '../engine/sweepTest'
 import { useSnapshotState } from '../../store/useSnapshotState'
 import {
   powerPageSnapshot,
@@ -37,18 +28,15 @@ import {
   type AutomationSweepRow,
 } from '../../store/powerPageStore'
 import { selectOnFocus } from '../../lib/selectOnFocus'
+import {
+  DEFAULT_POWER, DEFAULT_ROW, blankRow, loraCwTest, marginValid, rowPoints,
+  type LoraCwRaw, type LoraCwSettings, type PlanPoint,
+} from './sweepTest'
 
 export type { AutomationControls } from '../engine/useAutomationRun'
 
 type ResultRow = AutomationResultRow
 type SweepRow = AutomationSweepRow
-
-/** Instruments every measured point depends on. */
-/** Beside the one that reads power, which the panel's power source names. */
-const REQUIRED_INSTRUMENTS: InstrumentId[] = ['dc-analyzer']
-
-const PA_AUTO = 2
-const DEFAULT_POWER = '14'
 
 /**
  * Sweep table columns.
@@ -75,74 +63,6 @@ const MIN_TABLE_W = 624
  * three words: their old 19 % and 8 % starved the readings.
  */
 const RESULT_COLS = [40, '13.46%', '12.18%', '8.33%', '17.95%', '9.62%', '10.9%', '12.82%', '9.62%']
-
-const DEFAULT_ROW: SweepRow = {
-  freq: '',
-  power: DEFAULT_POWER,
-  paMode: PA_AUTO,
-  marginDb: '1',
-}
-
-/** Fill in a row read back from storage. Snapshots written before PA mode and
- *  the tolerance moved onto the row hold only freq and power. */
-function normaliseRow(r: Partial<SweepRow>): SweepRow {
-  return {
-    freq: r.freq ?? '',
-    power: r.power ?? DEFAULT_POWER,
-    paMode: r.paMode ?? PA_AUTO,
-    marginDb: r.marginDb ?? '1',
-  }
-}
-
-/**
- * A blank tolerance is not an error — it means this row's points are simply
- * not judged, and they report N/A rather than pass or fail.
- *
- * Only a value that is there but unusable counts as wrong: junk, or a negative
- * tolerance, both of which say the operator meant something they did not type.
- */
-const marginValid = (r: SweepRow): boolean => {
-  if (r.marginDb.trim() === '') return true
-  const m = parseLimit(r.marginDb)
-  return m != null && m >= 0
-}
-
-interface PlanPoint {
-  freq: number
-  pow: number
-  paMode: number
-  /** Tolerance in dB around `pow`, or null when this row is not judged. */
-  marginDb: number | null
-}
-
-/** Points one row expands to. An empty power falls back to the default. */
-function rowPoints(r: SweepRow): PlanPoint[] {
-  const freqs = parseRangeSpec(r.freq).filter((f) => f > 0)
-  if (freqs.length === 0 || !marginValid(r)) return []
-  const powers = parseRangeSpec(r.power, Number(DEFAULT_POWER))
-  const out: PlanPoint[] = []
-  for (const f of freqs) {
-    for (const p of powers) {
-      out.push({ freq: f, pow: p, paMode: r.paMode, marginDb: parseLimit(r.marginDb) })
-    }
-  }
-  return out
-}
-
-const blankRow = (item: PlanPoint): ResultRow => ({
-  freq_mhz: item.freq,
-  set_power_dbm: item.pow,
-  pa_mode: item.paMode,
-  measured_dbm: null,
-  measured_dbm_raw: null,
-  current_a: null,
-  voltage_v: null,
-  margin_db: item.marginDb,
-  verdict: null,
-  ok: false,
-  status: null,
-  error: null,
-})
 
 const renderResultRow = (r: ResultRow, i: number) => (
   <TableRow sx={[BODY_ROW_SX, r.verdict === 'fail' && FAIL_ROW_SX]}>
@@ -195,6 +115,8 @@ function snap(): NonNullable<typeof powerPageSnapshot.automation> {
   return powerPageSnapshot.automation
 }
 
+const PAGE_STORE: SweepSettingsStore<LoraCwRaw> = { snap, persist: persistPowerPage }
+
 // The range-spec syntax under the table. Built once for both the footer
 // line and its tooltip, which shows it whole when the line is cut short.
 const SYNTAX_HINT = (
@@ -211,38 +133,39 @@ interface AutomationPanelProps {
   protocol: string
   /** Called whenever the run state changes, so the header can re-render. */
   onControlsChange?: (c: AutomationControls) => void
+  /** Settings to edit in place of the page's own (a Full Run step). */
+  store?: SweepSettingsStore<LoraCwRaw>
+  /** Only the settings: no results, nothing to run from here. */
+  editor?: boolean
+  /** As an editor, which half to show: the sweep or what measures it. */
+  editorView?: 'sweep' | 'measure'
 }
 
-export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelProps) {
+export function AutomationPanel({
+  protocol, onControlsChange, store = PAGE_STORE, editor = false, editorView = 'sweep',
+}: AutomationPanelProps) {
   const { lossAt } = usePathLoss()
   const { status: bleStatus } = useConnection()
-  // Every point reads power and current; without these the run completes with
-  // a table of blanks.
-  // What reads power for the sweep: the sensor, or the spectrum analyzer at
-  // this panel's own settings (lib/powerSource.ts).
+  // The stored settings, resolved once for the starting values below: rows
+  // filled in, settle clamped, the power source -- the sensor, or the
+  // spectrum analyzer at this panel's own settings (lib/powerSource.ts).
+  const [initial] = useState(() => loraCwTest.resolve(store.snap()))
   const [powerSrc, setPowerSrc] = useSnapshotState<PowerSourceState>(
-    () => powerSourceOf(snap().powerSource),
-    (v) => { snap().powerSource = v; persistPowerPage() },
+    () => initial.powerSrc,
+    (v) => { store.snap().powerSource = v; store.persist() },
   )
-  const sourceOk = powerSourceValid(powerSrc)
-  const preflight = useInstrumentPreflight([powerInstrument(powerSrc), ...REQUIRED_INSTRUMENTS])
   const hasBackend = protocol === 'LoRa'
 
-  const [rows, setRows] = useSnapshotState<SweepRow[]>(() => {
-    const stored = snap().rows
-    if (stored?.length) return stored.map(normaliseRow)
-    return [
-      { ...DEFAULT_ROW, freq: '902.3' },
-      { ...DEFAULT_ROW, freq: '915.0' },
-      { ...DEFAULT_ROW, freq: '927.5' },
-    ]
-  }, (v) => { snap().rows = v; persistPowerPage() })
-  // Clamped on read: a snapshot saved before the floor existed can hold a
-  // value below it, and restoring one would reintroduce the bad readings.
-  const [settleMs, setSettleMs] = useSnapshotState<number>(
-    () => clampSettleMs(snap().settleMs ?? DEFAULT_SETTLE_MS),
-    (v) => { snap().settleMs = v; persistPowerPage() },
+  const [rows, setRows] = useSnapshotState<SweepRow[]>(
+    () => initial.rows,
+    (v) => { store.snap().rows = v; store.persist() },
   )
+  const [settleMs, setSettleMs] = useSnapshotState<number>(
+    () => initial.settleMs,
+    (v) => { store.snap().settleMs = v; store.persist() },
+  )
+  const settings: LoraCwSettings = { rows, settleMs, powerSrc }
+  const preflight = useInstrumentPreflight(loraCwTest.instruments(settings))
   const [focusKey, setFocusKey] = useState<string | null>(null)
   const [graphOpen, setGraphOpen] = useState(false)
   const addFocus = useAddRowFocus(rows.length)
@@ -260,97 +183,33 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
   const updateRow = (i: number, patch: Partial<SweepRow>) =>
     setRows((arr) => arr.map((x, j) => (j === i ? { ...x, ...patch } : x)))
 
-  const plan: PlanPoint[] = rows.flatMap(rowPoints)
-  // Settle dominates; the command + measure round trips add roughly 300 ms.
-  const estimatedRunMs = plan.length * (settleMs + 300)
-  // A row with a bad tolerance contributes no points, so it would otherwise
-  // vanish from the plan silently rather than blocking the run.
-  const anyInvalid = rows.some((r) => r.freq.trim() !== '' && !marginValid(r))
-
-  /**
-   * One point: TX on at this (freq, power) → settle → read power/CC → TX off.
-   *
-   * The DUT is switched off after every point rather than left transmitting
-   * into the next one, so each reading starts from the same state and the PA
-   * is never keyed between points. Never throws — failures land in the row.
-   */
-  const measurePoint = async (item: PlanPoint, { signal, noteUncalibrated }: PointContext<ResultRow>) => {
-    const fHz = Math.round(item.freq * 1_000_000)
-    const row = blankRow(item)
-    if (signal.aborted) return row
-    try {
-      const tx = await device.loraPower(
-        { freq_hz: fHz, power_dbm: item.pow, pa_mode: item.paMode },
-        { signal },
-      )
-      row.ok = tx.ok
-      row.status = tx.status
-      if (!tx.ok) {
-        row.error = `tx status=${tx.status}`
-      } else {
-        await sleep(settleMs, signal)
-        if (signal.aborted) return row
-        // The analyzer is ranged to this point's power as it arrives after
-        // the cable; the sensor ignores it.
-        const m = await instrumentsApi.measure(fHz, {
-          signal, spectrum: measureSpectrumOf(powerSrc), expectedDbm: item.pow - lossAt(item.freq).db,
-        })
-        row.measured_dbm_raw = m.power_dbm
-        // Looked up per point: an automation run sweeps frequencies, so a
-        // single figure would be right for at most one of them.
-        const pl = lossAt(item.freq)
-        row.measured_dbm = m.power_dbm == null ? null : m.power_dbm + pl.db
-        if (!pl.calibrated) noteUncalibrated(item.freq)
-        row.current_a = m.current_a
-        row.voltage_v = m.voltage_v
-        // Judged on the corrected power against what was *asked for*, not the
-        // raw sensor reading: the latter is short by the loss of the cable run
-        // and would fail a perfectly good part.
-        row.verdict = verdictWithinMargin(row.measured_dbm, item.pow, item.marginDb)
-        if (m.error) row.error = m.error
-      }
-    } catch (e) {
-      // A cancelled request is the operator stopping, not a measurement fault.
-      row.error = signal.aborted ? null : (e as Error).message
-    } finally {
-      // TX off before the next point — always, including on failure, so a bad
-      // point cannot leave the DUT keyed.
-      try { await device.stop() } catch { /* reported by the end-of-run stop */ }
-    }
-    return row
-  }
+  const plan: PlanPoint[] = loraCwTest.plan(settings)
+  const estimatedRunMs = loraCwTest.estimateMs(settings, plan)
 
   const run = useAutomationRun<PlanPoint, ResultRow>({
     reporterName: 'TX CW automation',
     // The id is this page's registry id.
     live: { id: 'run:power', detail: 'LoRa CW', pageId: 'power' },
-    loadResults: () => snap().results ?? [],
-    saveResults: (v) => { snap().results = v; persistPowerPage() },
+    loadResults: () => (editor ? [] : snap().results ?? []),
+    saveResults: (v) => { if (!editor) { snap().results = v; persistPowerPage() } },
     plan,
-    freqMhz: (p) => p.freq,
+    freqMhz: loraCwTest.freqMhz,
     plannedMs: estimatedRunMs,
-    ready: !anyInvalid && sourceOk,
+    ready: loraCwTest.problem(settings) == null,
     preflight,
     blankRow,
-    measure: measurePoint,
-    stepTimeoutMs: settleMs + STEP_OVERHEAD_TIMEOUT_MS,
-    refuse: () => (hasBackend ? null : 'no backend for this protocol'),
-    after: async () => { try { await device.stop() } catch { /* ignore */ } },
-    // Independently tell the DUT to stop transmitting — the abort only ends
-    // our side of the conversation.
-    onStop: (reporter) => {
-      if (hasBackend) {
-        void device.stop().catch((e: Error) => reporter.note(`stop failed: ${e.message}`, 'error'))
-      }
-    },
+    createRun: () => loraCwTest.createRun(settings, { lossAt }),
+    stepTimeoutMs: loraCwTest.stepTimeoutMs(settings),
+    refuse: () => (editor ? 'these are a Full Run step settings' : hasBackend ? null : 'no backend for this protocol'),
     parseCsv: parsePowerCsv,
     onControlsChange,
   })
   const { results, running } = run
 
   return (
-    <Stack spacing={`${GRID_GAP}px`} sx={{ flexGrow: 1, minHeight: 0 }}>
-      <SweepCard
+    <Stack spacing={editor ? `${EDITOR_GAP}px` : `${GRID_GAP}px`} sx={{ flexGrow: 1, minHeight: 0 }}>
+      {(!editor || editorView === 'sweep') && <SweepCard
+        compact={editor}
         running={running}
         totalPoints={run.totalPoints}
         completedPoints={run.completedPoints}
@@ -456,26 +315,28 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
             </SweepRowShell>
           )
         })}
-      </SweepCard>
+      </SweepCard>}
 
       {/* What reads power for the sweep, as the manual tab's Measure
           section has it. Between the plan and its results: it decides
           what every row's power came from. */}
-      <Section title="Measure" panel>
-        <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={running} />
-      </Section>
+      {editor ? (
+        editorView === 'measure' && (
+          <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={running} compact />
+        )
+      ) : (
+        <Section title="Measure" panel>
+          <PowerSourceFields value={powerSrc} onChange={setPowerSrc} disabled={running} />
+        </Section>
+      )}
 
-      <ResultsCard
+      {!editor && <ResultsCard
         results={results}
         running={running}
         totalPoints={run.totalPoints}
         onGraph={() => setGraphOpen(true)}
         onExport={() => downloadCsv(results, bleStatus?.address ?? null)}
-        report={() => ({
-          test: 'tx-cw-automation', title: 'LoRa CW automation',
-          settings: [['Settle', `${settleMs} ms`]],
-          columns: [...CSV_HEADER], rows: toCsvBody(results),
-        })}
+        report={() => loraCwTest.report(settings, results)}
         onImport={(f) => void run.importFile(f)}
         onClear={() => run.replaceResults([])}
         minWidth={MIN_TABLE_W}
@@ -492,7 +353,7 @@ export function AutomationPanel({ protocol, onControlsChange }: AutomationPanelP
           <HeadCell label="Status" />
         </>}
         renderRow={renderResultRow}
-      />
+      />}
 
       <ResultsGraphModal
         open={graphOpen}

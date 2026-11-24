@@ -31,7 +31,7 @@ export function PageHeader({ protocol, group, label, actions }: Props) {
   const active = usePageActive()
   if (!active) return null
   // Rig-level pages belong to no protocol, so their titles carry none.
-  const prefix = group === 'Components' || group === 'Reports' ? undefined : protocol
+  const prefix = group === 'Components' || group === 'Runs & Reports' ? undefined : protocol
   return (
     <>
       {slots.title && createPortal(

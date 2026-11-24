@@ -3,7 +3,7 @@
  * (AutomationKit.tsx). Apart from the components so that file stays
  * components-only, which fast refresh needs.
  */
-import { useEffect, useRef } from 'react'
+import { createContext, useEffect, useRef } from 'react'
 import { CONTROL_H, scrollBehavior } from '../../ui'
 
 /**
@@ -14,6 +14,33 @@ import { CONTROL_H, scrollBehavior } from '../../ui'
  */
 export const PANEL_HEIGHT = 250
 export const PANEL_MIN_HEIGHT = 200
+
+/**
+ * Space between a panel's groups (Sweep, Measure) when it is a Test Sequence
+ * step's editor. Wider than the page's GRID_GAP: there the groups are bordered
+ * cards that separate themselves; flat inside a step, only space does.
+ */
+export const EDITOR_GAP = 24
+
+/**
+ * Where a compact Sweep card puts its heading keys (point count, settings,
+ * Add): a node in the row above it, such as a Test Sequence step's tab row,
+ * so the keys share that line instead of taking one of their own. Absent, the
+ * card keeps them in its own heading. The same portal-slot idea as the window
+ * toolbar's (ui/toolbarSlot.ts).
+ */
+export const SweepActionsSlot = createContext<HTMLElement | null>(null)
+
+/**
+ * True inside a compact Sweep card. Its rows then drop their "1." -- a Test
+ * Sequence step's sweep is a row or two, and the number only pushed the
+ * table in from the edge every other tab's fields start at.
+ */
+export const SweepCompactContext = createContext(false)
+
+/** A row template without its leading index track (every panel's `COLS`
+ *  starts with it), for a compact sweep. */
+export const withoutIndex = (cols: string): string => cols.replace(/^\S+\s+/, '')
 
 /** A settle above this is almost always a typo (500 → 50000). */
 export const LONG_SETTLE_MS = 10_000

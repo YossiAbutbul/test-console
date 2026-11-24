@@ -50,13 +50,20 @@ function tally(d: ReportEntryDraft) {
   return { points: d.rows.length, pass, fail }
 }
 
-export function AddToReport({ build, disabled }: {
+export function AddToReport({ build, more, disabled }: {
   /** The run as it stands. Copied when the dialog opens; also read on each
    *  render to notice a new run coming in, so it must be free of effects. */
   build: () => ReportEntryDraft
+  /**
+   * Further entries added with it, in order, under the same note, operator
+   * and DUT -- a Full Run's steps after its summary. Read when the dialog
+   * opens.
+   */
+  more?: () => ReportEntryDraft[]
   disabled?: boolean
 }) {
   const [draft, setDraft] = useState<ReportEntryDraft | null>(null)
+  const [extra, setExtra] = useState<ReportEntryDraft[]>([])
   const { status: ble } = useConnection()
   const [duts, setDuts] = usePersistedState<Record<string, RunDut>>(STORAGE_KEYS.reportRunDut, {})
 
@@ -80,19 +87,20 @@ export function AddToReport({ build, disabled }: {
   const remembered = duts[test]?.fp === fp ? duts[test] : undefined
   return (
     <>
-      <MiniAction startIcon={<PostAddIcon />} disabled={disabled} onClick={() => setDraft(build())}>
+      <MiniAction startIcon={<PostAddIcon />} disabled={disabled} onClick={() => { setDraft(build()); setExtra(more?.() ?? []) }}>
         Add to report
       </MiniAction>
       {draft && (
-        <AddDialog draft={draft} onClose={() => setDraft(null)}
+        <AddDialog draft={draft} more={extra} onClose={() => setDraft(null)}
           measuredOn={remembered && remembered.fp === fingerprint(draft) ? remembered : null} />
       )}
     </>
   )
 }
 
-function AddDialog({ draft, onClose, measuredOn }: {
+function AddDialog({ draft, more, onClose, measuredOn }: {
   draft: ReportEntryDraft
+  more: ReportEntryDraft[]
   onClose: () => void
   /** The DUT these results were measured on, when it is known. */
   measuredOn: RunDut | null
@@ -131,12 +139,15 @@ function AddDialog({ draft, onClose, measuredOn }: {
   const add = useMutation({
     mutationFn: async () => {
       const pid = creating ? (await reportsApi.create(newName.trim())).id : target
-      await reportsApi.addEntry(pid, {
-        ...draft,
-        note: note.trim(),
-        operator: operator.trim(),
-        dut: { mac, name: deviceName, nickname },
-      })
+      // One after another, so the report holds them in the order given.
+      for (const d of [draft, ...more]) {
+        await reportsApi.addEntry(pid, {
+          ...d,
+          note: note.trim(),
+          operator: operator.trim(),
+          dut: { mac, name: deviceName, nickname },
+        })
+      }
       return { pid, name: creating ? newName.trim() : products.find((p) => p.id === pid)?.name ?? '' }
     },
     onSuccess: ({ pid, name }) => {
@@ -146,7 +157,9 @@ function AddDialog({ draft, onClose, measuredOn }: {
       success(`Added to "${name}"`)
       // Something new on Product reports (its module id is 'reports').
       badge('info', 'reports')
-      log('Report', `${draft.title}: ${t.points} points added to "${name}"`)
+      log('Report', more.length > 0
+        ? `${draft.title}: ${more.length + 1} entries added to "${name}"`
+        : `${draft.title}: ${t.points} points added to "${name}"`)
       onClose()
     },
   })
@@ -174,7 +187,11 @@ function AddDialog({ draft, onClose, measuredOn }: {
         {/* What goes in, before where it goes: the counts are what the
             report's summary will say about this run. */}
         <Stack direction="row" spacing={2.5} sx={{ ...TEXT.label, fontVariantNumeric: 'tabular-nums' }}>
-          <span><b>{t.points}</b> point{t.points === 1 ? '' : 's'}</span>
+          {/* Several entries: the first is a summary with a row per entry
+              after it, so its rows are counted as those. */}
+          {more.length > 0
+            ? <span><b>{more.length + 1}</b> entries</span>
+            : <span><b>{t.points}</b> point{t.points === 1 ? '' : 's'}</span>}
           {(t.pass > 0 || t.fail > 0) && (
             <>
               <Box component="span" sx={{ color: 'success.main' }}><b>{t.pass}</b> pass</Box>

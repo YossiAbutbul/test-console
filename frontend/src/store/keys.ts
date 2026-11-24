@@ -51,6 +51,8 @@ export const STORAGE_KEYS = {
   // Where the path loss guide was dragged to; null/absent = docked.
   pathLossGuidePos: 'path-loss-guide-pos-v1',
   powerSweepPage: 'power-sweep-page-snapshot-v1',
+  // The Full Run's plan, bench setups and last run (store/fullRunStore.ts).
+  fullRun: 'full-run-v1',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

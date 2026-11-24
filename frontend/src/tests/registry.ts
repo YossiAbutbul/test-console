@@ -17,6 +17,7 @@ import { signalGeneratorModule } from './signalGenerator/module'
 import { dcAnalyzerModule } from './dcAnalyzer/module'
 import { spectrumModule } from './spectrum/module'
 import { reportsModule } from './reports/module'
+import { fullRunModule } from './fullRun/module'
 import type { TestModule } from './types'
 
 export const testRegistry: TestModule[] = [
@@ -38,5 +39,6 @@ export const testRegistry: TestModule[] = [
   signalGeneratorModule,
   dcAnalyzerModule,
   spectrumModule,
+  fullRunModule,
   reportsModule,
 ]

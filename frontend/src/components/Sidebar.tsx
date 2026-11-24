@@ -75,7 +75,7 @@ function rootKey(group: string | undefined): string {
 }
 
 /** The root sections, top to bottom; a group not named goes after them. */
-const ROOT_ORDER = ['Reports', 'Components']
+const ROOT_ORDER = ['Runs & Reports', 'Components']
 
 function useProtocolTree(): ProtocolTree {
   return useMemo(() => {
@@ -85,8 +85,9 @@ function useProtocolTree(): ProtocolTree {
     const rootMods = testRegistry.filter((m) => m.root)
     // One section per group (Components, Reports): a report is not a
     // component, and one section headed by its first group's name said so.
-    // Reports before Components: the operator goes to the report after every
-    // run, and to an instrument page far less often. Set here rather than by
+    // Runs & Reports before Components: a test sequence is where a session's
+    // testing starts, the operator goes to the report after every run, and
+    // to an instrument page far less often. Set here rather than by
     // the registry's order, which is also the order the pages mount in.
     const rank = (group: string) => {
       const i = ROOT_ORDER.indexOf(group)

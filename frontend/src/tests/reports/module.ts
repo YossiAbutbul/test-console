@@ -12,7 +12,7 @@ export const reportsModule: TestModule = {
   id: 'reports',
   label: 'Product reports',
   protocol: 'LoRa',
-  group: 'Reports',
+  group: 'Runs & Reports',
   root: true,
   icon: createElement(DescriptionIcon, { fontSize: 'small' }),
   Page: ReportsPage,

@@ -26,10 +26,13 @@ const SOURCES: { value: PowerSource; label: string }[] = [
  *
  * `disabled` covers a run in progress and "Measure power" unchecked alike.
  */
-export function PowerSourceFields({ value, onChange, disabled }: {
+export function PowerSourceFields({ value, onChange, disabled, compact }: {
   value: PowerSourceState
   onChange: (next: PowerSourceState) => void
   disabled?: boolean
+  /** One row: the choice, then the analyzer's four fields beside it, without
+   *  the line under them -- for a Test Sequence step, where room is short. */
+  compact?: boolean
 }) {
   const spectrum = value.source === 'spectrum'
   const fieldsOff = disabled || !spectrum
@@ -47,6 +50,48 @@ export function PowerSourceFields({ value, onChange, disabled }: {
       disabled={fieldsOff}
     />
   )
+  if (compact) {
+    return (
+      <Box
+        sx={{
+          // Top-aligned, labels on one line and controls on the next, the
+          // shape of every other row of fields in a sequence step.
+          display: 'grid', columnGap: 1.5, rowGap: 1, alignItems: 'start',
+          gridTemplateColumns: 'auto repeat(4, minmax(88px, 1fr))',
+          '@container (max-width: 640px)': { gridTemplateColumns: 'repeat(4, minmax(80px, 1fr))', '& > :first-of-type': { gridColumn: '1 / -1' } },
+        }}
+      >
+        {/* Labelled as LabeledField labels its fields (and the sweep its
+            columns), so the row's labels read as one line. */}
+        <Stack spacing={0.5}>
+          <Typography sx={{ fontSize: 13, fontWeight: 500, color: 'text.primary', whiteSpace: 'nowrap' }}>Power from</Typography>
+          {/* The fields' height (32), not the heading controls' (28). */}
+          <SegmentedChoice
+            text size="md" aria-label="Power from" value={value.source} options={SOURCES}
+            onChange={(v) => set({ source: v })} disabled={disabled}
+          />
+        </Stack>
+        {/* Dimmed, not hidden, with the sensor chosen: the row keeps its
+            shape whichever reads power. */}
+        <Box sx={{ display: 'contents', '& > *': { opacity: spectrum ? 1 : 0.55, transition: 'opacity 160ms ease-out' } }}>
+          {khz('spanKhz', 'Span')}
+          {khz('rbwKhz', 'RBW')}
+          {khz('vbwKhz', 'VBW')}
+          <LabeledField
+            label="Detector"
+            select
+            value={value.detector}
+            onChange={(e) => set({ detector: e.target.value })}
+            disabled={fieldsOff}
+          >
+            {SPECTRUM_DETECTORS.map((d) => (
+              <MenuItem key={d} value={d}>{DETECTOR_NAMES[d] ?? d}</MenuItem>
+            ))}
+          </LabeledField>
+        </Box>
+      </Box>
+    )
+  }
   return (
     <Stack spacing={1.25}>
       <Stack direction="row" alignItems="center" spacing={1.25} flexWrap="wrap" useFlexGap>

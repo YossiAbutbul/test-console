@@ -1,0 +1,26 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Full Run page > runs the steps in order, repeats with their own settings, and pauses once to re-cable 1`] = `
+[
+  "/device/lora-power {"timeout":5,"freq_hz":915000000,"power_dbm":14,"pa_mode":1}",
+  "measure freq_hz=915000000",
+  "/device/stop {"timeout":5}",
+  "/device/stop {"timeout":5}",
+  "/device/lora-power {"timeout":5,"freq_hz":915000000,"power_dbm":20,"pa_mode":1}",
+  "measure freq_hz=915000000",
+  "/device/stop {"timeout":5}",
+  "/device/stop {"timeout":5}",
+  "measure freq_hz=2440000000",
+  "/device/stop {"timeout":5}",
+]
+`;
+
+exports[`Full Run page > runs the steps in order, repeats with their own settings, and pauses once to re-cable 2`] = `
+[
+  "setPower 31",
+  "tone {"channel":19,"duration_s":5,"offset":0}",
+  "finishTone",
+  "finishTone",
+  "finishTone",
+]
+`;

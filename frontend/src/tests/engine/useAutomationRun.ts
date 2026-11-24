@@ -23,11 +23,12 @@ import { useMutation } from '@tanstack/react-query'
 import { useNotify } from '../../context/NotifyContext'
 import { usePathLoss } from '../../context/PathLossContext'
 import { usePublishLiveOutput } from '../../context/liveOutput'
+import { claimRun } from '../../lib/runLock'
 import { tallyVerdicts } from '../../lib/verdict'
 import { useSnapshotState } from '../../store/useSnapshotState'
-import { runSequence } from './runSequence'
+import { runSweep } from './runSweep'
 import type { Preflight } from './useInstrumentPreflight'
-import { useRunReporter, type RunReporter } from './useRunReporter'
+import { useRunReporter } from './useRunReporter'
 
 /**
  * What the page header needs to drive the run.
@@ -51,30 +52,8 @@ export interface AutomationControls {
   freqsMhz: number[]
 }
 
-/** The fields every sweep's result row has. */
-export interface JudgedRow {
-  verdict: 'pass' | 'fail' | null
-  error: string | null
-}
-
-/** Handed to a panel's run steps. */
-export interface RunContext {
-  /** This run's; Stop aborts it, which also wakes the settle delay. */
-  signal: AbortSignal
-  reporter: RunReporter
-}
-
-/** Handed to a panel's `measure` for the point in hand. */
-export interface PointContext<Row> extends RunContext {
-  /** A frequency (MHz) this run had no path-loss calibration for. Collected
-   *  rather than warned per point: a 40-point sweep over one uncalibrated band
-   *  would otherwise write the same line forty times. */
-  noteUncalibrated: (freqMhz: number) => void
-  /** Show a row before `measure` returns -- the BLE run puts the reading up
-   *  while the seconds-long reconnect after it is still going. Not recorded:
-   *  `runSequence` records the finished row, and a run stopped first drops it. */
-  preview: (row: Row) => void
-}
+export type { JudgedRow, PointContext, RunContext, RunSteps } from './runSweep'
+import type { JudgedRow, RunSteps } from './runSweep'
 
 export interface AutomationRunOptions<Item, Row extends JudgedRow> {
   /** The reporter's name for this run, e.g. "TX CW automation". */
@@ -94,22 +73,14 @@ export interface AutomationRunOptions<Item, Row extends JudgedRow> {
   ready: boolean
   preflight: Preflight
   blankRow: (item: Item) => Row
-  /** One point. Never throws: failures land in the row it returns. */
-  measure: (item: Item, ctx: PointContext<Row>) => Promise<Row>
+  /** Builds the run's steps (`measure`, `before`, `after`, ...), once per
+   *  run, after `onStart`. See `RunSteps`. */
+  createRun: () => RunSteps<Item, Row>
   stepTimeoutMs: number
   /** A reason the run cannot go at all, checked before preflight. */
   refuse?: () => string | null
   /** Run-level state the panel resets as a run starts. */
   onStart?: () => void
-  /** Once, before the first point (outside the step timeout). */
-  before?: (ctx: RunContext) => Promise<void>
-  /** Before each point, outside its step timeout. */
-  beforeItem?: (item: Item, index: number, ctx: RunContext) => Promise<void>
-  /** Leaves the DUT idle at the end of the run, however it ended. */
-  after: () => Promise<void>
-  /** Called on Stop after the run's abort -- the abort only ends our side
-   *  of the conversation, so this tells the DUT. */
-  onStop?: (reporter: RunReporter) => void
   /** Reads an exported CSV back into rows. */
   parseCsv: (text: string) => Row[]
   onControlsChange?: (c: AutomationControls) => void
@@ -129,7 +100,6 @@ export function useAutomationRun<Item, Row extends JudgedRow>(o: AutomationRunOp
   // Replaced per run. Stop aborts it, which cancels the in-flight request and
   // wakes the settle delay immediately.
   const abortRef = useRef(new AbortController())
-  const uncalibrated = useRef<Set<number>>(new Set())
 
   const replaceResults = useCallback((rows: Row[]) => {
     resultsRef.current = rows
@@ -180,6 +150,9 @@ export function useAutomationRun<Item, Row extends JudgedRow>(o: AutomationRunOp
     }
   }
 
+  // The run in flight's own steps, for Stop.
+  const stepsRef = useRef<RunSteps<Item, Row> | null>(null)
+
   const runM = useMutation({
     mutationFn: async () => {
       const refusal = o.refuse?.()
@@ -191,78 +164,54 @@ export function useAutomationRun<Item, Row extends JudgedRow>(o: AutomationRunOp
         reporter.note('cancelled — instruments not ready', 'warn')
         return
       }
+      const release = claimRun(o.live.id, o.live.detail)
+      if (typeof release === 'string') {
+        reporter.note(release, 'warn')
+        return
+      }
       const abort = new AbortController()
       abortRef.current = abort
       o.onStart?.()
+      const steps = o.createRun()
+      stepsRef.current = steps
       setRunning(true)
       replaceResults([])
       setProgressIdx(0)
-      uncalibrated.current.clear()
-      const runCtx: RunContext = { signal: abort.signal, reporter }
-      const ctx: PointContext<Row> = {
-        ...runCtx,
-        noteUncalibrated: (f) => { uncalibrated.current.add(f) },
-        preview: (row) => setResults([...resultsRef.current, { ...row }]),
-      }
       try {
-        await runSequence<Item, Row>({
-          items: o.plan,
+        await runSweep<Item, Row>({
+          plan: o.plan,
+          steps,
+          blankRow: o.blankRow,
           abort,
-          before: o.before && (() => o.before!(runCtx)),
-          beforeItem: o.beforeItem && ((item, i) => o.beforeItem!(item, i, runCtx)),
-          measure: (item) => o.measure(item, ctx),
-          markRowError: (item, _i, message) => ({ ...o.blankRow(item), error: message }),
-          after: o.after,
-          rowHasError: (r) => !!r.error,
-          judge: tallyVerdicts,
+          reporter,
+          stepTimeoutMs: o.stepTimeoutMs,
+          freqMhz: o.freqMhz,
+          formatFreq: o.formatFreq,
+          defaultDb,
           onRows: replaceResults,
           onProgress: setProgressIdx,
-          // The settle delay is operator-set and can be long; the guard has to
-          // sit above it or it would fire on every point.
-          stepTimeoutMs: o.stepTimeoutMs,
-          reporter,
+          preview: (row) => setResults([...resultsRef.current, { ...row }]),
         })
       } finally {
+        release()
         setRunning(false)
         // A row shown early (`preview`) whose run was stopped before it
         // finished is not part of the results; put the table back to what was
         // recorded.
         setResults(resultsRef.current)
-        // Reported apart from the run's own error count: a point that measured
-        // cleanly and missed its limits is a result, not a fault, and folding
-        // the two together would hide whichever mattered.
-        const judged = tallyVerdicts(resultsRef.current)
-        if (judged.total > 0) {
-          reporter.note(
-            `${judged.pass}/${judged.total} points within limits`,
-            judged.fail > 0 ? 'warn' : 'info',
-          )
-        }
-        if (uncalibrated.current.size > 0) {
-          const fmtFreq = o.formatFreq ?? String
-          const list = [...uncalibrated.current].sort((a, b) => a - b).map(fmtFreq).join(', ')
-          reporter.note(
-            `path loss not calibrated at ${list} MHz — those points used the `
-            + `default ${defaultDb} dB and their measured power is only as `
-            + 'good as that figure.',
-            'warn',
-          )
-        }
       }
     },
     onError: (e: Error) => reporter.failed(e.message),
   })
 
-  // Held in a ref so Stop keeps one identity across renders: the controls
-  // effect below publishes it upward, and a fresh callback every render
-  // would re-publish -- and re-render the page -- every render.
-  const onStopRef = useRef(o.onStop)
-  useEffect(() => { onStopRef.current = o.onStop })
+  // One identity across renders: the controls effect below publishes it
+  // upward, and a fresh callback every render would re-publish -- and
+  // re-render the page -- every render.
   const onStop = useCallback(() => {
     // Aborting cancels the in-flight request and wakes the settle delay, so
     // the loop notices immediately rather than at the end of the point.
     abortRef.current.abort()
-    onStopRef.current?.(reporter)
+    stepsRef.current?.onStop?.(reporter)
   }, [reporter])
 
   const runMutate = runM.mutate

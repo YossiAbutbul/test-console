@@ -8,9 +8,10 @@
  * results table, extra header controls (unit, bands, tone), and the
  * estimate's wording.
  */
-import { memo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { memo, useContext, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import {
-  Box, Divider, IconButton, Stack, Table, TableBody, TableHead, TableRow,
+  Box, Divider, IconButton, Popover, Stack, Table, TableBody, TableHead, TableRow,
   Tooltip, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/AddRounded'
@@ -18,6 +19,7 @@ import DeleteIcon from '@mui/icons-material/DeleteRounded'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweepRounded'
 import DownloadIcon from '@mui/icons-material/DownloadRounded'
 import ShowChartIcon from '@mui/icons-material/ShowChartRounded'
+import TuneIcon from '@mui/icons-material/TuneRounded'
 import UploadIcon from '@mui/icons-material/UploadRounded'
 import WarningAmberIcon from '@mui/icons-material/WarningAmberRounded'
 import { AddToReport } from '../../components/reports/AddToReport'
@@ -32,7 +34,9 @@ import {
 } from '../../ui'
 import { RunTiming } from '../../ui/RunTiming'
 import type { JudgedRow } from './useAutomationRun'
-import { LONG_SETTLE_MS, PANEL_HEIGHT, PANEL_MIN_HEIGHT } from './automationLayout'
+import {
+  LONG_SETTLE_MS, PANEL_HEIGHT, PANEL_MIN_HEIGHT, SweepActionsSlot, SweepCompactContext, withoutIndex,
+} from './automationLayout'
 import { NumberField } from '../../ui/NumberField'
 
 /** Column heading, in the same shape as `LabeledField`: name, then a quieter
@@ -134,13 +138,18 @@ export function SweepRowShell({ index, cols, points, readout, onRemove, disabled
   disabled: boolean
   children: ReactNode
 }) {
+  const compact = useContext(SweepCompactContext)
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: cols, gap: 1, alignItems: 'center' }}>
-      <Typography sx={{ fontSize: 12, color: 'text.secondary', textAlign: 'right' }}>
-        {index + 1}.
-      </Typography>
+    <Box sx={{ display: 'grid', gridTemplateColumns: compact ? withoutIndex(cols) : cols, gap: 1, alignItems: 'center' }}>
+      {!compact && (
+        <Typography sx={{ fontSize: 12, color: 'text.secondary', textAlign: 'right' }}>
+          {index + 1}.
+        </Typography>
+      )}
       {children}
-      {readout ?? (
+      {/* Compact, just the count: the other-unit readout (an EARFCN beside
+          MHz, a frequency beside a channel) crowded a sequence step's row. */}
+      {(compact ? null : readout) ?? (
         // "points", the heading's word for the same count.
         <Typography sx={{ fontSize: 12, color: 'text.secondary', whiteSpace: 'nowrap' }}>
           {points} point{points === 1 ? '' : 's'}
@@ -173,7 +182,7 @@ export function SweepRowShell({ index, cols, points, readout, onRemove, disabled
  */
 export function SweepCard({
   running, totalPoints, completedPoints, plannedRunMs, controls, onAdd,
-  cols, minTableW, heads, bodyRef, syntaxHint, syntaxLine, estimate, children,
+  cols, minTableW, heads, bodyRef, syntaxHint, syntaxLine, estimate, compact, children,
 }: {
   running: boolean
   totalPoints: number
@@ -195,49 +204,49 @@ export function SweepCard({
   syntaxLine: string
   /** The cost before a run, or null to show nothing. */
   estimate: ReactNode
+  /**
+   * Inside something that is already a card (a Test Sequence step): no
+   * border or heading, only as tall as its rows, and the heading's controls
+   * behind a settings key -- the keys go to `SweepActionsSlot` when one is
+   * given. The floor that keeps a page's Results card still has nothing under
+   * it to keep still here.
+   */
+  compact?: boolean
   children: ReactNode
 }) {
-  return (
-    <Box
-      sx={{
-        maxHeight: PANEL_HEIGHT, minHeight: PANEL_MIN_HEIGHT,
-        display: 'flex', flexDirection: 'column', flexShrink: 0,
-      }}
-    >
-      {/* Same bar the Mode Sweep pins under the top bar. Fixed, so it takes
-          no room here, and it disappears with the tab or page it is on. */}
-      <TopProgress
-        pct={totalPoints > 0 ? (completedPoints / totalPoints) * 100 : 0}
-        hidden={!running}
-      />
-      <Section
-        title="Sweep"
-        panel
-        grow
-        action={
-          <Stack direction="row" alignItems="center" spacing={1.25}>
-            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-              {totalPoints} point{totalPoints === 1 ? '' : 's'}
-            </Typography>
-            {controls}
-            <MiniAction startIcon={<AddIcon />} onClick={onAdd} disabled={running}>
-              Add
-            </MiniAction>
-          </Stack>
-        }
-      >
-        <Box ref={bodyRef} sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', overflowX: 'auto' }}>
-          <Box sx={{ minWidth: minTableW }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: cols, gap: 1, alignItems: 'end', mb: 0.75 }}>
-              <Box />
-              {heads}
-              <Box />
-              <Box />
-            </Box>
-            <Stack spacing={0.75}>{children}</Stack>
+  const slot = useContext(SweepActionsSlot)
+  const [settingsAt, setSettingsAt] = useState<HTMLElement | null>(null)
+  const count = (
+    <Typography sx={{ fontSize: 12, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+      {totalPoints} point{totalPoints === 1 ? '' : 's'}
+    </Typography>
+  )
+  const add = (
+    <MiniAction startIcon={<AddIcon />} onClick={onAdd} disabled={running}>
+      Add
+    </MiniAction>
+  )
+  const body = (
+    <>
+      <Box ref={bodyRef} sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', overflowX: 'auto' }}>
+        {/* Compact, less the index track and its gap. */}
+        <Box sx={{ minWidth: compact ? minTableW - 28 : minTableW }}>
+          {/* Compact, heads sit 4 px over the inputs as a LabeledField's label
+              does, so a step's tabs all put their controls at one height. */}
+          <Box sx={{ display: 'grid', gridTemplateColumns: compact ? withoutIndex(cols) : cols, gap: 1, alignItems: 'end', mb: compact ? 0.5 : 0.75 }}>
+            {!compact && <Box />}
+            {heads}
+            <Box />
+            <Box />
           </Box>
+          <Stack spacing={0.75}>{children}</Stack>
         </Box>
+      </Box>
 
+      {/* The syntax and the cost, under a page's sweep. Not in a compact
+          one: a Test Sequence step's row already states its points and
+          time, and the line only crowded the step. */}
+      {!compact && (
         <Stack
           direction="row"
           justifyContent="space-between"
@@ -269,6 +278,82 @@ export function SweepCard({
             />
           ) : estimate}
         </Stack>
+      )}
+    </>
+  )
+
+  if (compact) {
+    // Settle, tone, unit: set once and left, so they sit behind a key that
+    // opens them where it is, rather than taking the row from the sweep.
+    const keys = (
+      <Stack direction="row" alignItems="center" spacing={0.75}>
+        {count}
+        <Tooltip title="Sweep settings">
+          <span>
+            <IconButton
+              size="small"
+              aria-label="Sweep settings"
+              aria-haspopup="dialog"
+              disabled={running}
+              onClick={(e) => setSettingsAt(e.currentTarget)}
+            >
+              <TuneIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </span>
+        </Tooltip>
+        {add}
+        <Popover
+          open={!!settingsAt}
+          anchorEl={settingsAt}
+          onClose={() => setSettingsAt(null)}
+          // Grows out of the key that opened it.
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          slotProps={{ paper: { sx: { p: 1.75, mt: 0.5, borderRadius: '12px' } } }}
+        >
+          <Stack spacing={1.5} alignItems="flex-start">
+            <Typography sx={{ ...TEXT.label }}>Sweep settings</Typography>
+            {controls}
+          </Stack>
+        </Popover>
+      </Stack>
+    )
+    return (
+      <Box sx={{ maxHeight: PANEL_HEIGHT, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        {slot
+          ? createPortal(keys, slot)
+          : <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>{keys}</Stack>}
+        <SweepCompactContext.Provider value>{body}</SweepCompactContext.Provider>
+      </Box>
+    )
+  }
+
+  return (
+    <Box
+      sx={{
+        maxHeight: PANEL_HEIGHT, minHeight: PANEL_MIN_HEIGHT,
+        display: 'flex', flexDirection: 'column', flexShrink: 0,
+      }}
+    >
+      {/* Same bar the Mode Sweep pins under the top bar. Fixed, so it takes
+          no room here, and it disappears with the tab or page it is on. */}
+      <TopProgress
+        pct={totalPoints > 0 ? (completedPoints / totalPoints) * 100 : 0}
+        hidden={!running}
+      />
+      <Section
+        title="Sweep"
+        panel
+        grow
+        action={
+          <Stack direction="row" alignItems="center" spacing={1.25}>
+            {count}
+            {controls}
+            {add}
+          </Stack>
+        }
+      >
+        {body}
       </Section>
     </Box>
   )

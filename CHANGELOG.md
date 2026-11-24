@@ -10,7 +10,33 @@ turns that heading into the version and date.
 
 ## [Unreleased]
 
+### Added
+- Test Sequence page (sidebar, Runs & Reports): chains the LoRa CW, LoRa
+  modulated, LTE CW, LTE modulated and BLE CW sweeps into one run. Tests come
+  from a library grouped by protocol (click +, double-click, or drag one
+  anywhere onto the sequence). A test can be added more than once, each step
+  with its own name, note and settings (copied from its page, then edited in
+  place under the step in Sweep / Measure / Name & test tabs); a step's test
+  can be swapped, and a step switched off to skip it without removing it.
+  The sequence is always grouped by protocol (LoRa, LTE, BLE), a heading
+  each; steps reorder within their protocol by drag or ↑/↓, and the sequence
+  is kept across reloads. The run pauses with a re-cable prompt wherever the
+  next step needs a different bench setup (Main, BLE, Load Pull). A step's
+  measured points can be opened during the run without stopping it, failed
+  and errored points first. One Stop ends it all, and however a run ends it
+  leaves the rig idle (LoRa TX stopped, the LTE modem powered off, BLE back
+  on the link). A sequence can be exported to a file and loaded back (Undo
+  restores the one it replaced); results go into a report as a summary plus
+  one entry per step.
+
 ### Changed
+- Sidebar: Product reports' section is now Runs & Reports, with the Test
+  Sequence above it.
+- Only one browser-driven run at a time: a sweep page or the Test Sequence refuses
+  to start while another is running.
+- The sweeps' run logic moved out of their panels into one module per test
+  (`tests/<id>/sweepTest.ts`), shared by the panel and the Test Sequence. What a
+  run sends is unchanged (the panels' characterisation snapshots hold).
 - The frontend build no longer warns about chunk size: the limit is 3 MB
   (from 500 kB), just above the Reports page, which loads on demand.
 
